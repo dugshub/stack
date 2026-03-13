@@ -138,7 +138,32 @@ export class SyncCommand extends Command {
       }
     }
 
-    // 4. Pass 2: Delete all merged branches (remote + local)
+    // 4. Capture the tip of the highest merged branch below the first remaining branch
+    //    This is the exclusion point for rebase --onto after squash-merge
+    const mergedSet = new Set(mergedIndices);
+    let mergedBranchTip: string | null = null;
+    if (!allMerged) {
+      // Find the first remaining (unmerged) branch index
+      const firstRemainingIdx = stack.branches.findIndex(
+        (_, i) => !mergedSet.has(i),
+      );
+      // Walk backwards from it to find the nearest merged branch's tip
+      for (let j = firstRemainingIdx - 1; j >= 0; j--) {
+        if (mergedSet.has(j)) {
+          const mb = stack.branches[j];
+          if (mb?.tip) {
+            mergedBranchTip = mb.tip;
+          } else if (mb) {
+            // Fallback: resolve from ref if tip wasn't stored
+            const parsed = git.tryRun('rev-parse', mb.name);
+            if (parsed.ok) mergedBranchTip = parsed.stdout;
+          }
+          break;
+        }
+      }
+    }
+
+    // 5. Delete all merged branches (remote + local)
     // Sort descending so indices remain valid as we splice
     const sortedMerged = [...mergedIndices].sort((a, b) => b - a);
     for (const idx of sortedMerged) {
@@ -193,13 +218,20 @@ export class SyncCommand extends Command {
       if (firstBranch) {
         const oldTip = oldTips[firstBranch.name];
         if (oldTip) {
-          // Find merge-base of the branch and trunk to use as oldBase
-          const mergeBaseResult = git.tryRun(
-            'merge-base',
-            firstBranch.name,
-            stack.trunk,
-          );
-          const oldBase = mergeBaseResult.ok ? mergeBaseResult.stdout : oldTip;
+          // Use the stored tip of the last merged branch as the exclusion point.
+          // This correctly skips already-merged commits after squash-merge.
+          // Falls back to merge-base only if no merged branch tip was captured.
+          let oldBase: string;
+          if (mergedBranchTip) {
+            oldBase = mergedBranchTip;
+          } else {
+            const mergeBaseResult = git.tryRun(
+              'merge-base',
+              firstBranch.name,
+              stack.trunk,
+            );
+            oldBase = mergeBaseResult.ok ? mergeBaseResult.stdout : oldTip;
+          }
 
           const result = git.rebaseOnto(stack.trunk, oldBase, firstBranch.name);
           if (result.ok) {

@@ -1,0 +1,17 @@
+{
+  "name": "@dealbrain/stack",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "stack": "./src/cli.ts"
+  },
+  "dependencies": {
+    "clipanion": "^4.0.0-rc.1",
+    "@clack/prompts": "^1",
+    "picocolors": "^1",
+    "cli-table3": "^0.6"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*"
+  }
+}

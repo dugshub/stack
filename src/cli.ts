@@ -4,6 +4,7 @@ import { CreateCommand } from './commands/create.js';
 import { NavCommand } from './commands/nav.js';
 import { PushCommand } from './commands/push.js';
 import { StatusCommand } from './commands/status.js';
+import { SubmitCommand } from './commands/submit.js';
 
 const cli = new Cli({
   binaryLabel: 'stack',
@@ -17,5 +18,6 @@ cli.register(StatusCommand);
 cli.register(NavCommand);
 cli.register(CreateCommand);
 cli.register(PushCommand);
+cli.register(SubmitCommand);
 
 cli.runExit(process.argv.slice(2));

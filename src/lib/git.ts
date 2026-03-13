@@ -114,7 +114,8 @@ export function worktreeList(): Map<string, string> {
 }
 
 export function isDirty(): boolean {
-  const result = run('status', '--porcelain');
+  // Only check tracked files — untracked files shouldn't block sync/rebase
+  const result = run('status', '--porcelain', '-uno');
   return result.length > 0;
 }
 

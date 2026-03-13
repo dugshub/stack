@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { Builtins, Cli } from 'clipanion';
+import { CreateCommand } from './commands/create.js';
 import { NavCommand } from './commands/nav.js';
+import { PushCommand } from './commands/push.js';
 import { StatusCommand } from './commands/status.js';
 
 const cli = new Cli({
@@ -13,5 +15,7 @@ cli.register(Builtins.HelpCommand);
 cli.register(Builtins.VersionCommand);
 cli.register(StatusCommand);
 cli.register(NavCommand);
+cli.register(CreateCommand);
+cli.register(PushCommand);
 
 cli.runExit(process.argv.slice(2));

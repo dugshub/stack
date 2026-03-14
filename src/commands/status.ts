@@ -2,7 +2,6 @@ import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import { findActiveStack, loadState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { PrStatus } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class StatusCommand extends Command {
@@ -48,16 +47,11 @@ export class StatusCommand extends Command {
       );
     }
 
-    // Fetch PR statuses
-    const prStatuses = new Map<number, PrStatus>();
-    for (const branch of stack.branches) {
-      if (branch.pr != null) {
-        const status = gh.prView(branch.pr);
-        if (status) {
-          prStatuses.set(branch.pr, status);
-        }
-      }
-    }
+    // Fetch PR statuses in a single GraphQL call
+    const prNumbers = stack.branches
+      .map((b) => b.pr)
+      .filter((pr): pr is number => pr != null);
+    const prStatuses = gh.prViewBatch(prNumbers);
 
     if (this.json) {
       const output = {

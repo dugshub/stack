@@ -1,0 +1,1 @@
+Run `node scripts/playwright-auth.mjs` to open a headed browser for Salesforce SSO login. Wait for the script to complete (up to 10 minutes). The script will automatically detect when authentication is complete and save the session state to `.playwright/auth.json`. Report the result to the user.

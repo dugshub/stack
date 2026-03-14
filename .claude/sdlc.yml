@@ -1,0 +1,17 @@
+# Dealbrain SDLC Configuration
+# Referenced by agents and commands via @.claude/sdlc.yml
+
+language: typescript
+task_management: github
+quality_profile: strict
+commit_style: conventional
+
+# Project-specific context
+stack:
+  frontend: React 19 + Vite + TanStack Router + TanStack DB + Electric SQL
+  backend: NestJS + tRPC + PostgreSQL + BullMQ
+  proxy: Cloudflare Workers
+  package_manager: bun
+  formatter_linter: biome
+  test_frontend: vitest
+  test_backend: jest

@@ -256,10 +256,17 @@ export class RestackCommand extends Command {
     }
 
     if (!continueResult.ok) {
-      ui.error(
-        'Rebase continue failed. There may still be unresolved conflicts.',
-      );
-      return 1;
+      // Check if a rebase is actually in progress — if not, it was already
+      // completed externally (e.g. user ran `git rebase --continue` directly)
+      if (git.isRebaseInProgress(worktreePath ?? undefined)) {
+        ui.error(
+          'Rebase continue failed. There may still be unresolved conflicts.',
+        );
+        return 1;
+      }
+
+      // No rebase in progress — it was completed outside of stack
+      ui.info('Rebase already completed externally, updating stack state...');
     }
 
     // Update tip and advance — use worktree cwd if branch is in a worktree

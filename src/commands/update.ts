@@ -43,6 +43,20 @@ export class UpdateCommand extends Command {
 			// Non-critical
 		}
 
+		// 3. Clear bun's git cache so it fetches the latest ref
+		const cacheDir = join(process.env.HOME ?? '~', '.bun', 'install', 'cache');
+		try {
+			const { readdirSync, rmSync } = require('fs');
+			for (const entry of readdirSync(cacheDir)) {
+				if (entry.endsWith('.git')) {
+					rmSync(join(cacheDir, entry), { recursive: true, force: true });
+				}
+			}
+		} catch {
+			// Non-critical
+		}
+
+		// 4. Reinstall from GitHub
 		const result = Bun.spawnSync(['bun', 'install', '-g', REPO], {
 			stdout: 'inherit',
 			stderr: 'inherit',

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as ui from '../lib/ui.js';
 
-const REPO = 'github:dugshub/stack';
+const REPO = 'git+ssh://git@github.com/dugshub/stack.git';
 const GLOBAL_DIR = join(
 	process.env.HOME ?? '~',
 	'.bun',

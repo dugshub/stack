@@ -1,0 +1,96 @@
+name: Stack Sync
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  sync:
+    # Only run when a PR is merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Find downstream PRs
+        id: downstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MERGED_BRANCH="${{ github.event.pull_request.head.ref }}"
+          echo "merged_branch=$MERGED_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "merged_tip=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+
+          # Find open PRs that target the merged branch
+          DOWNSTREAM=$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --base "$MERGED_BRANCH" \
+            --state open \
+            --json number,headRefName \
+            --jq '.')
+
+          echo "downstream=$DOWNSTREAM" >> "$GITHUB_OUTPUT"
+
+          COUNT=$(echo "$DOWNSTREAM" | jq 'length')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Found $COUNT downstream PR(s) targeting $MERGED_BRANCH"
+
+      - name: Checkout repo
+        if: steps.downstream.outputs.count != '0'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebase and retarget downstream PRs
+        if: steps.downstream.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          MERGED_BRANCH="${{ steps.downstream.outputs.merged_branch }}"
+          MERGED_TIP="${{ steps.downstream.outputs.merged_tip }}"
+          MERGE_TARGET="${{ github.event.pull_request.base.ref }}"
+          DOWNSTREAM='${{ steps.downstream.outputs.downstream }}'
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Merged: $MERGED_BRANCH (tip: $MERGED_TIP) into $MERGE_TARGET"
+
+          # Process each downstream PR
+          echo "$DOWNSTREAM" | jq -c '.[]' | while read -r pr; do
+            PR_NUM=$(echo "$pr" | jq -r '.number')
+            BRANCH=$(echo "$pr" | jq -r '.headRefName')
+
+            echo ""
+            echo "=== Processing PR #$PR_NUM ($BRANCH) ==="
+
+            # Checkout the downstream branch
+            git checkout "$BRANCH"
+
+            # Rebase onto the merge target using the merged branch's tip as exclusion point
+            # This replays only commits unique to this branch (after the merged branch's tip)
+            if git rebase --onto "$MERGE_TARGET" "$MERGED_TIP" "$BRANCH"; then
+              echo "Rebase successful"
+
+              # Force push with lease for safety
+              git push --force-with-lease origin "$BRANCH"
+              echo "Pushed $BRANCH"
+
+              # Retarget the PR to the merge target
+              gh pr edit "$PR_NUM" \
+                --repo "${{ github.repository }}" \
+                --base "$MERGE_TARGET"
+              echo "Retargeted PR #$PR_NUM to $MERGE_TARGET"
+            else
+              echo "::warning::Rebase of $BRANCH failed — manual sync required"
+              git rebase --abort
+            fi
+          done
+
+          echo ""
+          echo "Stack sync complete"

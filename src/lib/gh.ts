@@ -50,6 +50,49 @@ export function prView(prNumber: number): PrStatus | null {
   return JSON.parse(result.stdout) as PrStatus;
 }
 
+export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
+	if (prNumbers.length === 0) return new Map();
+
+	const fullName = repoFullName();
+	const [owner, name] = fullName.split('/');
+
+	const fields = 'number title state isDraft url reviewDecision';
+	const aliases = prNumbers
+		.map(
+			(n) =>
+				`pr_${n}: pullRequest(number: ${n}) { ${fields} }`,
+		)
+		.join('\n      ');
+
+	const query = `query {
+    repository(owner: "${owner}", name: "${name}") {
+      ${aliases}
+    }
+  }`;
+
+	const result = exec('api', 'graphql', '-f', `query=${query}`);
+	if (!result.ok) return new Map();
+
+	const data = JSON.parse(result.stdout) as {
+		data: { repository: Record<string, { number: number; title: string; state: string; isDraft: boolean; url: string; reviewDecision: string | null }> };
+	};
+
+	const statuses = new Map<number, PrStatus>();
+	for (const entry of Object.values(data.data.repository)) {
+		if (entry && typeof entry.number === 'number') {
+			statuses.set(entry.number, {
+				number: entry.number,
+				title: entry.title,
+				state: entry.state as PrStatus['state'],
+				isDraft: entry.isDraft,
+				url: entry.url,
+				reviewDecision: entry.reviewDecision ?? '',
+			});
+		}
+	}
+	return statuses;
+}
+
 export function prCreate(opts: {
   base: string;
   head: string;

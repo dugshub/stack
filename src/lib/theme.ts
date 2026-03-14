@@ -1,6 +1,34 @@
 import pc from 'picocolors';
 import type { Formatter } from 'picocolors/types';
 
+// ── Palette ─────────────────────────────────────────────
+// Raw colors. Change these to retheme the entire CLI.
+// Everything below references the palette, never raw colors.
+
+const palette = {
+	// Core spectrum
+	c1: pc.cyan,
+	c2: pc.magenta,
+	c3: pc.yellow,
+	c4: pc.blue,
+	c5: pc.white,
+	c6: pc.dim,
+
+	// Status
+	good: pc.green,
+	warn: pc.yellow,
+	bad: pc.red,
+
+	// Modifiers
+	bold: pc.bold,
+	dim: pc.dim,
+	underline: pc.underline,
+};
+
+// ── Theme ───────────────────────────────────────────────
+// Semantic roles → palette mappings. To change what "branch"
+// looks like, point it at a different palette color.
+
 export interface Theme {
 	// Status indicators
 	success: Formatter;
@@ -21,19 +49,22 @@ export interface Theme {
 }
 
 const defaultTheme: Theme = {
-	success: pc.green,
-	warning: pc.yellow,
-	error: pc.red,
+	// Status
+	success: palette.good,
+	warning: palette.warn,
+	error: palette.bad,
 
-	muted: pc.dim,
-	emphasis: pc.bold,
-	accent: pc.cyan,
+	// Emphasis
+	muted: palette.dim,
+	emphasis: palette.bold,
+	accent: palette.c1,
 
-	branch: pc.bold,
-	stack: pc.bold,
-	pr: pc.cyan,
-	command: pc.cyan,
-	label: pc.bold,
+	// Elements
+	branch: palette.c1,
+	stack: palette.c2,
+	pr: palette.c3,
+	command: palette.c1,
+	label: palette.bold,
 };
 
 export const theme = defaultTheme;

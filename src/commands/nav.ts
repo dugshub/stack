@@ -17,9 +17,13 @@ export class NavCommand extends Command {
     ],
   });
 
-  direction = Option.String({ required: true });
+  direction = Option.String({ required: false });
 
   async execute(): Promise<number> {
+    if (!this.direction) {
+      return this.showUsage();
+    }
+
     const validDirections = ['up', 'down', 'top', 'bottom'];
     if (!validDirections.includes(this.direction)) {
       ui.error(
@@ -163,6 +167,32 @@ export class NavCommand extends Command {
       isTop: stack.branches.length === 1,
       isBottom: true,
     });
+    return 0;
+  }
+
+  private showUsage(): number {
+    const state = loadState();
+    const position = findActiveStack(state);
+
+    if (position) {
+      ui.positionReport(position);
+      process.stderr.write('\n');
+      process.stderr.write('Navigate with:\n');
+    } else {
+      process.stderr.write('Navigate your stack:\n');
+    }
+
+    process.stderr.write('  stack nav up       Move toward trunk\n');
+    process.stderr.write('  stack nav down     Move away from trunk\n');
+    process.stderr.write('  stack nav top      Go to top of stack\n');
+    process.stderr.write('  stack nav bottom   Go to bottom of stack\n');
+
+    if (!position) {
+      process.stderr.write('\n');
+      process.stderr.write('Not currently on a stack branch.\n');
+      process.stderr.write('Use `stack status` to see tracked stacks.\n');
+    }
+
     return 0;
   }
 }

@@ -169,3 +169,24 @@ export function repoBasename(): string {
 export function repoRoot(): string {
   return run('rev-parse', '--show-toplevel');
 }
+
+export function isRebaseInProgress(cwd?: string): boolean {
+  const { existsSync } = require('fs');
+  const gitPaths = ['rebase-merge', 'rebase-apply'];
+  for (const p of gitPaths) {
+    const result = cwd
+      ? Bun.spawnSync(['git', 'rev-parse', '--git-path', p], {
+          stdout: 'pipe',
+          stderr: 'pipe',
+          cwd,
+        })
+      : Bun.spawnSync(['git', 'rev-parse', '--git-path', p], {
+          stdout: 'pipe',
+          stderr: 'pipe',
+        });
+    if (result.exitCode === 0 && existsSync(result.stdout.toString().trim())) {
+      return true;
+    }
+  }
+  return false;
+}

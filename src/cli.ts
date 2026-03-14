@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { Builtins, Cli } from 'clipanion';
+import { AbsorbCommand } from './commands/absorb.js';
 import { CreateCommand } from './commands/create.js';
 import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
@@ -31,6 +32,7 @@ cli.register(DeleteCommand);
 cli.register(PushCommand);
 cli.register(RemoveCommand);
 cli.register(SubmitCommand);
+cli.register(AbsorbCommand);
 cli.register(RestackCommand);
 cli.register(SyncCommand);
 cli.register(InitCommand);
@@ -68,6 +70,7 @@ if (args.length === 0) {
     ['nav [up|down|top|bottom]','Navigate between branches'],
     ['',                        ''],
     ['submit',                  'Push branches, create/update PRs'],
+    ['absorb',                  'Route fixes to correct stack branches'],
     ['restack',                 'Rebase downstream after mid-stack edits'],
     ['sync',                    'Clean up after PRs merge'],
     ['',                        ''],

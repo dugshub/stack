@@ -113,6 +113,28 @@ export function worktreeList(): Map<string, string> {
   return map;
 }
 
+/** Returns list of files changed between two refs (two-dot diff). */
+export function diffFiles(base: string, head: string): string[] {
+  const result = tryRun('diff', '--name-only', `${base}..${head}`);
+  if (!result.ok) return [];
+  return result.stdout.split('\n').filter((line) => line.length > 0);
+}
+
+/** Returns list of files with uncommitted changes (staged + unstaged + new staged files). */
+export function dirtyFiles(): string[] {
+  // git diff HEAD catches all staged and unstaged changes to tracked files
+  const diff = tryRun('diff', '--name-only', 'HEAD');
+  const tracked = diff.ok
+    ? diff.stdout.split('\n').filter((line) => line.length > 0)
+    : [];
+  // git diff --cached --diff-filter=A catches newly staged files not yet in HEAD
+  const added = tryRun('diff', '--cached', '--diff-filter=A', '--name-only');
+  const newFiles = added.ok
+    ? added.stdout.split('\n').filter((line) => line.length > 0)
+    : [];
+  return [...new Set([...tracked, ...newFiles])];
+}
+
 export function isDirty(): boolean {
   // Only check tracked files — untracked files shouldn't block sync/rebase
   const result = run('status', '--porcelain', '-uno');

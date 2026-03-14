@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stack Review — table-consolidation</title>
+<style>
+  :root {
+    --bg-canvas: #0d1117;
+    --bg-surface: #161b22;
+    --bg-surface-hover: #1c2128;
+    --bg-overlay: #1c2128;
+    --bg-inset: #010409;
+    --border: #30363d;
+    --border-muted: #21262d;
+    --fg-default: #e6edf3;
+    --fg-muted: #7d8590;
+    --fg-subtle: #484f58;
+    --accent: #58a6ff;
+    --accent-muted: #1f6feb33;
+    --green: #3fb950;
+    --green-bg: #12261e;
+    --green-line: #1b4721;
+    --red: #f85149;
+    --red-bg: #28171a;
+    --red-line: #5d2029;
+    --purple: #bc8cff;
+    --yellow: #d29922;
+    --radius: 6px;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg-canvas);
+    color: var(--fg-default);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 300px;
+    min-width: 300px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg-default);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sidebar-header .repo {
+    font-size: 12px;
+    color: var(--fg-muted);
+    margin-top: 2px;
+  }
+
+  .stack-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  .stack-item {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    margin-bottom: 2px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    position: relative;
+  }
+
+  .stack-connector {
+    width: 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .stack-connector::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .stack-item:first-child .stack-connector::before { top: 50%; }
+  .stack-item:last-child .stack-connector::before { bottom: 50%; }
+
+  .stack-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--bg-surface);
+    border: 2px solid var(--border);
+    z-index: 1;
+    margin-top: 14px;
+    flex-shrink: 0;
+  }
+
+  .stack-item.active .stack-dot {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .stack-item.completed .stack-dot {
+    background: var(--green);
+    border-color: var(--green);
+  }
+
+  .stack-item-content {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    min-width: 0;
+  }
+
+  .stack-item:hover .stack-item-content {
+    background: var(--bg-surface-hover);
+  }
+
+  .stack-item.active .stack-item-content {
+    background: var(--accent-muted);
+  }
+
+  .stack-item-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-default);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .stack-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+
+  .badge-draft { color: var(--fg-muted); border-color: var(--border); }
+  .badge-local { color: var(--yellow); border-color: var(--yellow); opacity: 0.7; }
+  .badge-review { color: var(--purple); border-color: var(--purple); opacity: 0.7; }
+
+  .stat-add { color: var(--green); }
+  .stat-del { color: var(--red); }
+
+  /* ── Main content ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .main-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+
+  .main-header h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--fg-default);
+    margin-bottom: 4px;
+  }
+
+  .main-header .branch-info {
+    font-size: 13px;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+  }
+
+  .main-header .branch-info span {
+    color: var(--accent);
+  }
+
+  .pr-description {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+
+  .tab {
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--fg-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+
+  .tab:hover { color: var(--fg-default); }
+
+  .tab.active {
+    color: var(--fg-default);
+    border-bottom-color: var(--accent);
+  }
+
+  .tab .count {
+    background: var(--bg-overlay);
+    padding: 0 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    min-width: 18px;
+    text-align: center;
+  }
+
+  /* ── Files changed panel ── */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  .file-list-header {
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg-canvas);
+    z-index: 10;
+  }
+
+  .file-list-header .summary {
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+
+  .diff-file {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .diff-file-header {
+    padding: 8px 24px;
+    background: var(--bg-surface);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    position: sticky;
+    top: 42px;
+    z-index: 5;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+
+  .diff-file-header:hover { background: var(--bg-surface-hover); }
+
+  .diff-file-header .chevron {
+    color: var(--fg-subtle);
+    transition: transform 0.15s;
+    font-size: 10px;
+  }
+
+  .diff-file-header .file-path {
+    color: var(--fg-default);
+    flex: 1;
+  }
+
+  .diff-file-header .file-path .dir { color: var(--fg-muted); }
+
+  .diff-file-header .file-stats {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .diff-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .diff-badge-deleted { background: var(--red-bg); color: var(--red); }
+  .diff-badge-modified { background: var(--accent-muted); color: var(--accent); }
+  .diff-badge-added { background: var(--green-bg); color: var(--green); }
+  .diff-badge-renamed { background: #2d1f00; color: var(--yellow); }
+
+  /* ── Diff lines ── */
+  .diff-body {
+    overflow-x: auto;
+  }
+
+  .diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  .diff-table td {
+    white-space: pre;
+    padding: 0 12px;
+    vertical-align: top;
+  }
+
+  .diff-line-num {
+    width: 50px;
+    min-width: 50px;
+    text-align: right;
+    color: var(--fg-subtle);
+    user-select: none;
+    padding-right: 8px;
+    cursor: pointer;
+  }
+
+  .diff-line-num:hover {
+    color: var(--accent);
+  }
+
+  .diff-line-content {
+    padding-left: 16px;
+  }
+
+  .diff-line-add {
+    background: var(--green-bg);
+  }
+
+  .diff-line-add .diff-line-content { color: var(--green); }
+  .diff-line-add .diff-line-num { color: var(--green); opacity: 0.5; }
+
+  .diff-line-del {
+    background: var(--red-bg);
+  }
+
+  .diff-line-del .diff-line-content { color: var(--red); }
+  .diff-line-del .diff-line-num { color: var(--red); opacity: 0.5; }
+
+  .diff-line-hunk {
+    background: var(--accent-muted);
+    color: var(--accent);
+  }
+
+  .diff-line-hunk td {
+    padding: 4px 12px;
+    font-size: 11px;
+  }
+
+  /* ── Inline comment ── */
+  .inline-comment {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 8px 24px 8px 80px;
+    background: var(--bg-surface);
+    overflow: hidden;
+  }
+
+  .comment-header {
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .comment-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .avatar-user { background: #1f6feb; color: white; }
+  .avatar-agent { background: #8b5cf6; color: white; }
+
+  .comment-author {
+    font-weight: 600;
+    color: var(--fg-default);
+  }
+
+  .comment-time {
+    color: var(--fg-subtle);
+    font-size: 11px;
+  }
+
+  .comment-body {
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg-default);
+  }
+
+  .comment-body code {
+    background: var(--bg-overlay);
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .comment-reply {
+    border-top: 1px solid var(--border);
+    padding: 8px 12px;
+    display: flex;
+    gap: 8px;
+  }
+
+  .comment-reply-input {
+    flex: 1;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg-default);
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: var(--font-sans);
+    outline: none;
+    resize: none;
+  }
+
+  .comment-reply-input:focus { border-color: var(--accent); }
+
+  .comment-reply-input::placeholder { color: var(--fg-subtle); }
+
+  .btn {
+    padding: 5px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid;
+    font-family: var(--font-sans);
+  }
+
+  .btn-primary {
+    background: #238636;
+    border-color: #2ea043;
+    color: white;
+  }
+
+  .btn-primary:hover { background: #2ea043; }
+
+  .btn-subtle {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--fg-muted);
+  }
+
+  .btn-subtle:hover {
+    background: var(--bg-surface-hover);
+    color: var(--fg-default);
+  }
+
+  /* ── Conversation tab ── */
+  .conversation {
+    padding: 24px;
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .conversation.visible {
+    display: flex;
+  }
+
+  .conv-comment {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    overflow: hidden;
+  }
+
+  .conv-compose {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-top: 8px;
+  }
+
+  .conv-compose textarea {
+    width: 100%;
+    min-height: 80px;
+    background: var(--bg-inset);
+    border: none;
+    color: var(--fg-default);
+    padding: 12px;
+    font-size: 13px;
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    outline: none;
+    resize: vertical;
+  }
+
+  .conv-compose textarea::placeholder { color: var(--fg-subtle); }
+
+  .conv-compose-footer {
+    padding: 8px 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Add comment hint on line hover ── */
+  .diff-line-num.commentable:hover::after {
+    content: '+';
+    position: absolute;
+    left: 4px;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  /* ── Action bar ── */
+  .action-bar {
+    padding: 12px 24px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .action-bar .status {
+    font-size: 13px;
+    color: var(--fg-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .action-bar .actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg-subtle); }
+</style>
+</head>
+<body>
+
+<!-- ══════════ Sidebar ══════════ -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.6"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 13A6 6 0 1 1 8 2a6 6 0 0 1 0 12z"/><path d="M5.5 5h5v1h-5zm0 2.5h5v1h-5zm0 2.5h3v1h-3z"/></svg>
+      table-consolidation
+    </h1>
+    <div class="repo">Tempo-Systems/dealbrain</div>
+  </div>
+
+  <div class="stack-list">
+    <!-- PR 1 -->
+    <div class="stack-item completed" onclick="selectPR(0)">
+      <div class="stack-connector"><div class="stack-dot"></div></div>
+      <div class="stack-item-content">
+        <div class="stack-item-title">Dead code cleanup</div>
+        <div class="stack-item-meta">
+          <span class="badge badge-draft">draft</span>
+          <span><span class="stat-add">+1</span> <span class="stat-del">-235</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PR 2 -->
+    <div class="stack-item active" onclick="selectPR(1)">
+      <div class="stack-connector"><div class="stack-dot"></div></div>
+      <div class="stack-item-content">
+        <div class="stack-item-title">Unified ColumnHeader molecule</div>
+        <div class="stack-item-meta">
+          <span class="badge badge-draft">draft</span>
+          <span><span class="stat-add">+211</span> <span class="stat-del">-358</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PR 3 -->
+    <div class="stack-item" onclick="selectPR(2)">
+      <div class="stack-connector"><div class="stack-dot"></div></div>
+      <div class="stack-item-content">
+        <div class="stack-item-title">Extract hooks</div>
+        <div class="stack-item-meta">
+          <span class="badge badge-local">local</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PR 4 -->
+    <div class="stack-item" onclick="selectPR(3)">
+      <div class="stack-connector"><div class="stack-dot"></div></div>
+      <div class="stack-item-content">
+        <div class="stack-item-title">Render utilities + DataTable</div>
+        <div class="stack-item-meta">
+          <span class="badge badge-local">local</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PR 5 -->
+    <div class="stack-item" onclick="selectPR(4)">
+      <div class="stack-connector"><div class="stack-dot"></div></div>
+      <div class="stack-item-content">
+        <div class="stack-item-title">Wire GroupedTable</div>
+        <div class="stack-item-meta">
+          <span class="badge badge-local">local</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- ══════════ Main ══════════ -->
+<main class="main">
+  <div class="main-header">
+    <h2>Unified ColumnHeader molecule</h2>
+    <div class="branch-info">
+      <span>doug/table-consolidation/1-dead-code-cleanup</span> ← <span>doug/table-consolidation/2-unified-column-header</span>
+    </div>
+  </div>
+
+  <div class="pr-description">
+    Replace SortableColumnHeader, ResizableColumnHeader, and DraggableColumnHeader with a single ColumnHeader molecule that composes sort, resize, drag, and frozen behaviors via props. Simplifies DataTable header rendering from two code paths to one.
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('files')">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v1H2zm0 3h12v1H2zm0 3h8v1H2z"/></svg>
+      Files changed
+      <span class="count">11</span>
+    </div>
+    <div class="tab" onclick="switchTab('conversation')">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v8A1.5 1.5 0 0 1 13.5 12H9l-3 3v-3H2.5A1.5 1.5 0 0 1 1 10.5z"/></svg>
+      Conversation
+      <span class="count">2</span>
+    </div>
+  </div>
+
+  <!-- Files changed view -->
+  <div class="content" id="files-tab">
+    <div class="file-list-header">
+      <div class="summary">
+        Showing <strong>11 changed files</strong> with
+        <span class="stat-add">211 additions</span> and
+        <span class="stat-del">358 deletions</span>
+      </div>
+    </div>
+
+    <!-- ── File: DataTable.tsx ── -->
+    <div class="diff-file">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">▼</span>
+        <span class="diff-badge diff-badge-modified">M</span>
+        <span class="file-path">
+          <span class="dir">apps/frontend/src/components/organisms/DataTable/</span>DataTable.tsx
+        </span>
+        <span class="file-stats">
+          <span class="stat-add">+22</span>
+          <span class="stat-del">-73</span>
+        </span>
+      </div>
+      <div class="diff-body">
+        <table class="diff-table">
+          <tr class="diff-line-hunk"><td colspan="3">@@ -25,7 +25,7 @@ imports</td></tr>
+          <tr><td class="diff-line-num">25</td><td class="diff-line-num">25</td><td class="diff-line-content"> } from '@tanstack/react-table';</td></tr>
+          <tr><td class="diff-line-num">27</td><td class="diff-line-num">27</td><td class="diff-line-content"> import { useCallback, useEffect, useMemo, useRef, useState } from 'react';</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">28</td><td class="diff-line-num"></td><td class="diff-line-content">-import { Checkbox, cn, Icon } from '@/components/atoms';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">28</td><td class="diff-line-content">+import { Checkbox, cn } from '@/components/atoms';</td></tr>
+          <tr><td class="diff-line-num">29</td><td class="diff-line-num">29</td><td class="diff-line-content"> import {</td></tr>
+          <tr><td class="diff-line-num">30</td><td class="diff-line-num">30</td><td class="diff-line-content">   Table,</td></tr>
+          <tr><td class="diff-line-num">35</td><td class="diff-line-num">35</td><td class="diff-line-content"> } from '@/components/atoms/Table';</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">37</td><td class="diff-line-num"></td><td class="diff-line-content">-import { DraggableColumnHeader } from '@/components/molecules/DraggableColumnHeader';</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">38</td><td class="diff-line-num"></td><td class="diff-line-content">-import { ResizableColumnHeader } from '@/components/molecules/ResizableColumnHeader';</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">39</td><td class="diff-line-num"></td><td class="diff-line-content">-import { SortableColumnHeader } from '@/components/molecules/SortableColumnHeader';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">37</td><td class="diff-line-content">+import { ColumnHeader } from '@/components/molecules/ColumnHeader';</td></tr>
+          <tr><td class="diff-line-num">40</td><td class="diff-line-num">38</td><td class="diff-line-content"> import { useColumnWidths } from '@/hooks/useColumnWidths';</td></tr>
+
+          <tr class="diff-line-hunk"><td colspan="3">@@ -463,86 +461,35 @@ header rendering</td></tr>
+          <tr><td class="diff-line-num">463</td><td class="diff-line-num">461</td><td class="diff-line-content">             const minWidth = colMeta ? minWidthForType(colMeta.type) : undefined;</td></tr>
+          <tr><td class="diff-line-num">464</td><td class="diff-line-num">462</td><td class="diff-line-content">             const isSorted = sortable ? header.column.getIsSorted() : false;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">466</td><td class="diff-line-num"></td><td class="diff-line-content">-          const headerLabel = (</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">467</td><td class="diff-line-num"></td><td class="diff-line-content">-            &lt;span className="flex items-center gap-1 min-w-0"&gt;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">468</td><td class="diff-line-num"></td><td class="diff-line-content">-              {colMeta?.icon &amp;&amp; (</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">469</td><td class="diff-line-num"></td><td class="diff-line-content">-                &lt;Icon name={colMeta.icon} size="sm" ... /&gt;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">470</td><td class="diff-line-num"></td><td class="diff-line-content">-              )}</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">471</td><td class="diff-line-num"></td><td class="diff-line-content">-              ...</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">478</td><td class="diff-line-num"></td><td class="diff-line-content">-          );</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">480</td><td class="diff-line-num"></td><td class="diff-line-content">-          if (reorderable) {</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">481</td><td class="diff-line-num"></td><td class="diff-line-content">-            return &lt;DraggableColumnHeader ... /&gt;;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">482</td><td class="diff-line-num"></td><td class="diff-line-content">-          }</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">483</td><td class="diff-line-num"></td><td class="diff-line-content">-          return &lt;ResizableColumnHeader&gt;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">484</td><td class="diff-line-num"></td><td class="diff-line-content">-            &lt;SortableColumnHeader ... /&gt;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-num">485</td><td class="diff-line-num"></td><td class="diff-line-content">-          &lt;/ResizableColumnHeader&gt;;</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">464</td><td class="diff-line-content">+          return (</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">465</td><td class="diff-line-content">+            &lt;ColumnHeader</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">466</td><td class="diff-line-content">+              key={header.id}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">467</td><td class="diff-line-content">+              id={header.id}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">468</td><td class="diff-line-content">+              label={header.column.columnDef.header as string}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">469</td><td class="diff-line-content">+              icon={colMeta?.icon}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">470</td><td class="diff-line-content">+              width={width}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">471</td><td class="diff-line-content">+              sortable={sortable}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">472</td><td class="diff-line-content">+              sortDirection={isSorted}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">473</td><td class="diff-line-content">+              draggable={reorderable}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">474</td><td class="diff-line-content">+              resizable={resizable}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">475</td><td class="diff-line-content">+              frozen={pinnedColumn === header.id}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">476</td><td class="diff-line-content">+              ...</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">477</td><td class="diff-line-content">+            &gt;</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">478</td><td class="diff-line-content">+              {colMeta?.headerExtra}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">479</td><td class="diff-line-content">+            &lt;/ColumnHeader&gt;</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">480</td><td class="diff-line-content">+          );</td></tr>
+        </table>
+
+        <!-- Inline comment -->
+        <div class="inline-comment">
+          <div class="comment-header">
+            <div class="comment-avatar avatar-user">D</div>
+            <span class="comment-author">doug</span>
+            <span class="comment-time">just now</span>
+          </div>
+          <div class="comment-body">
+            The <code>as string</code> cast on line 468 — can we type <code>header</code> properly instead? This is the kind of thing that bites us later when someone passes a ReactNode header.
+          </div>
+
+          <!-- Agent reply -->
+          <div class="comment-header" style="border-top: 1px solid var(--border);">
+            <div class="comment-avatar avatar-agent">C</div>
+            <span class="comment-author">claude</span>
+            <span class="comment-time">just now</span>
+          </div>
+          <div class="comment-body">
+            Good catch. The cast exists because TanStack's <code>ColumnDef.header</code> is typed as <code>string | HeaderFn</code>, but our <code>DataTableColumn</code> type constrains it to <code>string</code>. We can narrow this by reading from <code>colMeta.label</code> instead of the TanStack header, which is already typed as <code>string</code>. I'll fix this in the next iteration.
+          </div>
+
+          <div class="comment-reply">
+            <input type="text" class="comment-reply-input" placeholder="Reply..." />
+            <button class="btn btn-primary">Reply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── File: ColumnHeader.tsx (new) ── -->
+    <div class="diff-file">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">▼</span>
+        <span class="diff-badge diff-badge-added">A</span>
+        <span class="file-path">
+          <span class="dir">apps/frontend/src/components/molecules/ColumnHeader/</span>ColumnHeader.tsx
+        </span>
+        <span class="file-stats">
+          <span class="stat-add">+162</span>
+        </span>
+      </div>
+      <div class="diff-body">
+        <table class="diff-table">
+          <tr class="diff-line-hunk"><td colspan="3">@@ -0,0 +1,162 @@</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">1</td><td class="diff-line-content">+import { useSortable } from '@dnd-kit/sortable';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">2</td><td class="diff-line-content">+import { CSS } from '@dnd-kit/utilities';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">3</td><td class="diff-line-content">+import { useEffect, type ReactNode } from 'react';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">4</td><td class="diff-line-content">+import { cn, Icon } from '@/components/atoms';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">5</td><td class="diff-line-content">+import { TableHead } from '@/components/atoms/Table';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">6</td><td class="diff-line-content">+import { ResizeHandle } from '@/components/molecules/ResizeHandle';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">7</td><td class="diff-line-content">+import type { ColumnHeaderProps } from './ColumnHeader.types';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">8</td><td class="diff-line-content">+</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">9</td><td class="diff-line-content">+export function ColumnHeader({</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">10</td><td class="diff-line-content">+  id,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">11</td><td class="diff-line-content">+  label,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">12</td><td class="diff-line-content">+  icon,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">13</td><td class="diff-line-content">+  width,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">14</td><td class="diff-line-content">+  minWidth,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">15</td><td class="diff-line-content">+  // Sort</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">16</td><td class="diff-line-content">+  sortable = false,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">17</td><td class="diff-line-content">+  sortDirection = false,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">18</td><td class="diff-line-content">+  onSort,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">19</td><td class="diff-line-content">+  // Resize</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">20</td><td class="diff-line-content">+  resizable = false,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">21</td><td class="diff-line-content">+  ...</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">22</td><td class="diff-line-content">+  // Drag</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">23</td><td class="diff-line-content">+  draggable = false,</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">24</td><td class="diff-line-content">+  ...</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">25</td><td class="diff-line-content">+}: ColumnHeaderProps) {</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">26</td><td class="diff-line-content">+  // useSortable always called (Rules of Hooks)</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">27</td><td class="diff-line-content">+  const { attributes, listeners, setNodeRef, transform, transition }</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">28</td><td class="diff-line-content">+    = useSortable({ id, disabled: !draggable || disabled });</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">29</td><td class="diff-line-content">+  ...</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── File: DraggableColumnHeader (deleted) ── -->
+    <div class="diff-file">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">▶</span>
+        <span class="diff-badge diff-badge-deleted">D</span>
+        <span class="file-path">
+          <span class="dir">apps/frontend/src/components/molecules/DraggableColumnHeader/</span>DraggableColumnHeader.tsx
+        </span>
+        <span class="file-stats">
+          <span class="stat-del">-131</span>
+        </span>
+      </div>
+      <div class="diff-body" style="display: none;"></div>
+    </div>
+
+    <!-- ── File: ResizableColumnHeader (deleted) ── -->
+    <div class="diff-file">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">▶</span>
+        <span class="diff-badge diff-badge-deleted">D</span>
+        <span class="file-path">
+          <span class="dir">apps/frontend/src/components/molecules/ResizableColumnHeader/</span>ResizableColumnHeader.tsx
+        </span>
+        <span class="file-stats">
+          <span class="stat-del">-71</span>
+        </span>
+      </div>
+      <div class="diff-body" style="display: none;"></div>
+    </div>
+
+    <!-- ── File: SortableColumnHeader (deleted) ── -->
+    <div class="diff-file">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">▶</span>
+        <span class="diff-badge diff-badge-deleted">D</span>
+        <span class="file-path">
+          <span class="dir">apps/frontend/src/components/molecules/SortableColumnHeader/</span>SortableColumnHeader.tsx
+        </span>
+        <span class="file-stats">
+          <span class="stat-del">-51</span>
+        </span>
+      </div>
+      <div class="diff-body" style="display: none;"></div>
+    </div>
+
+    <!-- ── File: molecules/index.ts ── -->
+    <div class="diff-file">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">▶</span>
+        <span class="diff-badge diff-badge-modified">M</span>
+        <span class="file-path">
+          <span class="dir">apps/frontend/src/components/molecules/</span>index.ts
+        </span>
+        <span class="file-stats">
+          <span class="stat-add">+2</span>
+          <span class="stat-del">-13</span>
+        </span>
+      </div>
+      <div class="diff-body" style="display: none;"></div>
+    </div>
+
+    <!-- ── File: ColumnHeader.types.ts (renamed) ── -->
+    <div class="diff-file">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">▶</span>
+        <span class="diff-badge diff-badge-renamed">R</span>
+        <span class="file-path">
+          <span class="dir">...DraggableColumnHeader/ → ...ColumnHeader/</span>ColumnHeader.types.ts
+        </span>
+        <span class="file-stats">
+          <span class="stat-add">+42</span>
+          <span class="stat-del">-6</span>
+        </span>
+      </div>
+      <div class="diff-body" style="display: none;"></div>
+    </div>
+  </div>
+
+  <!-- Conversation view -->
+  <div class="content conversation" id="conversation-tab">
+    <div class="conv-comment">
+      <div class="comment-header">
+        <div class="comment-avatar avatar-user">D</div>
+        <span class="comment-author">doug</span>
+        <span class="comment-time">2 minutes ago</span>
+      </div>
+      <div class="comment-body">
+        Overall looks good. Two things:<br><br>
+        1. The <code>as string</code> cast on the header label — can we avoid that?<br>
+        2. Did we verify GroupedTable also works with this? Validator said it doesn't exist but it should be on the saved-views branch.
+      </div>
+    </div>
+
+    <div class="conv-comment">
+      <div class="comment-header">
+        <div class="comment-avatar avatar-agent">C</div>
+        <span class="comment-author">claude</span>
+        <span class="comment-time">1 minute ago</span>
+      </div>
+      <div class="comment-body">
+        1. Agreed — I'll read the label from <code>colMeta.label</code> which is already <code>string</code>, avoiding the cast entirely.<br><br>
+        2. You're right — <code>GroupedTable.tsx</code> exists on the <code>saved-views</code> branch (PR #768). Since this stack is based on <code>main</code>, it wasn't visible. Once the saved-views stack merges, we'll need to update GroupedTable's headers in PR 3 or 4. I'll add a note to the spec.
+      </div>
+    </div>
+
+    <div class="conv-compose">
+      <textarea placeholder="Leave a comment..."></textarea>
+      <div class="conv-compose-footer">
+        <button class="btn btn-subtle">Request changes</button>
+        <button class="btn btn-primary">Comment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action bar -->
+  <div class="action-bar">
+    <div class="status">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--yellow)"><circle cx="8" cy="8" r="6"/></svg>
+      Draft — local only
+    </div>
+    <div class="actions">
+      <button class="btn btn-subtle">Ask Claude to revise</button>
+      <button class="btn btn-primary">Mark ready &amp; push</button>
+    </div>
+  </div>
+</main>
+
+<script>
+function toggleFile(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.chevron');
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    chevron.textContent = '▼';
+  } else {
+    body.style.display = 'none';
+    chevron.textContent = '▶';
+  }
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+
+  document.getElementById('files-tab').style.display = tab === 'files' ? '' : 'none';
+  document.getElementById('conversation-tab').classList.toggle('visible', tab === 'conversation');
+}
+
+function selectPR(index) {
+  document.querySelectorAll('.stack-item').forEach((item, i) => {
+    item.classList.toggle('active', i === index);
+  });
+}
+</script>
+
+</body>
+</html>

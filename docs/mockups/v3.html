@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stack Review v3 — table-consolidation</title>
+<style>
+  :root {
+    --bg-canvas: #0d1117;
+    --bg-surface: #161b22;
+    --bg-surface-hover: #1c2128;
+    --bg-overlay: #1c2128;
+    --bg-inset: #010409;
+    --border: #30363d;
+    --border-muted: #21262d;
+    --fg-default: #e6edf3;
+    --fg-muted: #7d8590;
+    --fg-subtle: #484f58;
+    --accent: #58a6ff;
+    --accent-muted: #1f6feb33;
+    --green: #3fb950;
+    --green-bg: #12261e;
+    --green-line: #1b4721;
+    --red: #f85149;
+    --red-bg: #28171a;
+    --red-line: #5d2029;
+    --purple: #bc8cff;
+    --yellow: #d29922;
+    --orange: #d18616;
+    --teal: #2dd4bf;
+    --radius: 6px;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-canvas); color: var(--fg-default);
+    font-family: var(--font-sans); font-size: 14px; line-height: 1.5;
+    display: flex; height: 100vh; overflow: hidden;
+  }
+
+  /* Sidebar */
+  .sidebar { width: 320px; min-width: 320px; background: var(--bg-surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h1 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .sidebar-header .repo { font-size: 12px; color: var(--fg-muted); margin-top: 2px; }
+  .sidebar-section { border-bottom: 1px solid var(--border); }
+  .sidebar-section-header { padding: 8px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-muted); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none; }
+  .sidebar-section-header:hover { color: var(--fg-default); }
+  .sidebar-section-header .section-chevron { font-size: 10px; transition: transform 0.15s; }
+  .sidebar-section-body { overflow: hidden; transition: max-height 0.2s ease; }
+  .sidebar-section.collapsed .sidebar-section-body { max-height: 0 !important; }
+  .sidebar-section.collapsed .section-chevron { transform: rotate(-90deg); }
+
+  /* Stack list */
+  .stack-list { padding: 4px 8px 8px; }
+  .stack-item { display: flex; align-items: stretch; gap: 0; margin-bottom: 2px; border-radius: var(--radius); cursor: pointer; position: relative; }
+  .stack-connector { width: 32px; display: flex; flex-direction: column; align-items: center; position: relative; flex-shrink: 0; }
+  .stack-connector::before { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--border); }
+  .stack-item:first-child .stack-connector::before { top: 50%; }
+  .stack-item:last-child .stack-connector::before { bottom: 50%; }
+  .stack-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bg-surface); border: 2px solid var(--border); z-index: 1; margin-top: 14px; flex-shrink: 0; }
+  .stack-item.active .stack-dot { background: var(--accent); border-color: var(--accent); }
+  .stack-item.completed .stack-dot { background: var(--green); border-color: var(--green); }
+  .stack-item-content { flex: 1; padding: 8px 12px; border-radius: var(--radius); min-width: 0; }
+  .stack-item:hover .stack-item-content { background: var(--bg-surface-hover); }
+  .stack-item.active .stack-item-content { background: var(--accent-muted); }
+  .stack-item-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stack-item-meta { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 11px; color: var(--fg-muted); }
+  .badge { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: 500; border: 1px solid; }
+  .badge-draft { color: var(--fg-muted); border-color: var(--border); }
+  .badge-local { color: var(--yellow); border-color: var(--yellow); opacity: 0.7; }
+  .stat-add { color: var(--green); }
+  .stat-del { color: var(--red); }
+
+  /* Sidebar sub-tabs */
+  .sidebar-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
+  .sidebar-tab { flex: 1; padding: 6px 12px; font-size: 12px; font-weight: 500; color: var(--fg-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; text-align: center; user-select: none; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .sidebar-tab:hover { color: var(--fg-default); }
+  .sidebar-tab.active { color: var(--fg-default); border-bottom-color: var(--accent); }
+  .sidebar-tab .count { background: var(--bg-overlay); padding: 0 5px; border-radius: 10px; font-size: 10px; min-width: 16px; text-align: center; }
+  .sidebar-tab-content { display: none; flex: 1; overflow-y: auto; }
+  .sidebar-tab-content.active { display: block; }
+
+  /* Files tab */
+  .files-tab-header { padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-muted); }
+  .files-tab-header .files-label { font-size: 11px; color: var(--fg-muted); }
+  .file-tree { padding: 4px 0; font-size: 12px; font-family: var(--font-mono); }
+  .file-tree summary { list-style: none; cursor: pointer; padding: 2px 8px 2px 0; color: var(--fg-muted); display: flex; align-items: center; gap: 4px; user-select: none; }
+  .file-tree summary::-webkit-details-marker { display: none; }
+  .file-tree summary:hover { background: var(--bg-surface-hover); color: var(--fg-default); }
+  .file-tree summary .tree-icon { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; color: var(--fg-subtle); }
+  .file-tree .tree-children { padding-left: 16px; }
+  .tree-file { padding: 2px 8px 2px 0; display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; font-family: var(--font-mono); }
+  .tree-file:hover { background: var(--bg-surface-hover); }
+  .tree-file .tree-change { width: 14px; text-align: center; flex-shrink: 0; font-weight: 700; font-size: 11px; }
+  .tree-change-add { color: var(--green); }
+  .tree-change-del { color: var(--red); }
+  .tree-change-mod { color: var(--yellow); }
+
+  /* Commits tab */
+  .commits-list { padding: 4px 0; }
+  .commit-item { padding: 8px 12px; display: flex; align-items: flex-start; gap: 10px; cursor: pointer; border-left: 3px solid transparent; font-size: 12px; }
+  .commit-item:hover { background: var(--bg-surface-hover); }
+  .commit-item.active { border-left-color: var(--accent); background: var(--accent-muted); }
+  .commit-radio { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; margin-top: 2px; }
+  .commit-item.active .commit-radio { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--bg-surface); }
+  .commit-sha { font-family: var(--font-mono); font-size: 11px; color: var(--accent); margin-right: 8px; }
+  .commit-msg { color: var(--fg-default); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .commit-time { color: var(--fg-subtle); font-size: 11px; margin-top: 1px; }
+  .commit-all-label { font-weight: 500; font-size: 12px; }
+  .sidebar-bottom { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .sidebar-bottom .sidebar-tab-content.active { flex: 1; overflow-y: auto; }
+
+  /* Main content */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .main-header { padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
+  .main-header h2 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .main-header .branch-info { font-size: 13px; color: var(--fg-muted); font-family: var(--font-mono); }
+  .main-header .branch-info span { color: var(--accent); }
+  .pr-description { padding: 16px 24px; border-bottom: 1px solid var(--border); color: var(--fg-muted); font-size: 13px; line-height: 1.6; }
+
+  /* Main tabs */
+  .tabs { display: flex; gap: 0; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
+  .tab { padding: 8px 16px; font-size: 13px; color: var(--fg-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; user-select: none; white-space: nowrap; }
+  .tab:hover { color: var(--fg-default); }
+  .tab.active { color: var(--fg-default); border-bottom-color: var(--accent); }
+  .tab .count { background: var(--bg-overlay); padding: 0 6px; border-radius: 10px; font-size: 11px; min-width: 18px; text-align: center; }
+  .tab-icon { flex-shrink: 0; }
+
+  /* Content panels */
+  .content { flex: 1; overflow-y: auto; padding: 0; display: none; }
+  .content.visible { display: block; }
+  .content-flex { flex: 1; overflow-y: auto; padding: 0; display: none; }
+  .content-flex.visible { display: flex; }
+
+  /* Files changed panel */
+  .file-list-header { padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg-canvas); z-index: 10; }
+  .file-list-header .summary { font-size: 13px; color: var(--fg-muted); }
+  .diff-file { border-bottom: 1px solid var(--border); }
+  .diff-file-header { padding: 8px 24px; background: var(--bg-surface); display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 12px; position: sticky; top: 42px; z-index: 5; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .diff-file-header:hover { background: var(--bg-surface-hover); }
+  .diff-file-header .chevron { color: var(--fg-subtle); transition: transform 0.15s; font-size: 10px; }
+  .diff-file-header .file-path { flex: 1; }
+  .diff-file-header .file-path .dir { color: var(--fg-muted); }
+  .diff-file-header .file-stats { display: flex; gap: 8px; font-size: 11px; }
+  .diff-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .diff-badge-deleted { background: var(--red-bg); color: var(--red); }
+  .diff-badge-modified { background: var(--accent-muted); color: var(--accent); }
+  .diff-badge-added { background: var(--green-bg); color: var(--green); }
+  .diff-badge-renamed { background: #2d1f00; color: var(--yellow); }
+
+  /* Diff lines */
+  .diff-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; line-height: 20px; }
+  .diff-table td { white-space: pre; padding: 0 12px; vertical-align: top; }
+  .diff-line-num { width: 50px; min-width: 50px; text-align: right; color: var(--fg-subtle); user-select: none; padding-right: 8px; }
+  .diff-line-gutter { width: 24px; min-width: 24px; position: relative; user-select: none; }
+  .add-comment-btn { display: none; position: absolute; top: 0; left: 2px; width: 20px; height: 20px; background: var(--accent); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; line-height: 20px; text-align: center; padding: 0; z-index: 2; }
+  tr:hover .diff-line-gutter .add-comment-btn { display: block; }
+  .diff-line-content { padding-left: 16px; }
+  .diff-line-add { background: var(--green-bg); }
+  .diff-line-add .diff-line-content { color: var(--green); }
+  .diff-line-add .diff-line-num { color: var(--green); opacity: 0.5; }
+  .diff-line-del { background: var(--red-bg); }
+  .diff-line-del .diff-line-content { color: var(--red); }
+  .diff-line-del .diff-line-num { color: var(--red); opacity: 0.5; }
+  .diff-line-hunk { background: var(--accent-muted); color: var(--accent); }
+  .diff-line-hunk td { padding: 4px 12px; font-size: 11px; }
+
+  /* Inline comments */
+  .inline-comment { border: 1px solid var(--border); border-radius: var(--radius); margin: 8px 24px 8px 80px; background: var(--bg-surface); overflow: hidden; }
+  .comment-header { padding: 8px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .comment-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .avatar-user { background: #1f6feb; color: white; }
+  .avatar-agent { background: #8b5cf6; color: white; }
+  .comment-author { font-weight: 600; }
+  .comment-time { color: var(--fg-subtle); font-size: 11px; }
+  .comment-body { padding: 12px; font-size: 13px; line-height: 1.6; }
+  .comment-body code { background: var(--bg-overlay); padding: 2px 5px; border-radius: 3px; font-family: var(--font-mono); font-size: 12px; }
+  .comment-reply { border-top: 1px solid var(--border); padding: 8px 12px; display: flex; gap: 8px; }
+  .comment-reply-input { flex: 1; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg-default); padding: 6px 10px; font-size: 13px; font-family: var(--font-sans); outline: none; }
+  .comment-reply-input:focus { border-color: var(--accent); }
+
+  /* Conversation */
+  .conversation { padding: 24px; flex-direction: column; gap: 16px; }
+  .conv-comment { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); overflow: hidden; }
+  .conv-compose { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-top: 8px; }
+  .conv-compose textarea { width: 100%; min-height: 80px; background: var(--bg-inset); border: none; color: var(--fg-default); padding: 12px; font-size: 13px; font-family: var(--font-sans); line-height: 1.5; outline: none; resize: vertical; }
+  .conv-compose textarea::placeholder { color: var(--fg-subtle); }
+  .conv-compose-footer { padding: 8px 12px; display: flex; justify-content: flex-end; gap: 8px; background: var(--bg-surface); border-top: 1px solid var(--border); }
+
+  /* Review summary */
+  .review-summary { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); overflow: hidden; margin-top: 8px; }
+  .review-summary-header { padding: 10px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); }
+  .review-summary textarea { width: 100%; min-height: 80px; background: var(--bg-inset); border: none; color: var(--fg-default); padding: 12px; font-size: 13px; font-family: var(--font-sans); line-height: 1.5; outline: none; resize: vertical; }
+  .review-summary textarea::placeholder { color: var(--fg-subtle); }
+  .review-options { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); }
+  .review-option { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
+  .review-option input[type="radio"] { appearance: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); background: var(--bg-inset); cursor: pointer; flex-shrink: 0; }
+  .review-option input[type="radio"]:checked { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--bg-surface); }
+  .review-option .option-label { font-weight: 500; }
+  .review-option .option-desc { color: var(--fg-muted); font-size: 12px; }
+  .review-summary-footer { padding: 10px 16px; display: flex; justify-content: flex-end; gap: 8px; background: var(--bg-surface); border-top: 1px solid var(--border); }
+
+  /* Buttons */
+  .btn { padding: 5px 12px; border-radius: var(--radius); font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid; font-family: var(--font-sans); }
+  .btn-primary { background: #238636; border-color: #2ea043; color: white; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-subtle { background: transparent; border-color: var(--border); color: var(--fg-muted); }
+  .btn-subtle:hover { background: var(--bg-surface-hover); color: var(--fg-default); }
+  .btn-approve { background: #238636; border-color: #2ea043; color: white; }
+  .btn-approve:hover { background: #2ea043; }
+
+  /* Action bar */
+  .action-bar { padding: 12px 24px; border-top: 1px solid var(--border); background: var(--bg-surface); display: flex; align-items: center; justify-content: space-between; }
+  .action-bar .status { font-size: 13px; color: var(--fg-muted); display: flex; align-items: center; gap: 8px; }
+  .action-bar .actions { display: flex; gap: 8px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg-subtle); }
+
+  /* === NEW IN V3 === */
+
+  /* Traces tab */
+  .traces-panel { padding: 0; display: flex; flex-direction: column; height: 100%; }
+  .traces-toolbar { padding: 12px 24px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: center; background: var(--bg-surface); }
+  .traces-toolbar select { background: var(--bg-inset); border: 1px solid var(--border); color: var(--fg-default); padding: 5px 10px; border-radius: var(--radius); font-size: 12px; font-family: var(--font-mono); min-width: 300px; }
+  .traces-toolbar input { background: var(--bg-inset); border: 1px solid var(--border); color: var(--fg-default); padding: 5px 10px; border-radius: var(--radius); font-size: 12px; flex: 1; outline: none; }
+  .traces-toolbar input:focus { border-color: var(--accent); }
+  .traces-toolbar input::placeholder { color: var(--fg-subtle); }
+  .trace-summary { padding: 12px 24px; border-bottom: 1px solid var(--border); display: flex; gap: 24px; align-items: center; font-size: 12px; }
+  .trace-summary .trace-label { color: var(--fg-muted); }
+  .trace-summary .trace-value { color: var(--fg-default); font-family: var(--font-mono); font-size: 11px; }
+  .trace-summary .trace-value.ok { color: var(--green); }
+  .trace-summary .trace-value.error { color: var(--red); }
+  .trace-content { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+  .trace-waterfall { flex: 1; overflow-y: auto; padding: 0; }
+  .trace-detail { width: 340px; border-left: 1px solid var(--border); background: var(--bg-surface); overflow-y: auto; display: none; }
+  .trace-detail.visible { display: block; }
+  .trace-detail-header { padding: 10px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .trace-detail-close { background: none; border: none; color: var(--fg-muted); cursor: pointer; font-size: 16px; }
+  .trace-detail-section { padding: 12px 16px; border-bottom: 1px solid var(--border-muted); }
+  .trace-detail-section h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-muted); margin-bottom: 8px; }
+  .attr-table { width: 100%; font-size: 12px; }
+  .attr-table td { padding: 3px 0; vertical-align: top; }
+  .attr-table .attr-key { color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; padding-right: 12px; white-space: nowrap; }
+  .attr-table .attr-val { color: var(--fg-default); font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
+
+  .span-row { display: flex; align-items: center; padding: 4px 16px; cursor: pointer; border-bottom: 1px solid var(--border-muted); font-size: 12px; gap: 8px; }
+  .span-row:hover { background: var(--bg-surface-hover); }
+  .span-row.selected { background: var(--accent-muted); }
+  .span-indent { flex-shrink: 0; }
+  .span-connector { color: var(--fg-subtle); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; margin-right: 2px; }
+  .span-svc { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600; flex-shrink: 0; }
+  .svc-nestjs { background: #1f3a5f; color: var(--accent); }
+  .svc-db { background: var(--green-bg); color: var(--green); }
+  .svc-salesforce { background: #3d2800; color: var(--orange); }
+  .svc-trpc { background: #2d1f5e; color: var(--purple); }
+  .svc-electric { background: #0d3331; color: var(--teal); }
+  .svc-root { background: var(--bg-overlay); color: var(--fg-muted); }
+  .span-name { flex-shrink: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-default); font-size: 12px; }
+  .span-bar-area { flex: 1; min-width: 120px; padding: 0 8px; }
+  .span-bar { height: 8px; border-radius: 2px; min-width: 2px; }
+  .bar-nestjs { background: var(--accent); }
+  .bar-db { background: var(--green); }
+  .bar-salesforce { background: var(--orange); }
+  .bar-trpc { background: var(--purple); }
+  .bar-electric { background: var(--teal); }
+  .bar-root { background: var(--fg-subtle); }
+  .span-dur { font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); flex-shrink: 0; width: 50px; text-align: right; }
+  .span-status { flex-shrink: 0; width: 16px; text-align: center; font-size: 12px; }
+  .span-ok { color: var(--green); }
+  .span-err { color: var(--red); }
+
+  /* Database tab */
+  .db-panel { display: flex; height: 100%; }
+  .db-sidebar { width: 180px; border-right: 1px solid var(--border); background: var(--bg-surface); overflow-y: auto; padding: 8px 0; flex-shrink: 0; }
+  .db-tree-label { padding: 4px 12px; font-size: 11px; font-weight: 600; color: var(--fg-muted); cursor: pointer; display: flex; align-items: center; gap: 4px; user-select: none; }
+  .db-tree-label:hover { color: var(--fg-default); }
+  .db-table-item { padding: 3px 12px 3px 28px; font-size: 12px; font-family: var(--font-mono); color: var(--fg-muted); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .db-table-item:hover { background: var(--bg-surface-hover); color: var(--fg-default); }
+  .db-table-item.active { background: var(--accent-muted); color: var(--accent); }
+  .db-table-icon { font-size: 10px; color: var(--fg-subtle); }
+  .db-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .db-query-bar { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-start; }
+  .db-query-input { flex: 1; background: var(--bg-inset); border: 1px solid var(--border); color: var(--fg-default); padding: 8px 12px; border-radius: var(--radius); font-family: var(--font-mono); font-size: 12px; line-height: 1.4; resize: vertical; min-height: 36px; outline: none; }
+  .db-query-input:focus { border-color: var(--accent); }
+  .db-results { flex: 1; overflow: auto; }
+  .db-results-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .db-results-table th { padding: 6px 12px; text-align: left; background: var(--bg-surface); border-bottom: 2px solid var(--border); font-weight: 600; font-size: 11px; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+  .db-results-table th .col-type { font-weight: 400; color: var(--fg-subtle); font-size: 10px; margin-left: 4px; }
+  .db-results-table td { padding: 5px 12px; border-bottom: 1px solid var(--border-muted); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+  .db-results-table tr:nth-child(even) { background: var(--bg-surface); }
+  .db-results-table tr:hover { background: var(--bg-surface-hover); }
+  .db-results-table .num-cell { text-align: right; color: var(--purple); }
+  .db-results-table .id-cell { color: var(--fg-muted); }
+  .db-results-table .date-cell { color: var(--fg-muted); }
+  .db-results-footer { padding: 8px 16px; border-top: 1px solid var(--border); background: var(--bg-surface); font-size: 11px; color: var(--fg-muted); }
+
+  /* Frontend tab */
+  .fe-panel { display: flex; flex-direction: column; height: 100%; }
+  .fe-toolbar { padding: 8px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; background: var(--bg-surface); }
+  .fe-url { flex: 1; background: var(--bg-inset); border: 1px solid var(--border); color: var(--fg-default); padding: 5px 10px; border-radius: var(--radius); font-family: var(--font-mono); font-size: 12px; outline: none; }
+  .fe-url:focus { border-color: var(--accent); }
+  .fe-btn { background: none; border: 1px solid var(--border); color: var(--fg-muted); cursor: pointer; padding: 4px 8px; border-radius: var(--radius); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  .fe-btn:hover { background: var(--bg-surface-hover); color: var(--fg-default); }
+  .fe-btn.active { background: var(--accent-muted); color: var(--accent); border-color: var(--accent); }
+  .fe-device-group { display: flex; gap: 2px; background: var(--bg-inset); border-radius: 4px; padding: 2px; }
+  .fe-viewport { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 16px; background: var(--bg-inset); overflow: auto; }
+  .fe-frame { background: var(--bg-canvas); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; max-width: 1200px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }
+  .fe-frame.tablet { max-width: 768px; }
+  .fe-frame.mobile { max-width: 375px; }
+  .fe-app-bar { background: var(--bg-surface); padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .fe-app-logo { font-weight: 700; font-size: 14px; color: var(--accent); }
+  .fe-app-nav { display: flex; gap: 16px; font-size: 12px; color: var(--fg-muted); }
+  .fe-app-nav span.active { color: var(--fg-default); font-weight: 500; }
+  .fe-app-content { padding: 16px; }
+  .fe-app-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+  .fe-mock-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .fe-mock-table th { padding: 8px 12px; text-align: left; background: var(--bg-surface); border-bottom: 1px solid var(--border); font-weight: 500; font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+  .fe-mock-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-muted); }
+  .fe-mock-table tr:hover { background: var(--bg-surface-hover); }
+  .fe-stage-badge { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 500; }
+  .stage-negotiation { background: #3d2800; color: var(--orange); }
+  .stage-qualification { background: #1f3a5f; color: var(--accent); }
+  .stage-proposal { background: #2d1f5e; color: var(--purple); }
+  .stage-closed-won { background: var(--green-bg); color: var(--green); }
+  .stage-discovery { background: #0d3331; color: var(--teal); }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.6"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 13A6 6 0 1 1 8 2a6 6 0 0 1 0 12z"/><path d="M5.5 5h5v1h-5zm0 2.5h5v1h-5zm0 2.5h3v1h-3z"/></svg>
+      table-consolidation
+    </h1>
+    <div class="repo">Tempo-Systems/dealbrain</div>
+  </div>
+
+  <div class="sidebar-section" id="stack-section">
+    <div class="sidebar-section-header" onclick="toggleSection('stack-section')">
+      Stack <span class="section-chevron">&#9660;</span>
+    </div>
+    <div class="sidebar-section-body">
+      <div class="stack-list">
+        <div class="stack-item completed" onclick="selectPR(0)">
+          <div class="stack-connector"><div class="stack-dot"></div></div>
+          <div class="stack-item-content">
+            <div class="stack-item-title">Dead code cleanup</div>
+            <div class="stack-item-meta"><span class="badge badge-draft">draft</span> <span><span class="stat-add">+1</span> <span class="stat-del">-235</span></span></div>
+          </div>
+        </div>
+        <div class="stack-item active" onclick="selectPR(1)">
+          <div class="stack-connector"><div class="stack-dot"></div></div>
+          <div class="stack-item-content">
+            <div class="stack-item-title">Unified ColumnHeader molecule</div>
+            <div class="stack-item-meta"><span class="badge badge-draft">draft</span> <span><span class="stat-add">+211</span> <span class="stat-del">-358</span></span></div>
+          </div>
+        </div>
+        <div class="stack-item" onclick="selectPR(2)">
+          <div class="stack-connector"><div class="stack-dot"></div></div>
+          <div class="stack-item-content">
+            <div class="stack-item-title">Extract hooks</div>
+            <div class="stack-item-meta"><span class="badge badge-local">local</span></div>
+          </div>
+        </div>
+        <div class="stack-item" onclick="selectPR(3)">
+          <div class="stack-connector"><div class="stack-dot"></div></div>
+          <div class="stack-item-content">
+            <div class="stack-item-title">Render utilities + DataTable</div>
+            <div class="stack-item-meta"><span class="badge badge-local">local</span></div>
+          </div>
+        </div>
+        <div class="stack-item" onclick="selectPR(4)">
+          <div class="stack-connector"><div class="stack-dot"></div></div>
+          <div class="stack-item-content">
+            <div class="stack-item-title">Wire GroupedTable</div>
+            <div class="stack-item-meta"><span class="badge badge-local">local</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-bottom">
+    <div class="sidebar-tabs">
+      <div class="sidebar-tab active" onclick="switchSidebarTab('files')">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v1H2zm0 3h12v1H2zm0 3h8v1H2z"/></svg>
+        Files <span class="count">11</span>
+      </div>
+      <div class="sidebar-tab" onclick="switchSidebarTab('commits')">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5zm-1.43-.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0z"/></svg>
+        Commits <span class="count">1</span>
+      </div>
+    </div>
+
+    <div class="sidebar-tab-content active" id="sidebar-files-tab">
+      <div class="files-tab-header">
+        <span class="files-label">Changed files</span>
+      </div>
+      <div class="file-tree" id="tree-view">
+        <div class="tree-children" style="padding-left: 4px;">
+          <details open>
+            <summary style="padding-left: 4px;"><span class="tree-icon">&#9660;</span> <span class="tree-folder-name" style="color:var(--fg-muted)">apps/frontend/src/components/</span></summary>
+            <div class="tree-children">
+              <details open>
+                <summary><span class="tree-icon">&#9660;</span> <span style="color:var(--fg-muted)">molecules/ColumnHeader/</span></summary>
+                <div class="tree-children">
+                  <div class="tree-file"><span class="tree-change tree-change-add">+</span> <span style="color:var(--green)">ColumnHeader.tsx</span></div>
+                  <div class="tree-file"><span class="tree-change tree-change-mod">~</span> <span style="color:var(--yellow)">ColumnHeader.types.ts</span></div>
+                  <div class="tree-file"><span class="tree-change tree-change-add">+</span> <span style="color:var(--green)">index.ts</span></div>
+                </div>
+              </details>
+              <details open>
+                <summary><span class="tree-icon">&#9660;</span> <span style="color:var(--fg-muted)">molecules/DraggableColumnHeader/</span></summary>
+                <div class="tree-children">
+                  <div class="tree-file"><span class="tree-change tree-change-del">-</span> <span style="color:var(--red)">DraggableColumnHeader.tsx</span></div>
+                  <div class="tree-file"><span class="tree-change tree-change-del">-</span> <span style="color:var(--red)">index.ts</span></div>
+                </div>
+              </details>
+              <details>
+                <summary><span class="tree-icon">&#9654;</span> <span style="color:var(--fg-muted)">molecules/ResizableColumnHeader/</span></summary>
+                <div class="tree-children">
+                  <div class="tree-file"><span class="tree-change tree-change-del">-</span> <span style="color:var(--red)">ResizableColumnHeader.tsx</span></div>
+                  <div class="tree-file"><span class="tree-change tree-change-del">-</span> <span style="color:var(--red)">index.ts</span></div>
+                </div>
+              </details>
+              <details>
+                <summary><span class="tree-icon">&#9654;</span> <span style="color:var(--fg-muted)">molecules/SortableColumnHeader/</span></summary>
+                <div class="tree-children">
+                  <div class="tree-file"><span class="tree-change tree-change-del">-</span> <span style="color:var(--red)">SortableColumnHeader.tsx</span></div>
+                  <div class="tree-file"><span class="tree-change tree-change-del">-</span> <span style="color:var(--red)">index.ts</span></div>
+                </div>
+              </details>
+              <div class="tree-file"><span class="tree-change tree-change-mod">~</span> <span style="color:var(--yellow)">molecules/index.ts</span></div>
+              <div class="tree-file"><span class="tree-change tree-change-mod">~</span> <span style="color:var(--yellow)">organisms/DataTable/DataTable.tsx</span></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-tab-content" id="sidebar-commits-tab">
+      <div class="commits-list">
+        <div class="commit-item active" onclick="selectCommit(this)">
+          <div class="commit-radio"></div>
+          <div><div class="commit-all-label">All changes</div><div class="commit-time">full PR diff</div></div>
+        </div>
+        <div class="commit-item" onclick="selectCommit(this)">
+          <div class="commit-radio"></div>
+          <div><div class="commit-msg"><span class="commit-sha">f3efa4c</span> refactor: unify column header molecules</div><div class="commit-time">2h ago</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- Main -->
+<main class="main">
+  <div class="main-header">
+    <h2>Unified ColumnHeader molecule</h2>
+    <div class="branch-info">
+      <span>doug/table-consolidation/1-dead-code-cleanup</span> &#8592; <span>doug/table-consolidation/2-unified-column-header</span>
+    </div>
+  </div>
+
+  <div class="pr-description">
+    Replace SortableColumnHeader, ResizableColumnHeader, and DraggableColumnHeader with a single ColumnHeader molecule that composes sort, resize, drag, and frozen behaviors via props. Simplifies DataTable header rendering from two code paths to one.
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('files')">
+      <svg class="tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v1H2zm0 3h12v1H2zm0 3h8v1H2z"/></svg>
+      Files changed <span class="count">11</span>
+    </div>
+    <div class="tab" onclick="switchTab('conversation')">
+      <svg class="tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v8A1.5 1.5 0 0 1 13.5 12H9l-3 3v-3H2.5A1.5 1.5 0 0 1 1 10.5z"/></svg>
+      Conversation <span class="count">2</span>
+    </div>
+    <div class="tab" onclick="switchTab('traces')">
+      <svg class="tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3h4v2H1zm0 4h7v2H1zm0 4h5v2H1zm6-8h3v2H7zm5 0h3v2h-3zm-1 4h3v2h-3zm-4 4h4v2H7zm6 0h2v2h-2z"/></svg>
+      Traces <span class="count">3</span>
+    </div>
+    <div class="tab" onclick="switchTab('database')">
+      <svg class="tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1c-3.87 0-7 1.12-7 2.5v9c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5v-9C15 2.12 11.87 1 8 1zm0 1.5c3.04 0 5.5.67 5.5 1.5S11.04 5.5 8 5.5 2.5 4.83 2.5 4 4.96 2.5 8 2.5zM2.5 6.17C3.85 6.86 5.84 7.25 8 7.25s4.15-.39 5.5-1.08v2.33c0 .83-2.46 1.5-5.5 1.5S2.5 9.33 2.5 8.5V6.17zm0 4c1.35.69 3.34 1.08 5.5 1.08s4.15-.39 5.5-1.08v2.33c0 .83-2.46 1.5-5.5 1.5s-5.5-.67-5.5-1.5v-2.33z"/></svg>
+      Database
+    </div>
+    <div class="tab" onclick="switchTab('frontend')">
+      <svg class="tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-7zM3.5 3a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-9zM5 13.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/></svg>
+      Frontend
+    </div>
+  </div>
+
+  <!-- Tab: Files changed -->
+  <div class="content visible" id="files-tab">
+    <div class="file-list-header">
+      <div class="summary">Showing <strong>11 changed files</strong> with <span class="stat-add">211 additions</span> and <span class="stat-del">358 deletions</span></div>
+    </div>
+
+    <div class="diff-file" id="file-datatable">
+      <div class="diff-file-header" onclick="toggleFile(this)">
+        <span class="chevron">&#9660;</span>
+        <span class="diff-badge diff-badge-modified">M</span>
+        <span class="file-path"><span class="dir">apps/frontend/src/components/organisms/DataTable/</span>DataTable.tsx</span>
+        <span class="file-stats"><span class="stat-add">+22</span> <span class="stat-del">-73</span></span>
+      </div>
+      <div class="diff-body">
+        <table class="diff-table">
+          <tr class="diff-line-hunk"><td colspan="4">@@ -25,7 +25,7 @@ imports</td></tr>
+          <tr><td class="diff-line-gutter"></td><td class="diff-line-num">25</td><td class="diff-line-num">25</td><td class="diff-line-content"> } from '@tanstack/react-table';</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">28</td><td class="diff-line-num"></td><td class="diff-line-content">-import { Checkbox, cn, Icon } from '@/components/atoms';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">28</td><td class="diff-line-content">+import { Checkbox, cn } from '@/components/atoms';</td></tr>
+          <tr class="diff-line-hunk"><td colspan="4">@@ -37,5 +37,3 @@ imports</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">37</td><td class="diff-line-num"></td><td class="diff-line-content">-import { DraggableColumnHeader } from '@/components/molecules/DraggableColumnHeader';</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">38</td><td class="diff-line-num"></td><td class="diff-line-content">-import { ResizableColumnHeader } from '@/components/molecules/ResizableColumnHeader';</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">39</td><td class="diff-line-num"></td><td class="diff-line-content">-import { SortableColumnHeader } from '@/components/molecules/SortableColumnHeader';</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">37</td><td class="diff-line-content">+import { ColumnHeader } from '@/components/molecules/ColumnHeader';</td></tr>
+          <tr class="diff-line-hunk"><td colspan="4">@@ -463,86 +461,35 @@ header rendering</td></tr>
+          <tr><td class="diff-line-gutter"></td><td class="diff-line-num">463</td><td class="diff-line-num">461</td><td class="diff-line-content">             const minWidth = colMeta ? minWidthForType(colMeta.type) : undefined;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">480</td><td class="diff-line-num"></td><td class="diff-line-content">-          if (reorderable) {</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">481</td><td class="diff-line-num"></td><td class="diff-line-content">-            return &lt;DraggableColumnHeader ... /&gt;;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">482</td><td class="diff-line-num"></td><td class="diff-line-content">-          }</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">483</td><td class="diff-line-num"></td><td class="diff-line-content">-          return &lt;ResizableColumnHeader&gt;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">484</td><td class="diff-line-num"></td><td class="diff-line-content">-            &lt;SortableColumnHeader ... /&gt;</td></tr>
+          <tr class="diff-line-del"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num">485</td><td class="diff-line-num"></td><td class="diff-line-content">-          &lt;/ResizableColumnHeader&gt;;</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">464</td><td class="diff-line-content">+          return (</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">465</td><td class="diff-line-content">+            &lt;ColumnHeader</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">466</td><td class="diff-line-content">+              key={header.id}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">467</td><td class="diff-line-content">+              id={header.id}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">468</td><td class="diff-line-content">+              label={header.column.columnDef.header as string}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">469</td><td class="diff-line-content">+              icon={colMeta?.icon}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">470</td><td class="diff-line-content">+              draggable={reorderable}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">471</td><td class="diff-line-content">+              resizable={resizable}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">472</td><td class="diff-line-content">+              frozen={pinnedColumn === header.id}</td></tr>
+          <tr class="diff-line-add"><td class="diff-line-gutter"><button class="add-comment-btn">+</button></td><td class="diff-line-num"></td><td class="diff-line-num">473</td><td class="diff-line-content">+            /&gt;</td></tr>
+        </table>
+
+        <div class="inline-comment">
+          <div class="comment-header">
+            <div class="comment-avatar avatar-user">D</div>
+            <span class="comment-author">doug</span>
+            <span class="comment-time">just now</span>
+          </div>
+          <div class="comment-body">
+            The <code>as string</code> cast on line 468 -- can we type <code>header</code> properly instead? This is the kind of thing that bites us later when someone passes a ReactNode header.
+          </div>
+          <div class="comment-header" style="border-top: 1px solid var(--border);">
+            <div class="comment-avatar avatar-agent">C</div>
+            <span class="comment-author">claude</span>
+            <span class="comment-time">just now</span>
+          </div>
+          <div class="comment-body">
+            Good catch. The cast exists because TanStack's <code>ColumnDef.header</code> is typed as <code>string | HeaderFn</code>, but our <code>DataTableColumn</code> type constrains it to <code>string</code>. We can narrow this by reading from <code>colMeta.label</code> instead.
+          </div>
+          <div class="comment-reply">
+            <input type="text" class="comment-reply-input" placeholder="Reply..." />
+            <button class="btn btn-primary">Reply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collapsed files (summary only) -->
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-added">A</span> <span class="file-path"><span class="dir">...molecules/ColumnHeader/</span>ColumnHeader.tsx</span> <span class="file-stats"><span class="stat-add">+162</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-renamed">R</span> <span class="file-path"><span class="dir">...ColumnHeader/</span>ColumnHeader.types.ts</span> <span class="file-stats"><span class="stat-add">+42</span> <span class="stat-del">-6</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-added">A</span> <span class="file-path"><span class="dir">...ColumnHeader/</span>index.ts</span> <span class="file-stats"><span class="stat-add">+1</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-deleted">D</span> <span class="file-path"><span class="dir">...DraggableColumnHeader/</span>DraggableColumnHeader.tsx</span> <span class="file-stats"><span class="stat-del">-131</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-deleted">D</span> <span class="file-path"><span class="dir">...DraggableColumnHeader/</span>index.ts</span> <span class="file-stats"><span class="stat-del">-1</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-deleted">D</span> <span class="file-path"><span class="dir">...ResizableColumnHeader/</span>ResizableColumnHeader.tsx</span> <span class="file-stats"><span class="stat-del">-71</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-deleted">D</span> <span class="file-path"><span class="dir">...ResizableColumnHeader/</span>index.ts</span> <span class="file-stats"><span class="stat-del">-1</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-deleted">D</span> <span class="file-path"><span class="dir">...SortableColumnHeader/</span>SortableColumnHeader.tsx</span> <span class="file-stats"><span class="stat-del">-51</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-deleted">D</span> <span class="file-path"><span class="dir">...SortableColumnHeader/</span>index.ts</span> <span class="file-stats"><span class="stat-del">-1</span></span></div><div class="diff-body" style="display:none"></div></div>
+    <div class="diff-file"><div class="diff-file-header" onclick="toggleFile(this)"><span class="chevron">&#9654;</span> <span class="diff-badge diff-badge-modified">M</span> <span class="file-path"><span class="dir">...molecules/</span>index.ts</span> <span class="file-stats"><span class="stat-add">+2</span> <span class="stat-del">-13</span></span></div><div class="diff-body" style="display:none"></div></div>
+  </div>
+
+  <!-- Tab: Conversation -->
+  <div class="content conversation" id="conversation-tab">
+    <div class="conv-comment">
+      <div class="comment-header">
+        <div class="comment-avatar avatar-user">D</div>
+        <span class="comment-author">doug</span>
+        <span class="comment-time">2 minutes ago</span>
+      </div>
+      <div class="comment-body">
+        Overall looks good. Two things:<br><br>
+        1. The <code>as string</code> cast on the header label -- can we avoid that?<br>
+        2. Did we verify GroupedTable also works with this?
+      </div>
+    </div>
+    <div class="conv-comment">
+      <div class="comment-header">
+        <div class="comment-avatar avatar-agent">C</div>
+        <span class="comment-author">claude</span>
+        <span class="comment-time">1 minute ago</span>
+      </div>
+      <div class="comment-body">
+        1. Agreed -- I'll read the label from <code>colMeta.label</code> which is already <code>string</code>, avoiding the cast entirely.<br><br>
+        2. <code>GroupedTable.tsx</code> exists on the <code>saved-views</code> branch (PR #768). Once that stack merges, we'll update GroupedTable's headers in PR 3 or 4.
+      </div>
+    </div>
+    <div class="conv-compose">
+      <textarea placeholder="Leave a comment..."></textarea>
+      <div class="conv-compose-footer">
+        <button class="btn btn-subtle">Cancel</button>
+        <button class="btn btn-primary">Comment</button>
+      </div>
+    </div>
+    <div class="review-summary">
+      <div class="review-summary-header">Submit review</div>
+      <textarea placeholder="Leave an overall review summary..."></textarea>
+      <div class="review-options">
+        <label class="review-option"><input type="radio" name="review-type" value="comment" checked /><div><div class="option-label">Comment</div><div class="option-desc">Submit general feedback without explicit approval</div></div></label>
+        <label class="review-option"><input type="radio" name="review-type" value="approve" /><div><div class="option-label">Approve</div><div class="option-desc">Submit feedback and approve merging these changes</div></div></label>
+        <label class="review-option"><input type="radio" name="review-type" value="request-changes" /><div><div class="option-label">Request changes</div><div class="option-desc">Submit feedback that must be addressed before merging</div></div></label>
+      </div>
+      <div class="review-summary-footer">
+        <button class="btn btn-subtle">Cancel</button>
+        <button class="btn btn-approve">Submit review</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Traces -->
+  <div class="content-flex" id="traces-tab" style="flex-direction:column">
+    <div class="traces-panel" style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div class="traces-toolbar">
+        <select>
+          <option>POST /api/trpc/opportunity.updateField  142ms  OK  (13:42:07)</option>
+          <option>GET /api/trpc/opportunity.list  87ms  OK  (13:41:52)</option>
+          <option>POST /api/trpc/field.sync  312ms  OK  (13:40:15)</option>
+        </select>
+        <input type="text" placeholder="Filter spans..." />
+      </div>
+      <div class="trace-summary">
+        <div><span class="trace-label">Service </span><span class="trace-value">api-backend</span></div>
+        <div><span class="trace-label">Trace </span><span class="trace-value">4a8f2c1e9b3d7a05</span></div>
+        <div><span class="trace-label">Duration </span><span class="trace-value">142ms</span></div>
+        <div><span class="trace-label">Time </span><span class="trace-value">2026-03-13 13:42:07.231</span></div>
+        <div><span class="trace-label">Status </span><span class="trace-value ok">OK</span></div>
+      </div>
+      <div class="trace-content">
+        <div class="trace-waterfall">
+          <!-- Root span -->
+          <div class="span-row selected" onclick="selectSpan(this)">
+            <span class="span-svc svc-root">root</span>
+            <span class="span-name">POST /api/trpc/opportunity.updateField</span>
+            <span class="span-bar-area"><div class="span-bar bar-root" style="width:100%"></div></span>
+            <span class="span-dur">142ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- AuthGuard -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:20px"></span>
+            <span class="span-connector">&#9500;&#9472;</span>
+            <span class="span-svc svc-nestjs">nestjs</span>
+            <span class="span-name">AuthGuard.canActivate</span>
+            <span class="span-bar-area"><div class="span-bar bar-nestjs" style="width:1.4%"></div></span>
+            <span class="span-dur">2ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- TrpcRouter -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:20px"></span>
+            <span class="span-connector">&#9500;&#9472;</span>
+            <span class="span-svc svc-nestjs">nestjs</span>
+            <span class="span-name">TrpcRouter.handleRequest</span>
+            <span class="span-bar-area"><div class="span-bar bar-nestjs" style="width:97.2%"></div></span>
+            <span class="span-dur">138ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- trpc input validation -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:44px"></span>
+            <span class="span-connector">&#9500;&#9472;</span>
+            <span class="span-svc svc-trpc">trpc</span>
+            <span class="span-name">opportunity.updateField.input</span>
+            <span class="span-bar-area"><div class="span-bar bar-trpc" style="width:0.7%"></div></span>
+            <span class="span-dur">1ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- db SELECT -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:44px"></span>
+            <span class="span-connector">&#9500;&#9472;</span>
+            <span class="span-svc svc-db">db</span>
+            <span class="span-name">SELECT opportunity WHERE id=...</span>
+            <span class="span-bar-area"><div class="span-bar bar-db" style="width:2.1%"></div></span>
+            <span class="span-dur">3ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- Salesforce PATCH -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:44px"></span>
+            <span class="span-connector">&#9500;&#9472;</span>
+            <span class="span-svc svc-salesforce">salesforce</span>
+            <span class="span-name">PATCH /sobjects/Opportunity</span>
+            <span class="span-bar-area"><div class="span-bar bar-salesforce" style="width:62.7%"></div></span>
+            <span class="span-dur">89ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- db UPDATE -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:44px"></span>
+            <span class="span-connector">&#9500;&#9472;</span>
+            <span class="span-svc svc-db">db</span>
+            <span class="span-name">UPDATE opportunity SET amount=...</span>
+            <span class="span-bar-area"><div class="span-bar bar-db" style="width:2.8%"></div></span>
+            <span class="span-dur">4ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- db INSERT -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:44px"></span>
+            <span class="span-connector">&#9500;&#9472;</span>
+            <span class="span-svc svc-db">db</span>
+            <span class="span-name">INSERT INTO update_log ...</span>
+            <span class="span-bar-area"><div class="span-bar bar-db" style="width:1.4%"></div></span>
+            <span class="span-dur">2ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- electric notify -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:44px"></span>
+            <span class="span-connector">&#9492;&#9472;</span>
+            <span class="span-svc svc-electric">electric</span>
+            <span class="span-name">notify_change</span>
+            <span class="span-bar-area"><div class="span-bar bar-electric" style="width:0.7%"></div></span>
+            <span class="span-dur">1ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+          <!-- ResponseSerializer -->
+          <div class="span-row" onclick="selectSpan(this)">
+            <span class="span-indent" style="width:20px"></span>
+            <span class="span-connector">&#9492;&#9472;</span>
+            <span class="span-svc svc-nestjs">nestjs</span>
+            <span class="span-name">ResponseSerializer</span>
+            <span class="span-bar-area"><div class="span-bar bar-nestjs" style="width:0.7%"></div></span>
+            <span class="span-dur">1ms</span>
+            <span class="span-status span-ok">&#10003;</span>
+          </div>
+        </div>
+        <!-- Span detail panel -->
+        <div class="trace-detail visible" id="trace-detail">
+          <div class="trace-detail-header">
+            Span Details
+            <button class="trace-detail-close" onclick="document.getElementById('trace-detail').classList.remove('visible')">&times;</button>
+          </div>
+          <div class="trace-detail-section">
+            <h4>Span Attributes</h4>
+            <table class="attr-table">
+              <tr><td class="attr-key">http.method</td><td class="attr-val">POST</td></tr>
+              <tr><td class="attr-key">http.url</td><td class="attr-val">/api/trpc/opportunity.updateField</td></tr>
+              <tr><td class="attr-key">http.status_code</td><td class="attr-val">200</td></tr>
+              <tr><td class="attr-key">rpc.system</td><td class="attr-val">trpc</td></tr>
+              <tr><td class="attr-key">rpc.method</td><td class="attr-val">opportunity.updateField</td></tr>
+              <tr><td class="attr-key">db.system</td><td class="attr-val">postgresql</td></tr>
+            </table>
+          </div>
+          <div class="trace-detail-section">
+            <h4>Resource Attributes</h4>
+            <table class="attr-table">
+              <tr><td class="attr-key">service.name</td><td class="attr-val">api-backend</td></tr>
+              <tr><td class="attr-key">service.version</td><td class="attr-val">1.42.0</td></tr>
+              <tr><td class="attr-key">deployment.env</td><td class="attr-val">development</td></tr>
+              <tr><td class="attr-key">host.name</td><td class="attr-val">localhost</td></tr>
+              <tr><td class="attr-key">telemetry.sdk</td><td class="attr-val">@opentelemetry/sdk-node 1.21.0</td></tr>
+            </table>
+          </div>
+          <div class="trace-detail-section">
+            <h4>Events</h4>
+            <table class="attr-table">
+              <tr><td class="attr-key">13:42:07.233</td><td class="attr-val">Auth token validated (user_id=usr_d1k2m)</td></tr>
+              <tr><td class="attr-key">13:42:07.371</td><td class="attr-val">Salesforce API response received</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Database -->
+  <div class="content-flex" id="database-tab">
+    <div class="db-panel" style="flex:1;min-height:0">
+      <div class="db-sidebar">
+        <div class="db-tree-label">&#9660; public</div>
+        <div class="db-table-item active"><span class="db-table-icon">&#9643;</span> opportunity</div>
+        <div class="db-table-item"><span class="db-table-icon">&#9643;</span> update_log</div>
+        <div class="db-table-item"><span class="db-table-icon">&#9643;</span> field</div>
+        <div class="db-table-item"><span class="db-table-icon">&#9643;</span> user</div>
+        <div class="db-table-item"><span class="db-table-icon">&#9643;</span> todo</div>
+      </div>
+      <div class="db-main">
+        <div class="db-query-bar">
+          <textarea class="db-query-input" rows="2">SELECT id, name, amount, stage, updated_at FROM opportunity LIMIT 5</textarea>
+          <button class="btn btn-primary" style="margin-top:1px">Run</button>
+        </div>
+        <div class="db-results">
+          <table class="db-results-table">
+            <thead>
+              <tr>
+                <th>id <span class="col-type">text</span></th>
+                <th>name <span class="col-type">text</span></th>
+                <th>amount <span class="col-type">int4</span></th>
+                <th>stage <span class="col-type">text</span></th>
+                <th>updated_at <span class="col-type">timestamptz</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="id-cell">opp_01hx7k9m2p</td>
+                <td>Acme Corp - Enterprise</td>
+                <td class="num-cell">150000</td>
+                <td>Negotiation</td>
+                <td class="date-cell">2026-03-13 09:14:22.431-07</td>
+              </tr>
+              <tr>
+                <td class="id-cell">opp_01hx7k9n4q</td>
+                <td>TechStart Series B</td>
+                <td class="num-cell">85000</td>
+                <td>Qualification</td>
+                <td class="date-cell">2026-03-12 16:33:05.892-07</td>
+              </tr>
+              <tr>
+                <td class="id-cell">opp_01hx7k9p6r</td>
+                <td>GlobalFinance Platform</td>
+                <td class="num-cell">320000</td>
+                <td>Proposal Sent</td>
+                <td class="date-cell">2026-03-12 11:07:41.004-07</td>
+              </tr>
+              <tr>
+                <td class="id-cell">opp_01hx7k9q8s</td>
+                <td>Meridian Health - Renewal</td>
+                <td class="num-cell">47500</td>
+                <td>Closed Won</td>
+                <td class="date-cell">2026-03-11 14:52:19.667-07</td>
+              </tr>
+              <tr>
+                <td class="id-cell">opp_01hx7k9r0t</td>
+                <td>Vertex Labs POC</td>
+                <td class="num-cell">22000</td>
+                <td>Discovery</td>
+                <td class="date-cell">2026-03-11 08:29:53.118-07</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="db-results-footer">5 rows returned in 3ms</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Frontend -->
+  <div class="content-flex" id="frontend-tab" style="flex-direction:column">
+    <div class="fe-panel" style="flex:1;min-height:0;display:flex;flex-direction:column">
+      <div class="fe-toolbar">
+        <button class="fe-btn" title="Refresh" onclick="void(0)">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M13.65 2.35A7.96 7.96 0 0 0 8 0a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L10 6h6V0l-2.35 2.35z"/></svg>
+        </button>
+        <input class="fe-url" type="text" value="https://localhost:3001/app/opportunities" />
+        <div class="fe-device-group">
+          <button class="fe-btn active" onclick="setDevice('desktop',this)" title="Desktop">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-7zM3.5 3a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-9zM5 13.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/></svg>
+          </button>
+          <button class="fe-btn" onclick="setDevice('tablet',this)" title="Tablet">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h7A1.5 1.5 0 0 1 13 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-11zM4.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-7zM7 13h2v1H7v-1z"/></svg>
+          </button>
+          <button class="fe-btn" onclick="setDevice('mobile',this)" title="Mobile">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5A1.5 1.5 0 0 1 5.5 1h5A1.5 1.5 0 0 1 12 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 13.5v-11zM5.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h5a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-5zM7 13h2v1H7v-1z"/></svg>
+          </button>
+        </div>
+        <a class="fe-btn" href="https://localhost:3001/app/opportunities" target="_blank" style="text-decoration:none">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M9 2h5v5l-2-2-3 3-1.5-1.5L10.5 4 9 2zM4 4h3v1.5H4.5v6h6V9H12v3.5A1.5 1.5 0 0 1 10.5 14h-6A1.5 1.5 0 0 1 3 12.5v-6A1.5 1.5 0 0 1 4.5 5H4V4z"/></svg>
+          Open
+        </a>
+      </div>
+      <div class="fe-viewport">
+        <div class="fe-frame" id="fe-frame">
+          <div class="fe-app-bar">
+            <span class="fe-app-logo">Tempo</span>
+            <div class="fe-app-nav">
+              <span>Dashboard</span>
+              <span class="active">Opportunities</span>
+              <span>Updates</span>
+              <span>Settings</span>
+            </div>
+          </div>
+          <div class="fe-app-content">
+            <div class="fe-app-title">Opportunities</div>
+            <table class="fe-mock-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Amount</th>
+                  <th>Stage</th>
+                  <th>Close Date</th>
+                  <th>Owner</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="font-weight:500">Acme Corp - Enterprise</td>
+                  <td style="text-align:right;font-family:var(--font-mono);font-size:12px">$150,000</td>
+                  <td><span class="fe-stage-badge stage-negotiation">Negotiation</span></td>
+                  <td style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">2026-04-15</td>
+                  <td style="color:var(--fg-muted)">Sarah Chen</td>
+                </tr>
+                <tr>
+                  <td style="font-weight:500">TechStart Series B</td>
+                  <td style="text-align:right;font-family:var(--font-mono);font-size:12px">$85,000</td>
+                  <td><span class="fe-stage-badge stage-qualification">Qualification</span></td>
+                  <td style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">2026-05-01</td>
+                  <td style="color:var(--fg-muted)">James Park</td>
+                </tr>
+                <tr>
+                  <td style="font-weight:500">GlobalFinance Platform</td>
+                  <td style="text-align:right;font-family:var(--font-mono);font-size:12px">$320,000</td>
+                  <td><span class="fe-stage-badge stage-proposal">Proposal Sent</span></td>
+                  <td style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">2026-03-28</td>
+                  <td style="color:var(--fg-muted)">Sarah Chen</td>
+                </tr>
+                <tr>
+                  <td style="font-weight:500">Meridian Health - Renewal</td>
+                  <td style="text-align:right;font-family:var(--font-mono);font-size:12px">$47,500</td>
+                  <td><span class="fe-stage-badge stage-closed-won">Closed Won</span></td>
+                  <td style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">2026-03-10</td>
+                  <td style="color:var(--fg-muted)">Alex Rivera</td>
+                </tr>
+                <tr>
+                  <td style="font-weight:500">Vertex Labs POC</td>
+                  <td style="text-align:right;font-family:var(--font-mono);font-size:12px">$22,000</td>
+                  <td><span class="fe-stage-badge stage-discovery">Discovery</span></td>
+                  <td style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">2026-06-30</td>
+                  <td style="color:var(--fg-muted)">James Park</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action bar -->
+  <div class="action-bar">
+    <div class="status">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--yellow)"><circle cx="8" cy="8" r="6"/></svg>
+      Draft -- local only
+    </div>
+    <div class="actions">
+      <button class="btn btn-subtle">Ask Claude to revise</button>
+      <button class="btn btn-primary">Mark ready &amp; push</button>
+    </div>
+  </div>
+</main>
+
+<script>
+function toggleFile(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.chevron');
+  if (body.style.display === 'none') { body.style.display = ''; chevron.textContent = '\u25BC'; }
+  else { body.style.display = 'none'; chevron.textContent = '\u25B6'; }
+}
+function switchTab(tab) {
+  document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  ['files-tab','conversation-tab','traces-tab','database-tab','frontend-tab'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('visible');
+    if (id === 'conversation-tab') el.style.display = '';
+  });
+  const target = document.getElementById(tab === 'files' ? 'files-tab' : tab === 'conversation' ? 'conversation-tab' : tab + '-tab');
+  if (tab === 'conversation') { target.style.display = 'flex'; target.classList.add('visible'); }
+  else { target.classList.add('visible'); }
+}
+function selectPR(index) { document.querySelectorAll('.stack-item').forEach((item, i) => item.classList.toggle('active', i === index)); }
+function toggleSection(id) { document.getElementById(id).classList.toggle('collapsed'); }
+function switchSidebarTab(tab) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('sidebar-files-tab').classList.toggle('active', tab === 'files');
+  document.getElementById('sidebar-commits-tab').classList.toggle('active', tab === 'commits');
+}
+function selectCommit(item) { document.querySelectorAll('.commit-item').forEach(c => c.classList.remove('active')); item.classList.add('active'); }
+function selectSpan(row) {
+  document.querySelectorAll('.span-row').forEach(r => r.classList.remove('selected'));
+  row.classList.add('selected');
+  document.getElementById('trace-detail').classList.add('visible');
+}
+function setDevice(device, btn) {
+  document.querySelectorAll('.fe-device-group .fe-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const frame = document.getElementById('fe-frame');
+  frame.classList.remove('tablet', 'mobile');
+  if (device !== 'desktop') frame.classList.add(device);
+}
+document.querySelectorAll('.file-tree details').forEach(d => {
+  const icon = d.querySelector('summary .tree-icon');
+  if (!icon) return;
+  d.addEventListener('toggle', () => { icon.textContent = d.open ? '\u25BC' : '\u25B6'; });
+});
+</script>
+
+</body>
+</html>

@@ -134,7 +134,7 @@ export class SubmitCommand extends Command {
       if (branch.pr == null) {
         // Create PR
         const title = this.deriveTitle(branch.name);
-        const draft = i !== 0;
+        const draft = true;
         try {
           const prNumber = gh.prCreate({
             base,

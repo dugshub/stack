@@ -1,15 +1,14 @@
 import { Command } from 'clipanion';
-import { readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as ui from '../lib/ui.js';
 
 const REPO = 'git+ssh://git@github.com/dugshub/stack.git';
-const GLOBAL_PKG = join(
+const GLOBAL_DIR = join(
 	process.env.HOME ?? '~',
 	'.bun',
 	'install',
 	'global',
-	'package.json',
 );
 
 export class UpdateCommand extends Command {
@@ -22,18 +21,26 @@ export class UpdateCommand extends Command {
 	async execute(): Promise<number> {
 		ui.info('Updating stack...');
 
-		// Clean global package.json to avoid dependency loop
-		// (bun adds our package as a dep, but we ARE that package)
+		// 1. Clean global package.json to avoid dependency loop
+		const pkgPath = join(GLOBAL_DIR, 'package.json');
 		try {
-			const raw = readFileSync(GLOBAL_PKG, 'utf-8');
+			const raw = readFileSync(pkgPath, 'utf-8');
 			const pkg = JSON.parse(raw);
 			if (pkg.dependencies) {
 				delete pkg.dependencies['@pattern-stack/stack'];
 				delete pkg.dependencies['@dealbrain/stack'];
-				writeFileSync(GLOBAL_PKG, JSON.stringify(pkg, null, 2) + '\n');
+				writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 			}
 		} catch {
 			// If we can't clean it, try the install anyway
+		}
+
+		// 2. Delete lockfile so bun fetches the latest commit
+		const lockPath = join(GLOBAL_DIR, 'bun.lock');
+		try {
+			if (existsSync(lockPath)) unlinkSync(lockPath);
+		} catch {
+			// Non-critical
 		}
 
 		const result = Bun.spawnSync(['bun', 'install', '-g', REPO], {

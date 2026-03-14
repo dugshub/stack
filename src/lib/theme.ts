@@ -1,5 +1,13 @@
-import pc from 'picocolors';
+import { isatty } from 'node:tty';
+import { createColors } from 'picocolors';
 import type { Formatter } from 'picocolors/types';
+
+// All CLI output goes to stderr (fd 2). Use node:tty.isatty() for reliable
+// detection — process.stderr.isTTY can be undefined in Bun global installs.
+const colorEnabled =
+	!process.env.NO_COLOR &&
+	(!!process.env.FORCE_COLOR || isatty(2));
+const pc = createColors(colorEnabled);
 
 // ── Palette ─────────────────────────────────────────────
 // Raw colors. Change these to retheme the entire CLI.

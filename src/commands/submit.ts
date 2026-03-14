@@ -90,41 +90,51 @@ export class SubmitCommand extends Command {
 		return 0;
 	}
 
-	private fullSubmit(
+	private async fullSubmit(
 		state: ReturnType<typeof loadState>,
 		stack: ReturnType<typeof loadState>["stacks"][string] & object,
 		stackName: string,
-	): number {
+	): Promise<number> {
 		const originalBranch = git.currentBranch();
 		const repoUrl = `https://github.com/${state.repo}`;
 
-		// Phase 1: Push (only changed branches)
+		// Phase 1: Push (only changed branches, in parallel)
 		ui.heading("\nPushing branches...");
+		const pushPlans: git.PushPlan[] = [];
+		const upToDate: string[] = [];
+
 		for (const branch of stack.branches) {
 			if (!git.needsPush(branch.name)) {
-				ui.info(`  \u2191 ${theme.branch(branch.name)} (up to date)`);
+				upToDate.push(branch.name);
 				continue;
 			}
-			if (git.hasRemoteRef(branch.name)) {
-				const pushResult = git.pushForceWithLease("origin", branch.name);
-				if (pushResult.ok) {
-					ui.success(`Pushed ${theme.branch(branch.name)}`);
+			pushPlans.push({
+				branch: branch.name,
+				mode: git.hasRemoteRef(branch.name) ? 'force-with-lease' : 'new',
+			});
+		}
+
+		for (const name of upToDate) {
+			ui.info(`  \u2191 ${theme.branch(name)} (up to date)`);
+		}
+
+		if (pushPlans.length > 0) {
+			const pushResults = await git.pushParallel("origin", pushPlans);
+			for (const result of pushResults) {
+				if (result.ok) {
+					const plan = pushPlans.find(p => p.branch === result.branch);
+					const suffix = plan?.mode === 'new' ? ' (new)' : '';
+					ui.success(`Pushed ${theme.branch(result.branch)}${suffix}`);
 				} else {
 					ui.error(
-						`Push rejected for ${theme.branch(branch.name)}. Someone else may have pushed. Run ${theme.command("git fetch")} and check.`,
+						`Push failed for ${theme.branch(result.branch)}: ${result.error ?? 'unknown error'}`,
 					);
 					return 2;
 				}
-			} else {
-				try {
-					git.pushNew("origin", branch.name);
-					ui.success(`Pushed ${theme.branch(branch.name)} (new)`);
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					ui.error(`Failed to push ${theme.branch(branch.name)}: ${msg}`);
-					return 2;
-				}
 			}
+		}
+
+		for (const branch of stack.branches) {
 			branch.tip = git.revParse(branch.name);
 		}
 

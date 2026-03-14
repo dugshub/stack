@@ -177,6 +177,35 @@ export function pushNew(remote: string, branch: string): void {
   run('push', '-u', remote, branch);
 }
 
+export type PushPlan = {
+  branch: string;
+  mode: 'force-with-lease' | 'new';
+};
+
+export type PushResult = {
+  branch: string;
+  ok: boolean;
+  error?: string;
+};
+
+/** Push multiple branches in parallel using async Bun.spawn. */
+export async function pushParallel(remote: string, plans: PushPlan[]): Promise<PushResult[]> {
+  const promises = plans.map(async (plan) => {
+    const args = plan.mode === 'new'
+      ? ['git', 'push', '-u', remote, plan.branch]
+      : ['git', 'push', '--force-with-lease', remote, plan.branch];
+    const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
+    const exitCode = await proc.exited;
+    const stderr = await new Response(proc.stderr).text();
+    return {
+      branch: plan.branch,
+      ok: exitCode === 0,
+      error: exitCode !== 0 ? stderr.trim() : undefined,
+    };
+  });
+  return Promise.all(promises);
+}
+
 export function deleteBranch(
   branch: string,
   opts?: { remote?: boolean },

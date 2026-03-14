@@ -1,7 +1,9 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const VERSION = '0.1.0';
+const pkgPath = new URL('../../package.json', import.meta.url).pathname;
+const pkg = JSON.parse(require('fs').readFileSync(pkgPath, 'utf-8'));
+const VERSION: string = pkg.version ?? '0.0.0';
 const REPO = 'dugshub/stack';
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const CHECK_FILE = join(homedir(), '.claude', 'stack-update-check.json');
@@ -56,6 +58,16 @@ function fetchRemoteVersion(): string | null {
   }
 }
 
+function isNewer(remote: string, local: string): boolean {
+  const r = remote.split('.').map(Number);
+  const l = local.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((r[i] ?? 0) > (l[i] ?? 0)) return true;
+    if ((r[i] ?? 0) < (l[i] ?? 0)) return false;
+  }
+  return false;
+}
+
 /** Check for updates (throttled). Returns a message string if update available, null otherwise. */
 export function checkForUpdate(): string | null {
   const state = readCheckState();
@@ -63,7 +75,7 @@ export function checkForUpdate(): string | null {
 
   // Use cached result if recent enough
   if (state && now - state.lastCheck < CHECK_INTERVAL_MS) {
-    if (state.remoteVersion && state.remoteVersion !== VERSION) {
+    if (state.remoteVersion && isNewer(state.remoteVersion, VERSION)) {
       return updateMessage(state.remoteVersion);
     }
     return null;
@@ -73,7 +85,7 @@ export function checkForUpdate(): string | null {
   const remoteVersion = fetchRemoteVersion();
   writeCheckState({ lastCheck: now, remoteVersion });
 
-  if (remoteVersion && remoteVersion !== VERSION) {
+  if (remoteVersion && isNewer(remoteVersion, VERSION)) {
     return updateMessage(remoteVersion);
   }
   return null;

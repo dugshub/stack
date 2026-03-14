@@ -42,6 +42,32 @@ if (needsRepo && !git.tryRun('rev-parse', '--show-toplevel').ok) {
   process.exit(2);
 }
 
+// Bare `stack` with no args — show styled usage instead of clipanion default
+if (args.length === 0) {
+  const v = currentVersion();
+  process.stderr.write(`\n  ${theme.label(`stack`)} ${theme.muted(`v${v}`)}\n`);
+  process.stderr.write(`  ${theme.muted('Stacked PRs for GitHub')}\n\n`);
+
+  const cmds = [
+    ['create [name]',           'Start a new stack'],
+    ['push',                    'Add current branch to the stack'],
+    ['submit',                  'Push branches, create/update PRs'],
+    ['status',                  'Show stack and PR status'],
+    ['nav up|down|top|bottom',  'Navigate between branches'],
+    ['restack',                 'Rebase downstream after mid-stack edits'],
+    ['sync',                    'Clean up after PRs merge'],
+    ['init',                    'Install Claude Code skills'],
+    ['update',                  'Self-update to latest version'],
+  ];
+
+  for (const [cmd, desc] of cmds) {
+    process.stderr.write(`  ${theme.command(`stack ${cmd}`.padEnd(34))} ${theme.muted(desc ?? '')}\n`);
+  }
+
+  process.stderr.write(`\n  ${theme.muted('Run any command with -h for details')}\n\n`);
+  process.exit(0);
+}
+
 // Check for updates after command runs (non-blocking)
 const exitCode = await cli.run(args);
 const updateMsg = checkForUpdate();

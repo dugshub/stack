@@ -2,12 +2,12 @@
 name: stack
 description: Manage PR stacks — create, push, submit, restack, sync, navigate. Use when user mentions stacks, stacked PRs, restack, stack submit, or branch dependencies.
 argument-hint: [create|push|submit|restack|sync|nav|status]
-allowed-tools: Bash, Read, Write, Glob, Grep
+allowed-tools: Bash, Read
 ---
 
 # /stack — PR Stack Management
 
-Replace for Graphite. Manages PR stacks using `gh` CLI + `git` directly.
+Thin wrapper around the `stack` CLI. All operations delegate to the CLI binary.
 
 ## Usage
 
@@ -16,65 +16,31 @@ Replace for Graphite. Manages PR stacks using `gh` CLI + `git` directly.
 /stack create [name]       # initialize new stack
 /stack push                # add current branch to top of active stack
 /stack submit              # push all + create/update PRs + comments
+/stack submit --dry-run    # preview what submit would do
 /stack restack             # cascade rebase after mid-stack edit
 /stack restack --continue  # resume after resolving conflicts
 /stack sync                # retarget after PR merge
-/stack nav up|down         # navigate stack
+/stack nav up|down|top|bottom  # navigate stack
 ```
 
-## How It Works
+## Execution
 
-- Stack state persisted at `~/.claude/stacks/<repo>.json`
-- Uses `gh` CLI for all GitHub operations (PRs, comments)
-- Uses `git rebase --onto` for restacking
-- Worktree-aware — restacks across worktrees by cd-ing into each
-- Multiple independent stacks supported simultaneously
-
-## Branch Naming Convention
-
-Suggested: `<username>/<stack-name>/<n>-<description>`
-
-Example: `doug/frozen-column/1-sticky-header`, `doug/frozen-column/2-scroll-shadow`
-
-## Operations
-
-Based on the subcommand (from `$ARGUMENTS`), read and follow the appropriate operation file:
-
-| Subcommand | Operation File |
-|------------|---------------|
-| (none) or `status` | `$CLAUDE_SKILL_DIR/operations/status.md` |
-| `create` | `$CLAUDE_SKILL_DIR/operations/create.md` |
-| `push` | `$CLAUDE_SKILL_DIR/operations/push.md` |
-| `submit` | `$CLAUDE_SKILL_DIR/operations/submit.md` |
-| `restack` | `$CLAUDE_SKILL_DIR/operations/restack.md` |
-| `sync` | `$CLAUDE_SKILL_DIR/operations/sync.md` |
-| `nav` | `$CLAUDE_SKILL_DIR/operations/nav.md` |
-
-**Before executing any operation:**
-1. Read `$CLAUDE_SKILL_DIR/schema.md` to understand the JSON data model
-2. Read the relevant operation file
-3. If the operation modifies PR comments, also read `$CLAUDE_SKILL_DIR/comment-template.md`
-
-## Stack JSON Location
+Run the CLI command directly. Pass through all arguments from `$ARGUMENTS`:
 
 ```bash
-REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
-STACK_FILE="$HOME/.claude/stacks/${REPO_NAME}.json"
+stack $ARGUMENTS
 ```
 
-If the file does not exist, initialize it:
-```json
-{
-  "repo": "<owner>/<repo>",
-  "stacks": {}
-}
+If `$ARGUMENTS` is empty, run `stack status`.
+
+If `stack` is not found (command not found), tell the user to install it:
+
+```bash
+bun install -g git+ssh://git@github.com/dugshub/stack.git
 ```
 
-Determine `<owner>/<repo>` from: `gh repo view --json nameWithOwner --jq '.nameWithOwner'`
+## When to use proactively
 
-## Active Stack Detection
-
-The active stack is inferred — not stored:
-1. `git branch --show-current` to get current branch
-2. Search all stacks for a branch entry matching the current branch
-3. If found, that stack is active and the branch index is the current position
+- When implementing features across multiple PRs, use `stack create` + `stack push` to organize branches
+- After amending commits mid-stack, run `stack restack` to cascade changes
+- Before asking for review, run `stack submit` to push and create/update all PRs

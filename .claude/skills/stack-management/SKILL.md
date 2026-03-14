@@ -5,35 +5,37 @@ user-invocable: false
 allowed-tools: Bash, Read
 ---
 
-# Stack Context Loader
+# Stack Context Auto-Loader
 
-Automatically provides stack awareness to Claude and subagents.
+Provides stack awareness to Claude and subagents automatically. Read-only — never modifies state.
 
-## Instructions
+## Steps
 
-1. Get current branch and repo:
+1. Check if `stack` CLI is available:
    ```bash
-   CURRENT_BRANCH=$(git branch --show-current)
-   REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
+   which stack 2>/dev/null
    ```
 
-2. Read stack state from `~/.claude/stacks/${REPO_NAME}.json`. If the file does not exist, there are no active stacks — stop here silently.
-
-3. Search all stacks for a branch entry matching `$CURRENT_BRANCH`.
-
-4. If found, report concisely:
-   ```
-   Stack: <stack-name> | Branch <position> of <total> | Upstream: <parent-branch> | Downstream: <child-branch>
-   PRs: #101 → #102 → #103 (current: #102)
+2. If available, get stack context:
+   ```bash
+   stack status --json 2>/dev/null
    ```
 
-5. If a `restackState` is present on the stack, warn:
+3. If JSON output is returned, report concisely:
    ```
-   ⚠ Restack in progress — resolve conflicts and run `/stack restack --continue`
+   Stack: <stackName> | Branch <position> of <total> | <branchName>
    ```
 
-6. If not found in any stack, stay silent — don't report anything.
+4. If `stack` is not installed but `.claude/` exists in the project root, suggest:
+   ```
+   Stack CLI not installed. Install with: bun install -g git+ssh://git@github.com/dugshub/stack.git
+   Then run: stack init
+   ```
 
-## Key Principle
+5. If not on a stack branch, stay silent.
 
-This skill is **read-only** and **lean**. It never modifies the stack JSON. It exists solely to orient Claude (and subagents with `skills: [stack-management]`) within the stack topology.
+## Principles
+
+- **Lean**: One command, concise output
+- **Read-only**: Never modify state or branches
+- **Silent when irrelevant**: No output if not on a stack branch

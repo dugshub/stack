@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Builtins, Cli } from 'clipanion';
 import { CreateCommand } from './commands/create.js';
+import { InitCommand } from './commands/init.js';
 import { NavCommand } from './commands/nav.js';
 import { PushCommand } from './commands/push.js';
 import { RestackCommand } from './commands/restack.js';
@@ -8,6 +9,7 @@ import { StatusCommand } from './commands/status.js';
 import { SubmitCommand } from './commands/submit.js';
 import { SyncCommand } from './commands/sync.js';
 import { UpdateCommand } from './commands/update.js';
+import { theme } from './lib/theme.js';
 import { checkForUpdate, currentVersion } from './lib/version.js';
 
 const cli = new Cli({
@@ -25,12 +27,13 @@ cli.register(PushCommand);
 cli.register(SubmitCommand);
 cli.register(RestackCommand);
 cli.register(SyncCommand);
+cli.register(InitCommand);
 cli.register(UpdateCommand);
 
 // Check for updates after command runs (non-blocking)
 const exitCode = await cli.run(process.argv.slice(2));
 const updateMsg = checkForUpdate();
 if (updateMsg) {
-  process.stderr.write(`\n\x1b[33m${updateMsg}\x1b[0m\n`);
+  process.stderr.write(`\n${theme.warning(updateMsg)}\n`);
 }
 process.exit(exitCode);

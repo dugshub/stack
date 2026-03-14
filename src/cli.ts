@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 import { Builtins, Cli } from 'clipanion';
 import { CreateCommand } from './commands/create.js';
+import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
 import { NavCommand } from './commands/nav.js';
 import { PushCommand } from './commands/push.js';
+import { RemoveCommand } from './commands/remove.js';
 import { RestackCommand } from './commands/restack.js';
 import { StatusCommand } from './commands/status.js';
 import { SubmitCommand } from './commands/submit.js';
@@ -25,7 +27,9 @@ cli.register(Builtins.VersionCommand);
 cli.register(StatusCommand);
 cli.register(NavCommand);
 cli.register(CreateCommand);
+cli.register(DeleteCommand);
 cli.register(PushCommand);
+cli.register(RemoveCommand);
 cli.register(SubmitCommand);
 cli.register(RestackCommand);
 cli.register(SyncCommand);
@@ -34,7 +38,13 @@ cli.register(UpdateCommand);
 
 // Commands that don't require a git repo
 const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update'];
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+
+// `stack 3` → `stack nav 3`
+const args = rawArgs.length === 1 && /^\d+$/.test(rawArgs[0] ?? '')
+  ? ['nav', rawArgs[0]!]
+  : rawArgs;
+
 const needsRepo = args.length > 0 && !args.some((a) => noRepoRequired.includes(a));
 
 if (needsRepo && !git.tryRun('rev-parse', '--show-toplevel').ok) {
@@ -50,17 +60,26 @@ if (args.length === 0) {
 
   const cmds = [
     ['create [name]',           'Start a new stack'],
-    ['push',                    'Add current branch to the stack'],
-    ['submit',                  'Push branches, create/update PRs'],
+    ['delete [name]',           'Remove a stack from tracking'],
     ['status',                  'Show stack and PR status'],
-    ['nav up|down|top|bottom',  'Navigate between branches'],
+    ['',                        ''],
+    ['push',                    'Add current branch to the stack'],
+    ['remove [branch]',         'Remove a branch from the stack'],
+    ['nav [up|down|top|bottom]','Navigate between branches'],
+    ['',                        ''],
+    ['submit',                  'Push branches, create/update PRs'],
     ['restack',                 'Rebase downstream after mid-stack edits'],
     ['sync',                    'Clean up after PRs merge'],
+    ['',                        ''],
     ['init',                    'Install Claude Code skills'],
     ['update',                  'Self-update to latest version'],
   ];
 
   for (const [cmd, desc] of cmds) {
+    if (!cmd) {
+      process.stderr.write('\n');
+      continue;
+    }
     process.stderr.write(`  ${theme.command(`stack ${cmd}`.padEnd(34))} ${theme.muted(desc ?? '')}\n`);
   }
 

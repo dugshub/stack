@@ -141,6 +141,10 @@ export function prComment(prNumber: number, body: string): void {
   );
 }
 
+export function prClose(prNumber: number): void {
+  run('pr', 'close', String(prNumber));
+}
+
 export function prList(head: string): number | null {
   const result = exec(
     'pr',

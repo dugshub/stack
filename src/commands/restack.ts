@@ -1,6 +1,7 @@
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
 import type { RestackState } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
@@ -54,7 +55,7 @@ export class RestackCommand extends Command {
     const position = findActiveStack(state);
     if (!position) {
       ui.error(
-        'Not on a stack branch. Use `stack status` to see tracked stacks.',
+        `Not on a stack branch. Use ${theme.command('stack status')} to see tracked stacks.`,
       );
       return 2;
     }
@@ -124,7 +125,7 @@ export class RestackCommand extends Command {
         continue;
       }
 
-      ui.info(`Rebasing ${branch.name} onto ${parentBranch.name}...`);
+      ui.info(`Rebasing ${theme.branch(branch.name)} onto ${theme.branch(parentBranch.name)}...`);
 
       // Determine execution directory for worktree-aware rebase
       const worktreePath = worktreeMap.get(branch.name);
@@ -164,12 +165,12 @@ export class RestackCommand extends Command {
         // Record new tip as old tip for next iteration
         restackState.oldTips[branch.name] = branch.tip;
         saveState(state);
-        ui.success(`Rebased ${branch.name}`);
+        ui.success(`Rebased ${theme.branch(branch.name)}`);
       } else {
         // Conflict — save state and exit
         restackState.currentIndex = i;
         saveState(state);
-        ui.error(`Conflict rebasing ${branch.name}`);
+        ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
         if (rebaseResult.conflicts.length > 0) {
           ui.info('Conflicting files:');
           for (const file of rebaseResult.conflicts) {
@@ -177,7 +178,7 @@ export class RestackCommand extends Command {
           }
         }
         ui.info(
-          'Resolve conflicts, stage files, then run `stack restack --continue`.',
+          `Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
         );
         return 1;
       }
@@ -268,7 +269,7 @@ export class RestackCommand extends Command {
     restackState.oldTips[currentBranch.name] = currentBranch.tip;
     restackState.currentIndex += 1;
     saveState(state);
-    ui.success(`Rebased ${currentBranch.name}`);
+    ui.success(`Rebased ${theme.branch(currentBranch.name)}`);
 
     // Continue cascade
     return this.cascadeRebase(state, stack, stackName, worktreeMap);

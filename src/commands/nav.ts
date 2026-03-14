@@ -1,6 +1,7 @@
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
 import type { Stack, StackPosition } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
@@ -37,7 +38,7 @@ export class NavCommand extends Command {
 
     if (!position) {
       ui.error(
-        'Not on a stack branch. Use `stack status` to see tracked stacks.',
+        `Not on a stack branch. Use ${theme.command('stack status')} to see tracked stacks.`,
       );
       return 2;
     }
@@ -65,10 +66,10 @@ export class NavCommand extends Command {
   private navUp(stack: Stack, position: StackPosition): number {
     if (position.isBottom) {
       if (process.stdout.isTTY) {
-        ui.info(`Already at bottom of stack. Trunk is "${stack.trunk}".`);
+        ui.info(`Already at bottom of stack. Trunk is ${theme.branch(stack.trunk)}.`);
         // In a future iteration, could prompt to checkout trunk
         // For now, just inform
-        ui.info(`Run \`git checkout ${stack.trunk}\` to switch to trunk.`);
+        ui.info(`Run ${theme.command(`git checkout ${stack.trunk}`)} to switch to trunk.`);
       }
       return 0;
     }
@@ -81,7 +82,7 @@ export class NavCommand extends Command {
     }
 
     git.checkout(target.name);
-    ui.success(`Checked out ${target.name}`);
+    ui.success(`Checked out ${theme.branch(target.name)}`);
     ui.positionReport({
       stackName: position.stackName,
       index: targetIndex,
@@ -107,7 +108,7 @@ export class NavCommand extends Command {
     }
 
     git.checkout(target.name);
-    ui.success(`Checked out ${target.name}`);
+    ui.success(`Checked out ${theme.branch(target.name)}`);
     ui.positionReport({
       stackName: position.stackName,
       index: targetIndex,
@@ -133,7 +134,7 @@ export class NavCommand extends Command {
     }
 
     git.checkout(target.name);
-    ui.success(`Checked out ${target.name}`);
+    ui.success(`Checked out ${theme.branch(target.name)}`);
     ui.positionReport({
       stackName: position.stackName,
       index: targetIndex,
@@ -158,7 +159,7 @@ export class NavCommand extends Command {
     }
 
     git.checkout(target.name);
-    ui.success(`Checked out ${target.name}`);
+    ui.success(`Checked out ${theme.branch(target.name)}`);
     ui.positionReport({
       stackName: position.stackName,
       index: 0,
@@ -177,20 +178,20 @@ export class NavCommand extends Command {
     if (position) {
       ui.positionReport(position);
       process.stderr.write('\n');
-      process.stderr.write('Navigate with:\n');
+      process.stderr.write(`${theme.label('Navigate with:')}\n`);
     } else {
-      process.stderr.write('Navigate your stack:\n');
+      process.stderr.write(`${theme.label('Navigate your stack:')}\n`);
     }
 
-    process.stderr.write('  stack nav up       Move toward trunk\n');
-    process.stderr.write('  stack nav down     Move away from trunk\n');
-    process.stderr.write('  stack nav top      Go to top of stack\n');
-    process.stderr.write('  stack nav bottom   Go to bottom of stack\n');
+    process.stderr.write(`  stack nav ${theme.accent('up')}       ${theme.muted('Move toward trunk')}\n`);
+    process.stderr.write(`  stack nav ${theme.accent('down')}     ${theme.muted('Move away from trunk')}\n`);
+    process.stderr.write(`  stack nav ${theme.accent('top')}      ${theme.muted('Go to top of stack')}\n`);
+    process.stderr.write(`  stack nav ${theme.accent('bottom')}   ${theme.muted('Go to bottom of stack')}\n`);
 
     if (!position) {
       process.stderr.write('\n');
       process.stderr.write('Not currently on a stack branch.\n');
-      process.stderr.write('Use `stack status` to see tracked stacks.\n');
+      process.stderr.write(`Use ${theme.command('stack status')} to see tracked stacks.\n`);
     }
 
     return 0;

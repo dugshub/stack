@@ -1,6 +1,7 @@
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
 export class PushCommand extends Command {
@@ -44,7 +45,7 @@ export class PushCommand extends Command {
       // Check if there is exactly one stack — use it
       const stackNames = Object.keys(state.stacks);
       if (stackNames.length === 0) {
-        ui.error('No tracked stacks. Use `stack create <name>` to start one.');
+        ui.error(`No tracked stacks. Use ${theme.command('stack create <name>')} to start one.`);
         return 2;
       }
       if (stackNames.length === 1) {
@@ -97,7 +98,7 @@ export class PushCommand extends Command {
 
     const newIndex = stack.branches.length - 1;
     ui.success(
-      `Added "${currentBranch}" to stack "${stackName}" at position ${newIndex + 1}`,
+      `Added ${theme.branch(currentBranch)} to stack ${theme.stack(stackName)} at position ${newIndex + 1}`,
     );
     ui.positionReport({
       stackName,

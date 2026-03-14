@@ -4,6 +4,7 @@ import { parseBranchName, validateStackName } from '../lib/branch.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
 export class CreateCommand extends Command {
@@ -107,7 +108,7 @@ export class CreateCommand extends Command {
     };
     saveState(state);
 
-    ui.success(`Created stack "${name}" with branch ${branchName}`);
+    ui.success(`Created stack ${theme.stack(name)} with branch ${theme.branch(branchName)}`);
 
     // First-time repo settings check
     const settings = gh.repoSettings();
@@ -175,7 +176,7 @@ export class CreateCommand extends Command {
     };
     saveState(state);
 
-    ui.success(`Created stack "${suggestedName}" with branch ${currentBranch}`);
+    ui.success(`Created stack ${theme.stack(suggestedName)} with branch ${theme.branch(currentBranch)}`);
     return 0;
   }
 
@@ -233,12 +234,12 @@ export class CreateCommand extends Command {
     };
     saveState(state);
 
-    ui.success(`Created stack "${name}" with ${branches.length} branches`);
+    ui.success(`Created stack ${theme.stack(name)} with ${branches.length} branches`);
     for (let i = 0; i < branchEntries.length; i++) {
       const entry = branchEntries[i];
       if (!entry) continue;
-      const prStr = entry.pr != null ? ` (PR #${entry.pr})` : '';
-      ui.info(`  ${i + 1}. ${entry.name}${prStr}`);
+      const prStr = entry.pr != null ? ` (${theme.pr(`#${entry.pr}`)})` : '';
+      ui.info(`  ${i + 1}. ${theme.branch(entry.name)}${prStr}`);
     }
     return 0;
   }

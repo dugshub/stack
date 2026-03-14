@@ -3,6 +3,7 @@ import { generateComment } from '../lib/comment.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { loadState, saveState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
 import type { PrStatus, RestackState } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
@@ -126,13 +127,13 @@ export class SyncCommand extends Command {
           }
         }
 
-        ui.info(`Retargeting PR #${branch.pr} to ${newBase}...`);
+        ui.info(`Retargeting ${theme.pr(`#${branch.pr}`)} to ${theme.branch(newBase)}...`);
         try {
           gh.prEdit(branch.pr, { base: newBase });
-          ui.success(`Retargeted PR #${branch.pr} to ${newBase}`);
+          ui.success(`Retargeted ${theme.pr(`#${branch.pr}`)} to ${theme.branch(newBase)}`);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          ui.error(`Failed to retarget PR #${branch.pr}: ${msg}`);
+          ui.error(`Failed to retarget ${theme.pr(`#${branch.pr}`)}: ${msg}`);
           return 2;
         }
       }
@@ -169,7 +170,7 @@ export class SyncCommand extends Command {
     for (const idx of sortedMerged) {
       const branch = stack.branches[idx];
       if (!branch) continue;
-      ui.info(`Deleting merged branch ${branch.name}...`);
+      ui.info(`Deleting merged branch ${theme.branch(branch.name)}...`);
       git.deleteBranch(branch.name, { remote: true });
       stack.branches.splice(idx, 1);
     }
@@ -179,7 +180,7 @@ export class SyncCommand extends Command {
     if (allMerged) {
       delete state.stacks[stackName];
       saveState(state);
-      ui.success(`Stack "${stackName}" fully merged and removed.`);
+      ui.success(`Stack ${theme.stack(stackName)} fully merged and removed.`);
       return 0;
     }
 
@@ -196,7 +197,7 @@ export class SyncCommand extends Command {
       );
       if (!ffResult.ok) {
         ui.warn(
-          `Could not fast-forward ${stack.trunk} — trunk may be out of date. Rebases will use the local trunk state.`,
+          `Could not fast-forward ${theme.branch(stack.trunk)} — trunk may be out of date. Rebases will use the local trunk state.`,
         );
       }
     } catch (err) {
@@ -237,7 +238,7 @@ export class SyncCommand extends Command {
           if (result.ok) {
             firstBranch.tip = git.revParse(firstBranch.name);
             oldTips[firstBranch.name] = firstBranch.tip;
-            ui.success(`Rebased ${firstBranch.name} onto ${stack.trunk}`);
+            ui.success(`Rebased ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`);
           } else {
             // Save restackState for continuation
             const restackState: RestackState = {
@@ -248,7 +249,7 @@ export class SyncCommand extends Command {
             stack.restackState = restackState;
             saveState(state);
             ui.error(
-              `Conflict rebasing ${firstBranch.name} onto ${stack.trunk}`,
+              `Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`,
             );
             if (result.conflicts.length > 0) {
               ui.info('Conflicting files:');
@@ -257,7 +258,7 @@ export class SyncCommand extends Command {
               }
             }
             ui.info(
-              'Resolve conflicts, stage files, then run `stack restack --continue`.',
+              `Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
             );
             return 1;
           }
@@ -277,7 +278,7 @@ export class SyncCommand extends Command {
         if (result.ok) {
           branch.tip = git.revParse(branch.name);
           oldTips[branch.name] = branch.tip;
-          ui.success(`Rebased ${branch.name}`);
+          ui.success(`Rebased ${theme.branch(branch.name)}`);
         } else {
           // Save restackState for continuation
           const restackState: RestackState = {
@@ -287,7 +288,7 @@ export class SyncCommand extends Command {
           };
           stack.restackState = restackState;
           saveState(state);
-          ui.error(`Conflict rebasing ${branch.name}`);
+          ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
           if (result.conflicts.length > 0) {
             ui.info('Conflicting files:');
             for (const file of result.conflicts) {
@@ -295,7 +296,7 @@ export class SyncCommand extends Command {
             }
           }
           ui.info(
-            'Resolve conflicts, stage files, then run `stack restack --continue`.',
+            `Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
           );
           return 1;
         }
@@ -339,7 +340,7 @@ export class SyncCommand extends Command {
     }
 
     ui.success(
-      `Synced stack "${stackName}": removed ${mergedIndices.length} merged, ${stack.branches.length} remaining`,
+      `Synced stack ${theme.stack(stackName)}: removed ${mergedIndices.length} merged, ${stack.branches.length} remaining`,
     );
     return 0;
   }

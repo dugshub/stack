@@ -1,6 +1,7 @@
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import { findActiveStack, loadState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
@@ -77,7 +78,7 @@ export class StatusCommand extends Command {
     }
 
     ui.heading(
-      `\nStack: ${position.stackName} (on branch ${position.index + 1} of ${position.total})\n`,
+      `\nStack: ${theme.stack(position.stackName)} (on branch ${position.index + 1} of ${position.total})\n`,
     );
     ui.stackTree(stack, position, prStatuses);
     process.stderr.write('\n');
@@ -88,7 +89,7 @@ export class StatusCommand extends Command {
     const stackNames = Object.keys(state.stacks);
 
     if (stackNames.length === 0) {
-      ui.info('No tracked stacks. Use `stack create <name>` to start one.');
+      ui.info(`No tracked stacks. Use ${theme.command('stack create <name>')} to start one.`);
       return 0;
     }
 
@@ -111,7 +112,7 @@ export class StatusCommand extends Command {
       const age = formatRelativeTime(stack.updated);
       const restackMarker = stack.restackState ? '  (restack in progress)' : '';
       ui.info(
-        `  ${name}   ${stack.branches.length} branches   updated ${age}${restackMarker}`,
+        `  ${theme.stack(name)}   ${stack.branches.length} branches   updated ${age}${restackMarker}`,
       );
     }
     process.stderr.write('\n');

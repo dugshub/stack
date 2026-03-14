@@ -4,6 +4,7 @@ import { generateComment } from '../lib/comment.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
@@ -28,7 +29,7 @@ export class SubmitCommand extends Command {
 
     if (!position) {
       ui.error(
-        'Not on a stack branch. Use `stack status` to see tracked stacks.',
+        `Not on a stack branch. Use ${theme.command('stack status')} to see tracked stacks.`,
       );
       return 2;
     }
@@ -58,7 +59,7 @@ export class SubmitCommand extends Command {
     );
 
     process.stderr.write(
-      `  ${'Branch'.padEnd(50)} ${'Base'.padEnd(20)} Action\n`,
+      `  ${theme.muted('Branch'.padEnd(50))} ${theme.muted('Base'.padEnd(20))} ${theme.muted('Action')}\n`,
     );
     process.stderr.write(
       `  ${''.padEnd(50, '\u2500')} ${''.padEnd(20, '\u2500')} ${''.padEnd(20, '\u2500')}\n`,
@@ -71,17 +72,17 @@ export class SubmitCommand extends Command {
         i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
       const action =
         branch.pr != null
-          ? `update PR #${branch.pr}`
+          ? theme.accent(`update PR #${branch.pr}`)
           : i === 0
-            ? 'create PR (ready)'
-            : 'create PR (draft)';
+            ? theme.accent('create PR (ready)')
+            : theme.accent('create PR (draft)');
       const shortBase = base.length > 18 ? `${base.slice(0, 15)}...` : base;
       process.stderr.write(
-        `  ${branch.name.padEnd(50)} ${shortBase.padEnd(20)} ${action}\n`,
+        `  ${theme.branch(branch.name.padEnd(50))} ${shortBase.padEnd(20)} ${action}\n`,
       );
     }
 
-    process.stderr.write(`\nRun \`stack submit\` to proceed.\n`);
+    process.stderr.write(`\nRun ${theme.command('stack submit')} to proceed.\n`);
     return 0;
   }
 
@@ -99,10 +100,10 @@ export class SubmitCommand extends Command {
         // Existing remote branch — force-push with lease
         const pushResult = git.pushForceWithLease('origin', branch.name);
         if (pushResult.ok) {
-          ui.success(`Pushed ${branch.name}`);
+          ui.success(`Pushed ${theme.branch(branch.name)}`);
         } else {
           ui.error(
-            `Push rejected for ${branch.name}. Someone else may have pushed. Run \`git fetch\` and check.`,
+            `Push rejected for ${theme.branch(branch.name)}. Someone else may have pushed. Run ${theme.command('git fetch')} and check.`,
           );
           return 2;
         }
@@ -110,10 +111,10 @@ export class SubmitCommand extends Command {
         // New branch — push with tracking
         try {
           git.pushNew('origin', branch.name);
-          ui.success(`Pushed ${branch.name} (new)`);
+          ui.success(`Pushed ${theme.branch(branch.name)} (new)`);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          ui.error(`Failed to push ${branch.name}: ${msg}`);
+          ui.error(`Failed to push ${theme.branch(branch.name)}: ${msg}`);
           return 2;
         }
       }
@@ -145,26 +146,26 @@ export class SubmitCommand extends Command {
           });
           branch.pr = prNumber;
           ui.success(
-            `Created PR #${prNumber} for ${branch.name}${draft ? ' (draft)' : ''}`,
+            `Created ${theme.pr(`#${prNumber}`)} for ${theme.branch(branch.name)}${draft ? ' (draft)' : ''}`,
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          ui.error(`Failed to create PR for ${branch.name}: ${msg}`);
+          ui.error(`Failed to create PR for ${theme.branch(branch.name)}: ${msg}`);
           return 2;
         }
       } else {
         // Update existing PR — verify it exists, update base if needed
         const prStatus = gh.prView(branch.pr);
         if (!prStatus) {
-          ui.warn(`PR #${branch.pr} not found — skipping update`);
+          ui.warn(`${theme.pr(`#${branch.pr}`)} not found — skipping update`);
           continue;
         }
         try {
           gh.prEdit(branch.pr, { base });
-          ui.success(`Updated PR #${branch.pr} base to ${base}`);
+          ui.success(`Updated ${theme.pr(`#${branch.pr}`)} base to ${theme.branch(base)}`);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          ui.warn(`Failed to update PR #${branch.pr} base: ${msg}`);
+          ui.warn(`Failed to update ${theme.pr(`#${branch.pr}`)} base: ${msg}`);
         }
       }
     }
@@ -186,10 +187,10 @@ export class SubmitCommand extends Command {
       const comment = generateComment(stack, branch.pr, prStatuses, repoUrl);
       try {
         gh.prComment(branch.pr, comment);
-        ui.success(`Updated stack comment on PR #${branch.pr}`);
+        ui.success(`Updated stack comment on ${theme.pr(`#${branch.pr}`)}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        ui.warn(`Failed to update comment on PR #${branch.pr}: ${msg}`);
+        ui.warn(`Failed to update comment on ${theme.pr(`#${branch.pr}`)}: ${msg}`);
       }
     }
 
@@ -206,12 +207,12 @@ export class SubmitCommand extends Command {
 
     // 5. Report
     process.stderr.write('\n');
-    ui.success(`Submitted stack "${stackName}" (${stack.branches.length} PRs)`);
+    ui.success(`Submitted stack ${theme.stack(stackName)} (${stack.branches.length} PRs)`);
     for (let i = 0; i < stack.branches.length; i++) {
       const branch = stack.branches[i];
       if (!branch) continue;
-      const prStr = branch.pr != null ? `#${branch.pr}` : 'no PR';
-      ui.info(`  ${i + 1}. ${branch.name} → ${prStr}`);
+      const prStr = branch.pr != null ? theme.pr(`#${branch.pr}`) : 'no PR';
+      ui.info(`  ${i + 1}. ${theme.branch(branch.name)} → ${prStr}`);
     }
     return 0;
   }

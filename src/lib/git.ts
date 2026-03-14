@@ -71,6 +71,15 @@ export function defaultBranch(): string {
   return 'main';
 }
 
+/** Returns true if the branch needs to be pushed (local tip differs from remote tip). */
+export function needsPush(branch: string): boolean {
+  const localTip = tryRun('rev-parse', branch);
+  if (!localTip.ok) return true;
+  const remoteTip = tryRun('rev-parse', `origin/${branch}`);
+  if (!remoteTip.ok) return true;
+  return localTip.stdout !== remoteTip.stdout;
+}
+
 export function hasRemoteRef(branch: string): boolean {
   const result = tryRun('rev-parse', '--verify', `origin/${branch}`);
   return result.ok;

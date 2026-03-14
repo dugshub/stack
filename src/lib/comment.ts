@@ -1,6 +1,9 @@
 import type { PrStatus, Stack } from './types.js';
 import { statusEmoji, statusText } from './ui.js';
 
+/** Marker used to identify stack navigation comments posted by the bot. */
+export const COMMENT_MARKER = '### PR Stack';
+
 export function generateComment(
   stack: Stack,
   currentPrNumber: number,
@@ -9,7 +12,7 @@ export function generateComment(
 ): string {
   const lines: string[] = [];
 
-  lines.push('### PR Stack');
+  lines.push(COMMENT_MARKER);
   lines.push('');
   lines.push('| # | Branch | PR | Status |');
   lines.push('|---|--------|-----|--------|');

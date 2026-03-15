@@ -1,3 +1,4 @@
+import type { MergeStrategy } from '../server/types.js';
 import type { PrStatus } from './types.js';
 
 interface RunResult {
@@ -159,6 +160,39 @@ export function prList(head: string): number | null {
   if (!result.ok || result.stdout.length === 0) return null;
   const num = Number.parseInt(result.stdout, 10);
   return Number.isNaN(num) ? null : num;
+}
+
+export function prMergeAuto(
+	prNumber: number,
+	opts: { strategy: MergeStrategy },
+): { ok: boolean; error?: string } {
+	const strategyFlag =
+		opts.strategy === 'squash'
+			? '--squash'
+			: opts.strategy === 'rebase'
+				? '--rebase'
+				: '--merge';
+	const result = exec(
+		'pr',
+		'merge',
+		String(prNumber),
+		'--auto',
+		strategyFlag,
+	);
+	if (!result.ok) {
+		return { ok: false, error: result.stderr };
+	}
+	return { ok: true };
+}
+
+export function prMergeAutoDisable(
+	prNumber: number,
+): { ok: boolean; error?: string } {
+	const result = exec('pr', 'merge', String(prNumber), '--disable-auto');
+	if (!result.ok) {
+		return { ok: false, error: result.stderr };
+	}
+	return { ok: true };
 }
 
 export function repoSettings(): { deleteBranchOnMerge: boolean } {

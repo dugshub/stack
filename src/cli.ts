@@ -2,11 +2,13 @@
 import { Builtins, Cli } from 'clipanion';
 import { AbsorbCommand } from './commands/absorb.js';
 import { CreateCommand } from './commands/create.js';
+import { MergeCommand } from './commands/merge.js';
 import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
 import { NavCommand } from './commands/nav.js';
 import { PushCommand } from './commands/push.js';
 import { RemoveCommand } from './commands/remove.js';
+import { SplitCommand } from './commands/split.js';
 import { RestackCommand } from './commands/restack.js';
 import { StatusCommand } from './commands/status.js';
 import { SubmitCommand } from './commands/submit.js';
@@ -35,6 +37,8 @@ cli.register(SubmitCommand);
 cli.register(AbsorbCommand);
 cli.register(RestackCommand);
 cli.register(SyncCommand);
+cli.register(MergeCommand);
+cli.register(SplitCommand);
 cli.register(InitCommand);
 cli.register(UpdateCommand);
 
@@ -71,8 +75,10 @@ if (args.length === 0) {
     ['',                        ''],
     ['submit',                  'Push branches, create/update PRs'],
     ['absorb',                  'Route fixes to correct stack branches'],
+    ['split [specs...]',        'Split changes into a stack'],
     ['restack',                 'Rebase downstream after mid-stack edits'],
     ['sync',                    'Clean up after PRs merge'],
+    ['merge --all',             'Merge entire stack bottom-up'],
     ['',                        ''],
     ['init',                    'Install Claude Code skills'],
     ['update',                  'Self-update to latest version'],

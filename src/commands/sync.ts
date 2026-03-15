@@ -6,6 +6,7 @@ import { loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus, RestackState } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
+import { findActiveJobForStack } from '../server/state.js';
 
 export class SyncCommand extends Command {
   static override paths = [['sync']];
@@ -20,6 +21,23 @@ export class SyncCommand extends Command {
 
     // Find a stack that the user might be on, or the only stack
     let stackName: string | undefined;
+    const currentBranchForGuard = git.tryRun('branch', '--show-current');
+    if (currentBranchForGuard.ok) {
+      for (const [name, s] of Object.entries(state.stacks)) {
+        for (const branch of s.branches) {
+          if (branch.name === currentBranchForGuard.stdout) {
+            const activeJob = findActiveJobForStack(name);
+            if (activeJob) {
+              ui.error(
+                `A merge job is active for this stack. Use ${theme.command('stack merge --status')} to check progress.`,
+              );
+              return 2;
+            }
+            break;
+          }
+        }
+      }
+    }
     const currentBranch = git.currentBranch();
 
     for (const [name, stack] of Object.entries(state.stacks)) {

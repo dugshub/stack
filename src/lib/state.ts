@@ -35,6 +35,11 @@ export function saveState(state: StackFile): void {
   renameSync(tmpPath, filePath);
 }
 
+export function getHistoryFilePath(): string {
+  const repoName = git.repoBasename();
+  return join(getStackDir(), `${repoName}.history.jsonl`);
+}
+
 export function findActiveStack(state: StackFile): StackPosition | null {
   let branch: string;
   try {

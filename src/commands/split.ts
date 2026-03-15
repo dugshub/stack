@@ -8,6 +8,7 @@ import type { FileStats, SplitPlan } from '../lib/split.js';
 import { buildSplitPlan, parseSplitArgs } from '../lib/split.js';
 import { loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
+import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class SplitCommand extends Command {
@@ -267,6 +268,7 @@ export class SplitCommand extends Command {
 		plan: SplitPlan,
 		state: ReturnType<typeof loadState>,
 	): number {
+		saveSnapshot('split');
 		const repoRoot = git.repoRoot();
 
 		// Step 1: Read all dirty file contents into memory

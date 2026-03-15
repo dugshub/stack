@@ -5,6 +5,7 @@ import * as git from '../lib/git.js';
 import { loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus, RestackState } from '../lib/types.js';
+import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class SyncCommand extends Command {
@@ -67,6 +68,8 @@ export class SyncCommand extends Command {
       );
       return 2;
     }
+
+    saveSnapshot('sync');
 
     // 1. Fetch
     ui.info('Fetching from origin...');

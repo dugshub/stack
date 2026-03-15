@@ -5,6 +5,7 @@ import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { RestackState } from '../lib/types.js';
+import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class AbsorbCommand extends Command {
@@ -140,6 +141,8 @@ export class AbsorbCommand extends Command {
       ui.info(`Dry run — no changes made. Remove ${theme.command('--dry-run')} to execute.`);
       return 0;
     }
+
+    saveSnapshot('absorb');
 
     // Execute absorption
     process.stderr.write('\n');

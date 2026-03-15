@@ -5,6 +5,7 @@ import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
+import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class DeleteCommand extends Command {
@@ -79,6 +80,8 @@ export class DeleteCommand extends Command {
         }
       }
     }
+
+    saveSnapshot('delete');
 
     // Close PRs if requested
     if (this.prs && openPrs.length > 0) {

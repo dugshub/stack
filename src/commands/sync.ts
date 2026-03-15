@@ -1,7 +1,8 @@
-import { Command } from 'clipanion';
+import { Command, Option } from 'clipanion';
 import { generateComment } from '../lib/comment.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
+import { resolveStack } from '../lib/resolve.js';
 import { loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus, RestackState } from '../lib/types.js';
@@ -16,43 +17,22 @@ export class SyncCommand extends Command {
     examples: [['Sync current stack', 'stack sync']],
   });
 
+  stackName = Option.String('--stack,-s', {
+    description: 'Target stack by name',
+  });
+
   async execute(): Promise<number> {
     const state = loadState();
 
-    // Find a stack that the user might be on, or the only stack
-    let stackName: string | undefined;
-    const currentBranch = git.currentBranch();
-
-    for (const [name, stack] of Object.entries(state.stacks)) {
-      for (const branch of stack.branches) {
-        if (branch.name === currentBranch) {
-          stackName = name;
-          break;
-        }
-      }
-      if (stackName) break;
-    }
-
-    if (!stackName) {
-      // Fallback: if exactly one stack, use it
-      const names = Object.keys(state.stacks);
-      if (names.length === 1) {
-        stackName = names[0];
-      }
-    }
-
-    if (!stackName) {
-      ui.error(
-        'Could not determine which stack to sync. Navigate to a stack branch first.',
-      );
+    let resolved: Awaited<ReturnType<typeof resolveStack>>;
+    try {
+      resolved = await resolveStack({ state, explicitName: this.stackName });
+    } catch (err) {
+      ui.error(err instanceof Error ? err.message : String(err));
       return 2;
     }
 
-    const stack = state.stacks[stackName];
-    if (!stack) {
-      ui.error(`Stack "${stackName}" not found`);
-      return 2;
-    }
+    const { stackName: resolvedName, stack } = resolved;
 
     if (stack.restackState) {
       ui.error(
@@ -181,9 +161,9 @@ export class SyncCommand extends Command {
 
     // 5. If all merged, remove stack entry
     if (allMerged) {
-      delete state.stacks[stackName];
+      delete state.stacks[resolvedName];
       saveState(state);
-      ui.success(`Stack ${theme.stack(stackName)} fully merged and removed.`);
+      ui.success(`Stack ${theme.stack(resolvedName)} fully merged and removed.`);
       return 0;
     }
 
@@ -343,7 +323,7 @@ export class SyncCommand extends Command {
     }
 
     ui.success(
-      `Synced stack ${theme.stack(stackName)}: removed ${mergedIndices.length} merged, ${stack.branches.length} remaining`,
+      `Synced stack ${theme.stack(resolvedName)}: removed ${mergedIndices.length} merged, ${stack.branches.length} remaining`,
     );
     return 0;
   }

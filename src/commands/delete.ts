@@ -2,7 +2,8 @@ import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { resolveStack } from '../lib/resolve.js';
+import { loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -34,25 +35,19 @@ export class DeleteCommand extends Command {
   async execute(): Promise<number> {
     const state = loadState();
 
-    // Resolve stack name
-    let stackName = this.name;
-    if (!stackName) {
-      const position = findActiveStack(state);
-      if (position) {
-        stackName = position.stackName;
-      } else {
-        ui.error(
-          `No stack name given and not on a stack branch. Usage: ${theme.command('stack delete <name>')}`,
-        );
-        return 2;
-      }
-    }
-
-    const stack = state.stacks[stackName];
-    if (!stack) {
-      ui.error(`Stack "${stackName}" not found.`);
+    let resolved: Awaited<ReturnType<typeof resolveStack>>;
+    try {
+      resolved = await resolveStack({
+        state,
+        explicitName: this.name,
+        interactive: this.name ? false : undefined,
+      });
+    } catch (err) {
+      ui.error(err instanceof Error ? err.message : String(err));
       return 2;
     }
+
+    const { stackName, stack } = resolved;
 
     // Safety: prompt for confirmation if stack has open PRs
     const prNumbers = stack.branches

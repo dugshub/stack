@@ -7,7 +7,8 @@ import {
 	fetchPRDetails,
 	MutationBatch,
 } from "../lib/graphql.js";
-import { findActiveStack, loadState, saveState } from "../lib/state.js";
+import { resolveStack } from "../lib/resolve.js";
+import { loadState, saveState } from "../lib/state.js";
 import { theme } from "../lib/theme.js";
 import type { PrStatus } from "../lib/types.js";
 import { saveSnapshot } from "../lib/undo.js";
@@ -24,32 +25,32 @@ export class SubmitCommand extends Command {
 		],
 	});
 
+	stackName = Option.String("--stack,-s", {
+		description: "Target stack by name",
+	});
+
 	dryRun = Option.Boolean("--dry-run", false, {
 		description: "Show what would happen without making changes",
 	});
 
 	async execute(): Promise<number> {
 		const state = loadState();
-		const position = findActiveStack(state);
 
-		if (!position) {
-			ui.error(
-				`Not on a stack branch. Use ${theme.command("stack status")} to see tracked stacks.`,
-			);
+		let resolved: Awaited<ReturnType<typeof resolveStack>>;
+		try {
+			resolved = await resolveStack({ state, explicitName: this.stackName });
+		} catch (err) {
+			ui.error(err instanceof Error ? err.message : String(err));
 			return 2;
 		}
 
-		const stack = state.stacks[position.stackName];
-		if (!stack) {
-			ui.error(`Stack "${position.stackName}" not found`);
-			return 2;
-		}
+		const { stackName: resolvedName, stack, position } = resolved;
 
 		if (this.dryRun) {
-			return this.showDryRun(stack, position.stackName);
+			return this.showDryRun(stack, resolvedName);
 		}
 
-		return this.fullSubmit(state, stack, position.stackName);
+		return this.fullSubmit(state, stack, resolvedName, position);
 	}
 
 	private showDryRun(
@@ -95,9 +96,10 @@ export class SubmitCommand extends Command {
 		state: ReturnType<typeof loadState>,
 		stack: ReturnType<typeof loadState>["stacks"][string] & object,
 		stackName: string,
+		position: import("../lib/types.js").StackPosition | null,
 	): Promise<number> {
 		saveSnapshot('submit');
-		const originalBranch = git.currentBranch();
+		const originalBranch = position ? git.currentBranch() : null;
 		const repoUrl = `https://github.com/${state.repo}`;
 
 		// Phase 1: Push (only changed branches, in parallel)
@@ -326,10 +328,12 @@ export class SubmitCommand extends Command {
 		stack.updated = new Date().toISOString();
 		saveState(state);
 
-		try {
-			git.checkout(originalBranch);
-		} catch {
-			// If we can't restore, that's ok — user can switch manually
+		if (originalBranch) {
+			try {
+				git.checkout(originalBranch);
+			} catch {
+				// If we can't restore, that's ok — user can switch manually
+			}
 		}
 
 		process.stderr.write("\n");

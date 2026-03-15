@@ -2,6 +2,7 @@ import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
+import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class PushCommand extends Command {
@@ -90,6 +91,8 @@ export class PushCommand extends Command {
         return 2;
       }
     }
+
+    saveSnapshot('push');
 
     const tip = git.revParse('HEAD');
     stack.branches.push({ name: currentBranch, tip, pr: null });

@@ -3,6 +3,7 @@ import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { RestackState } from '../lib/types.js';
+import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class RestackCommand extends Command {
@@ -76,6 +77,8 @@ export class RestackCommand extends Command {
       ui.info('Already at top of stack — nothing to restack.');
       return 0;
     }
+
+    saveSnapshot('restack');
 
     // Snapshot old tips for all branches from current position onward
     const oldTips: Record<string, string> = {};

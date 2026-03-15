@@ -206,6 +206,15 @@ export async function pushParallel(remote: string, plans: PushPlan[]): Promise<P
   return Promise.all(promises);
 }
 
+export function resetHard(branch: string, sha: string): void {
+  run('checkout', branch);
+  run('reset', '--hard', sha);
+}
+
+export function branchCreate(name: string, sha: string): boolean {
+  return tryRun('branch', name, sha).ok;
+}
+
 export function deleteBranch(
   branch: string,
   opts?: { remote?: boolean },

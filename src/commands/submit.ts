@@ -10,6 +10,7 @@ import {
 import { findActiveStack, loadState, saveState } from "../lib/state.js";
 import { theme } from "../lib/theme.js";
 import type { PrStatus } from "../lib/types.js";
+import { saveSnapshot } from "../lib/undo.js";
 import * as ui from "../lib/ui.js";
 
 export class SubmitCommand extends Command {
@@ -95,6 +96,7 @@ export class SubmitCommand extends Command {
 		stack: ReturnType<typeof loadState>["stacks"][string] & object,
 		stackName: string,
 	): Promise<number> {
+		saveSnapshot('submit');
 		const originalBranch = git.currentBranch();
 		const repoUrl = `https://github.com/${state.repo}`;
 

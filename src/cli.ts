@@ -11,6 +11,7 @@ import { RestackCommand } from './commands/restack.js';
 import { StatusCommand } from './commands/status.js';
 import { SubmitCommand } from './commands/submit.js';
 import { SyncCommand } from './commands/sync.js';
+import { UndoCommand } from './commands/undo.js';
 import { UpdateCommand } from './commands/update.js';
 import * as git from './lib/git.js';
 import { theme } from './lib/theme.js';
@@ -35,6 +36,7 @@ cli.register(SubmitCommand);
 cli.register(AbsorbCommand);
 cli.register(RestackCommand);
 cli.register(SyncCommand);
+cli.register(UndoCommand);
 cli.register(InitCommand);
 cli.register(UpdateCommand);
 
@@ -73,6 +75,7 @@ if (args.length === 0) {
     ['absorb',                  'Route fixes to correct stack branches'],
     ['restack',                 'Rebase downstream after mid-stack edits'],
     ['sync',                    'Clean up after PRs merge'],
+    ['undo',                    'Undo last mutating command'],
     ['',                        ''],
     ['init',                    'Install Claude Code skills'],
     ['update',                  'Self-update to latest version'],

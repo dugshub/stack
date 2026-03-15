@@ -3,6 +3,7 @@ import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
+import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class RemoveCommand extends Command {
@@ -54,6 +55,8 @@ export class RemoveCommand extends Command {
       );
       return 2;
     }
+
+    saveSnapshot('remove');
 
     // Resolve which branch to remove
     const targetName = this.branchArg ?? git.currentBranch();

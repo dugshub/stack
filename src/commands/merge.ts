@@ -1,0 +1,506 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { Command, Option } from 'clipanion';
+import * as gh from '../lib/gh.js';
+import * as git from '../lib/git.js';
+import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { theme } from '../lib/theme.js';
+import * as ui from '../lib/ui.js';
+import { findActiveJobForStack } from '../server/state.js';
+import type { MergeJob, MergeStep, ServerConfig } from '../server/types.js';
+
+const DEFAULT_PORT = 7654;
+
+export class MergeCommand extends Command {
+	static override paths = [['merge']];
+
+	static override usage = Command.Usage({
+		description: 'Merge stack PRs bottom-up via webhook-driven orchestration',
+		examples: [
+			['Merge entire stack', 'stack merge --all'],
+			['Show merge plan', 'stack merge --dry-run'],
+			['Check active merge status', 'stack merge --status'],
+			['Set up webhook configuration', 'stack merge --setup'],
+		],
+	});
+
+	all = Option.Boolean('--all', false, {
+		description: 'Merge all PRs in the stack bottom-up',
+	});
+
+	status = Option.Boolean('--status', false, {
+		description: 'Show active merge job status',
+	});
+
+	dryRun = Option.Boolean('--dry-run', false, {
+		description: 'Show what would happen without starting a merge',
+	});
+
+	setup = Option.Boolean('--setup', false, {
+		description: 'Configure webhook secret and server settings',
+	});
+
+	async execute(): Promise<number> {
+		if (this.setup) {
+			return this.runSetup();
+		}
+
+		if (this.status) {
+			return this.showStatus();
+		}
+
+		const state = loadState();
+		const position = findActiveStack(state);
+
+		if (!position) {
+			ui.error(
+				`Not on a stack branch. Use ${theme.command('stack status')} to see tracked stacks.`,
+			);
+			return 2;
+		}
+
+		const stack = state.stacks[position.stackName];
+		if (!stack) {
+			ui.error(`Stack "${position.stackName}" not found`);
+			return 2;
+		}
+
+		if (this.dryRun) {
+			return this.showDryRun(stack, position.stackName);
+		}
+
+		if (!this.all) {
+			ui.error(
+				`Use ${theme.command('stack merge --all')} to merge the entire stack.`,
+			);
+			return 2;
+		}
+
+		return this.startMerge(state, stack, position.stackName);
+	}
+
+	private showDryRun(
+		stack: ReturnType<typeof loadState>['stacks'][string] & object,
+		stackName: string,
+	): number {
+		const branchesWithPR = stack.branches.filter((b) => b.pr != null);
+		if (branchesWithPR.length === 0) {
+			ui.error('No PRs found in this stack. Run stack submit first.');
+			return 2;
+		}
+
+		ui.heading('\n  Merge Plan');
+		process.stderr.write(
+			`  ${theme.muted(''.padEnd(34, '\u2500'))}\n`,
+		);
+
+		for (let i = 0; i < branchesWithPR.length; i++) {
+			const branch = branchesWithPR[i];
+			if (!branch) continue;
+			const suffix =
+				i === 0
+					? `squash \u2192 ${stack.trunk}`
+					: `squash \u2192 ${stack.trunk} (after #${branchesWithPR[i - 1]?.pr})`;
+			process.stderr.write(
+				`  ${i + 1}. ${theme.pr(`#${branch.pr}`)}  ${theme.branch(branch.name.split('/').pop() ?? branch.name)}  ${theme.muted(suffix)}\n`,
+			);
+		}
+
+		process.stderr.write(
+			`\nRun ${theme.command('stack merge --all')} to start.\n`,
+		);
+		return 0;
+	}
+
+	private showStatus(): number {
+		const state = loadState();
+		const position = findActiveStack(state);
+
+		if (!position) {
+			ui.error('Not on a stack branch.');
+			return 2;
+		}
+
+		const activeJob = findActiveJobForStack(position.stackName);
+		if (!activeJob) {
+			ui.info('No active merge job for this stack.');
+			return 0;
+		}
+
+		ui.heading(`\n  Merge Job: ${activeJob.id}`);
+		ui.info(`  Stack: ${theme.stack(activeJob.stackName)}`);
+		ui.info(`  Status: ${activeJob.status}`);
+		process.stderr.write('\n');
+
+		for (const step of activeJob.steps) {
+			const icon =
+				step.status === 'done' || step.status === 'merged'
+					? theme.success('\u2713')
+					: step.status === 'failed'
+						? theme.error('\u2717')
+						: step.status === 'auto-merge-enabled'
+							? theme.warning('\u23F3')
+							: theme.muted('\u25CB');
+			process.stderr.write(
+				`  ${icon} #${step.prNumber} ${step.branch} \u2014 ${step.status}${step.error ? ` (${step.error})` : ''}\n`,
+			);
+		}
+
+		process.stderr.write('\n');
+		return 0;
+	}
+
+	private async startMerge(
+		state: ReturnType<typeof loadState>,
+		stack: ReturnType<typeof loadState>['stacks'][string] & object,
+		stackName: string,
+	): Promise<number> {
+		// Check for existing active job
+		const existing = findActiveJobForStack(stackName);
+		if (existing) {
+			ui.error(
+				`A merge job is already active for this stack. Use ${theme.command('stack merge --status')} to check progress.`,
+			);
+			return 2;
+		}
+
+		// Validate all branches have PRs
+		const branchesWithPR = stack.branches.filter((b) => b.pr != null);
+		if (branchesWithPR.length === 0) {
+			ui.error('No PRs found in this stack. Run stack submit first.');
+			return 2;
+		}
+
+		const branchesWithoutPR = stack.branches.filter((b) => b.pr == null);
+		if (branchesWithoutPR.length > 0) {
+			ui.error(
+				`Some branches have no PR: ${branchesWithoutPR.map((b) => b.name).join(', ')}. Run stack submit first.`,
+			);
+			return 2;
+		}
+
+		// Build merge job
+		const jobId = `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const steps: MergeStep[] = branchesWithPR.map((branch) => ({
+			prNumber: branch.pr as number,
+			branch: branch.name,
+			status: 'pending' as const,
+			branchTip: branch.tip ?? git.revParse(branch.name),
+		}));
+
+		const repo = state.repo || gh.repoFullName();
+		const job: MergeJob = {
+			id: jobId,
+			stackName,
+			repo,
+			trunk: stack.trunk,
+			status: 'running',
+			strategy: 'squash',
+			steps,
+			currentStep: 0,
+			created: new Date().toISOString(),
+			updated: new Date().toISOString(),
+		};
+
+		// Show the plan
+		ui.heading('\n  Merge Plan');
+		process.stderr.write(`  ${theme.muted(''.padEnd(34, '\u2500'))}\n`);
+		for (let i = 0; i < steps.length; i++) {
+			const step = steps[i];
+			if (!step) continue;
+			const suffix =
+				i === 0
+					? `squash \u2192 ${stack.trunk}`
+					: `squash \u2192 ${stack.trunk} (after #${steps[i - 1]?.prNumber})`;
+			process.stderr.write(
+				`  ${i + 1}. ${theme.pr(`#${step.prNumber}`)}  ${theme.branch(step.branch.split('/').pop() ?? step.branch)}  ${theme.muted(suffix)}\n`,
+			);
+		}
+		process.stderr.write('\n');
+
+		// Ensure server is running
+		const port = this.getServerPort();
+		const serverRunning = await this.checkHealth(port);
+		if (!serverRunning) {
+			ui.info('Starting merge server...');
+			const started = await this.autoStartServer(port);
+			if (!started) {
+				ui.error(
+					'Could not start merge server. Start it manually or check configuration.',
+				);
+				return 2;
+			}
+			ui.success('Merge server started');
+		}
+
+		// POST job to server
+		let response: Response;
+		try {
+			response = await fetch(`http://localhost:${port}/api/jobs`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(job),
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			ui.error(`Failed to create merge job: ${msg}`);
+			return 2;
+		}
+
+		const result = (await response.json()) as {
+			job?: MergeJob;
+			error?: string;
+		};
+		if (!response.ok) {
+			ui.error(`Server rejected job: ${result.error ?? 'unknown error'}`);
+			return 2;
+		}
+
+		ui.success(
+			`#${steps[0]?.prNumber} \u2014 auto-merge enabled`,
+		);
+		ui.info(
+			`Waiting for CI + merge... (${theme.command('stack merge --status')} to check)`,
+		);
+
+		// Connect to SSE for live updates
+		return this.streamEvents(port, jobId, state, stackName, stack);
+	}
+
+	private async streamEvents(
+		port: number,
+		jobId: string,
+		state: ReturnType<typeof loadState>,
+		stackName: string,
+		stack: ReturnType<typeof loadState>['stacks'][string] & object,
+	): Promise<number> {
+		try {
+			const response = await fetch(
+				`http://localhost:${port}/api/jobs/${jobId}/events`,
+			);
+			if (!response.ok || !response.body) {
+				ui.error('Failed to connect to event stream');
+				return 2;
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() ?? '';
+
+				for (const line of lines) {
+					if (!line.startsWith('data: ')) continue;
+					const data = JSON.parse(line.slice(6)) as {
+						type: string;
+						job?: MergeJob;
+						message?: string;
+						level?: string;
+					};
+
+					if (data.type === 'notify' && data.message) {
+						if (data.level === 'success') {
+							ui.success(data.message);
+						} else if (data.level === 'error') {
+							ui.error(data.message);
+						} else {
+							ui.info(data.message);
+						}
+					}
+
+					if (data.type === 'state' && data.job) {
+						this.renderJobState(data.job);
+					}
+
+					if (data.type === 'error' && data.message) {
+						ui.error(data.message);
+					}
+
+					if (data.type === 'done' && data.job) {
+						if (data.job.status === 'completed') {
+							process.stderr.write('\n');
+							ui.success(
+								`Stack "${stackName}" fully merged (${data.job.steps.length} PRs)`,
+							);
+
+							// Clean up local branches
+							this.cleanupLocal(state, stackName, stack);
+							return 0;
+						}
+						if (data.job.status === 'failed') {
+							const failedStep = data.job.steps.find(
+								(s) => s.status === 'failed',
+							);
+							ui.error(
+								`Merge failed: ${failedStep?.error ?? 'unknown error'}`,
+							);
+							return 1;
+						}
+					}
+				}
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			ui.error(`SSE stream error: ${msg}`);
+			ui.info(
+				`Use ${theme.command('stack merge --status')} to check progress.`,
+			);
+		}
+
+		return 0;
+	}
+
+	private renderJobState(job: MergeJob): void {
+		for (const step of job.steps) {
+			if (step.status === 'merged' || step.status === 'done') {
+				// Already reported via notify
+			}
+		}
+	}
+
+	private cleanupLocal(
+		state: ReturnType<typeof loadState>,
+		stackName: string,
+		stack: ReturnType<typeof loadState>['stacks'][string] & object,
+	): void {
+		// Delete local branches
+		let deletedCount = 0;
+		for (const branch of stack.branches) {
+			const result = git.tryRun('branch', '-d', branch.name);
+			if (result.ok) {
+				deletedCount++;
+			}
+		}
+
+		if (deletedCount > 0) {
+			ui.success(`Deleted ${deletedCount} local branches`);
+		}
+
+		// Remove stack from state
+		delete state.stacks[stackName];
+		saveState(state);
+
+		// Checkout trunk
+		try {
+			git.checkout(stack.trunk);
+			git.tryRun('pull', '--ff-only');
+		} catch {
+			// Non-fatal
+		}
+	}
+
+	private getServerPort(): number {
+		const configPath = join(
+			homedir(),
+			'.claude',
+			'stacks',
+			'server.config.json',
+		);
+		try {
+			const text = readFileSync(configPath, 'utf-8');
+			const config = JSON.parse(text) as ServerConfig;
+			return config.port || DEFAULT_PORT;
+		} catch {
+			return DEFAULT_PORT;
+		}
+	}
+
+	private async checkHealth(port: number): Promise<boolean> {
+		try {
+			const response = await fetch(`http://localhost:${port}/health`);
+			return response.ok;
+		} catch {
+			return false;
+		}
+	}
+
+	private async autoStartServer(port: number): Promise<boolean> {
+		const pidPath = join(homedir(), '.claude', 'stacks', 'server.pid');
+		const cliPath = join(import.meta.dir, '..', 'server', 'index.ts');
+
+		const proc = Bun.spawn(['bun', 'run', cliPath], {
+			stdout: 'ignore',
+			stderr: 'ignore',
+			stdin: 'ignore',
+		});
+		proc.unref();
+
+		// Write PID
+		try {
+			writeFileSync(pidPath, String(proc.pid), 'utf-8');
+		} catch {
+			// Non-fatal
+		}
+
+		// Wait up to 5s for health check
+		for (let i = 0; i < 10; i++) {
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			const healthy = await this.checkHealth(port);
+			if (healthy) return true;
+		}
+
+		return false;
+	}
+
+	private runSetup(): number {
+		const configPath = join(
+			homedir(),
+			'.claude',
+			'stacks',
+			'server.config.json',
+		);
+
+		// Generate webhook secret
+		const secret = `whsec_${crypto.randomUUID().replace(/-/g, '')}`;
+		const config: ServerConfig = {
+			port: DEFAULT_PORT,
+			webhookSecret: secret,
+		};
+
+		// Load existing config if present
+		if (existsSync(configPath)) {
+			try {
+				const text = readFileSync(configPath, 'utf-8');
+				const existing = JSON.parse(text) as ServerConfig;
+				config.port = existing.port || DEFAULT_PORT;
+				config.publicUrl = existing.publicUrl;
+			} catch {
+				// Use defaults
+			}
+		}
+
+		// Write config
+		mkdirSync(join(homedir(), '.claude', 'stacks'), { recursive: true });
+		writeFileSync(
+			configPath,
+			`${JSON.stringify(config, null, 2)}\n`,
+			'utf-8',
+		);
+
+		ui.success('Webhook configuration saved');
+		ui.info(`  Secret: ${secret}`);
+		ui.info(`  Port: ${config.port}`);
+		process.stderr.write('\n');
+		ui.info('Next steps:');
+		ui.info(
+			`  1. Set up a tunnel (e.g. ngrok) to expose port ${config.port}`,
+		);
+		ui.info('  2. Create a GitHub webhook:');
+		ui.info(`     URL: <your-tunnel-url>/webhooks/github`);
+		ui.info(`     Secret: ${secret}`);
+		ui.info('     Events: Pull requests');
+		process.stderr.write('\n');
+		ui.info(
+			`Or create the webhook via gh CLI:\n  gh api repos/{owner}/{repo}/hooks -f url="<tunnel-url>/webhooks/github" -f content_type=json -f secret="${secret}" -f 'events[]=pull_request'`,
+		);
+
+		return 0;
+	}
+}

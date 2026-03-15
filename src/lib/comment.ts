@@ -14,21 +14,25 @@ export function generateComment(
   lines.push(COMMENT_MARKER);
   lines.push('');
 
-  for (let i = 0; i < stack.branches.length; i++) {
+  // Render top-of-stack first (last branch in array = top)
+  const entries: string[] = [];
+
+  for (let i = stack.branches.length - 1; i >= 0; i--) {
     const branch = stack.branches[i];
     if (!branch) continue;
 
+    const prRef = branch.pr != null ? `#${branch.pr}` : branch.name;
     const isCurrent = branch.pr === currentPrNumber;
-    const prRef = branch.pr != null ? `#${branch.pr}` : '';
-    const marker = isCurrent ? ' 👈' : '';
-    const line = isCurrent
-      ? `* **${prRef}**${marker}`
-      : `* ${prRef}`;
 
-    lines.push(line);
+    entries.push(isCurrent ? `**${prRef}** 👈` : prRef);
   }
 
-  lines.push(`* \`${stack.trunk}\``);
+  // Trunk at the bottom
+  entries.push(`\`${stack.trunk}\``);
+
+  // Join with arrow separators showing merge direction
+  lines.push(entries.join('\n\n↓\n\n'));
+
   lines.push('');
   lines.push('<sub>Managed by Claude Code <code>/stack</code></sub>');
 

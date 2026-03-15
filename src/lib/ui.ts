@@ -75,44 +75,19 @@ export function stackTree(
 	position: StackPosition,
 	prStatuses: Map<number, PrStatus>,
 ): void {
-	const table = new Table({
-		chars: {
-			top: '',
-			'top-mid': '',
-			'top-left': '',
-			'top-right': '',
-			bottom: '',
-			'bottom-mid': '',
-			'bottom-left': '',
-			'bottom-right': '',
-			left: '',
-			'left-mid': '',
-			mid: '',
-			'mid-mid': '',
-			right: '',
-			'right-mid': '',
-			middle: '  ',
-		},
-		style: { 'padding-left': 1, 'padding-right': 1 },
-	});
+	// Compute column widths from visible text so OSC 8 hyperlinks don't break alignment
+	const numW = String(stack.branches.length).length;
+	const branchW = Math.max(6, ...stack.branches.map((b) => b.name.length));
+	const prW = Math.max(2, ...stack.branches.map((b) => b.pr != null ? `#${b.pr}`.length : 0));
+	const gap = '  ';
 
-	table.push([
-		theme.muted('↑'),
-		theme.muted(stack.trunk),
-		'',
-		'',
-		'',
-		'',
-	]);
+	// Trunk header
+	const trunkLine = ` ${theme.muted('↑'.padEnd(numW))}${gap}${theme.muted(stack.trunk)}`;
+	process.stderr.write(`${trunkLine}\n`);
 
-	table.push([
-		theme.muted('#'),
-		theme.muted('Branch'),
-		theme.muted('PR'),
-		theme.muted('Status'),
-		theme.muted('Checks'),
-		'',
-	]);
+	// Column headers
+	const headerLine = ` ${theme.muted('#'.padEnd(numW))}${gap}${theme.muted('Branch'.padEnd(branchW))}${gap}${theme.muted('PR'.padEnd(prW))}${gap}${theme.muted('Status')}${gap.padEnd(8)}${theme.muted('Checks')}`;
+	process.stderr.write(`${headerLine}\n`);
 
 	for (let i = 0; i < stack.branches.length; i++) {
 		const branch = stack.branches[i];
@@ -121,19 +96,25 @@ export function stackTree(
 		const isCurrent = i === position.index;
 		const emoji = statusEmoji(pr);
 		const text = statusText(pr);
+
+		// PR string: use hyperlink when URL available, pad based on visible text width
+		const prVisible = branch.pr != null ? `#${branch.pr}` : '';
 		const prStr = branch.pr != null && pr?.url
-			? hyperlink(`#${branch.pr}`, pr.url)
-			: branch.pr != null ? `#${branch.pr}` : '';
-		const marker = isCurrent ? theme.accent('\u2190 you are here') : '';
-		const nameStr = isCurrent ? theme.branch(branch.name) : branch.name;
+			? hyperlink(prVisible, pr.url) + ' '.repeat(prW - prVisible.length)
+			: prVisible.padEnd(prW);
+
+		const marker = isCurrent ? `${gap}${theme.accent('\u2190 you are here')}` : '';
+		// Pad based on visible width, then apply styling (ANSI codes break padEnd)
+		const namePadded = branch.name.padEnd(branchW);
+		const nameStr = isCurrent ? theme.branch(namePadded) : namePadded;
 
 		const chk = checksText(pr);
 		const chkEmoji = checksEmoji(pr);
 		const checksStr = chk ? `${chkEmoji} ${chk}` : '';
-		table.push([String(i + 1), nameStr, prStr, `${emoji} ${text}`, checksStr, marker]);
-	}
 
-	process.stderr.write(`${table.toString()}\n`);
+		const line = ` ${String(i + 1).padEnd(numW)}${gap}${nameStr}${gap}${prStr}${gap}${emoji} ${text.padEnd(10)}${gap}${checksStr}${marker}`;
+		process.stderr.write(`${line}\n`);
+	}
 }
 
 export function branchTable(rows: BranchRow[]): void {

@@ -2,7 +2,8 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { resolveStack } from '../lib/resolve.js';
+import { loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { RestackState } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -18,6 +19,10 @@ export class AbsorbCommand extends Command {
       ['Preview without making changes', 'stack absorb --dry-run'],
       ['Absorb with a custom commit message', 'stack absorb -m "fix typos"'],
     ],
+  });
+
+  stackName = Option.String('--stack,-s', {
+    description: 'Target stack by name',
   });
 
   dryRun = Option.Boolean('--dry-run', false, {
@@ -36,17 +41,18 @@ export class AbsorbCommand extends Command {
     }
 
     const state = loadState();
-    const position = findActiveStack(state);
-    if (!position) {
-      ui.error(
-        `Not on a stack branch. Use ${theme.command('stack status')} to see tracked stacks.`,
-      );
+
+    let resolved: Awaited<ReturnType<typeof resolveStack>>;
+    try {
+      resolved = await resolveStack({ state, explicitName: this.stackName });
+    } catch (err) {
+      ui.error(err instanceof Error ? err.message : String(err));
       return 2;
     }
 
-    const stack = state.stacks[position.stackName];
+    const stack = state.stacks[resolved.stackName];
     if (!stack) {
-      ui.error(`Stack "${position.stackName}" not found`);
+      ui.error(`Stack "${resolved.stackName}" not found`);
       return 2;
     }
 

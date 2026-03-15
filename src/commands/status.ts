@@ -1,5 +1,6 @@
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
+import { resolveStack, type ResolvedStack } from '../lib/resolve.js';
 import { findActiveStack, loadState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
@@ -15,27 +16,48 @@ export class StatusCommand extends Command {
     ],
   });
 
+  stackName = Option.String('--stack,-s', {
+    description: 'Target stack by name',
+  });
+
   json = Option.Boolean('--json', false, {
     description: 'Output as JSON to stdout',
   });
 
   async execute(): Promise<number> {
     const state = loadState();
-    const position = findActiveStack(state);
 
+    if (this.stackName) {
+      let resolved: ResolvedStack;
+      try {
+        resolved = await resolveStack({ state, explicitName: this.stackName });
+      } catch (err) {
+        ui.error(err instanceof Error ? err.message : String(err));
+        return 2;
+      }
+      return this.showActiveStack(state, resolved);
+    }
+
+    // No flag: preserve dual-mode behavior
+    const position = findActiveStack(state);
     if (position) {
-      return this.showActiveStack(state, position);
+      const stack = state.stacks[position.stackName];
+      if (!stack) {
+        ui.error(`Stack "${position.stackName}" not found in state`);
+        return 2;
+      }
+      return this.showActiveStack(state, { stackName: position.stackName, stack, position });
     }
     return this.showAllStacks(state);
   }
 
   private showActiveStack(
-    state: ReturnType<typeof loadState>,
-    position: ReturnType<typeof findActiveStack> & object,
+    _state: ReturnType<typeof loadState>,
+    resolved: ResolvedStack,
   ): number {
-    const stack = state.stacks[position.stackName];
+    const { stackName: resolvedName, stack, position } = resolved;
     if (!stack) {
-      ui.error(`Stack "${position.stackName}" not found in state`);
+      ui.error(`Stack "${resolvedName}" not found in state`);
       return 2;
     }
 
@@ -55,14 +77,14 @@ export class StatusCommand extends Command {
 
     if (this.json) {
       const output = {
-        stackName: position.stackName,
-        position: position.index,
-        total: position.total,
+        stackName: resolvedName,
+        position: position?.index ?? null,
+        total: stack.branches.length,
         trunk: stack.trunk,
         branches: stack.branches.map((b, i) => ({
           ...b,
           position: i + 1,
-          isCurrent: i === position.index,
+          isCurrent: position ? i === position.index : false,
           prStatus: b.pr != null ? (prStatuses.get(b.pr) ?? null) : null,
         })),
         restackState: stack.restackState,
@@ -71,10 +93,26 @@ export class StatusCommand extends Command {
       return 0;
     }
 
-    ui.heading(
-      `\nStack: ${theme.stack(position.stackName)} (on branch ${position.index + 1} of ${position.total})\n`,
-    );
-    ui.stackTree(stack, position, prStatuses);
+    if (position) {
+      ui.heading(
+        `\nStack: ${theme.stack(resolvedName)} (on branch ${position.index + 1} of ${position.total})\n`,
+      );
+      ui.stackTree(stack, position, prStatuses);
+    } else {
+      ui.heading(
+        `\nStack: ${theme.stack(resolvedName)} (${stack.branches.length} branches)\n`,
+      );
+      // Show tree with a synthetic position that highlights nothing
+      const noPosition = {
+        stackName: resolvedName,
+        index: -1,
+        total: stack.branches.length,
+        branch: stack.branches[0]!,
+        isTop: false,
+        isBottom: false,
+      };
+      ui.stackTree(stack, noPosition, prStatuses);
+    }
     process.stderr.write('\n');
     return 0;
   }

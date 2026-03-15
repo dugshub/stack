@@ -44,10 +44,24 @@ export function prView(prNumber: number): PrStatus | null {
     'view',
     String(prNumber),
     '--json',
-    'number,title,state,isDraft,url,reviewDecision',
+    'number,title,state,isDraft,url,reviewDecision,statusCheckRollup',
   );
   if (!result.ok) return null;
-  return JSON.parse(result.stdout) as PrStatus;
+  const raw = JSON.parse(result.stdout) as Record<string, unknown>;
+  const rollup = raw.statusCheckRollup as Array<{ state: string }> | null;
+  // gh pr view returns statusCheckRollup as an array of individual checks
+  // Derive overall state: any failure = FAILURE, all success = SUCCESS, else PENDING
+  let checksStatus: PrStatus['checksStatus'] = null;
+  if (rollup && rollup.length > 0) {
+    if (rollup.some((c) => c.state === 'FAILURE' || c.state === 'ERROR')) {
+      checksStatus = 'FAILURE';
+    } else if (rollup.every((c) => c.state === 'SUCCESS')) {
+      checksStatus = 'SUCCESS';
+    } else {
+      checksStatus = 'PENDING';
+    }
+  }
+  return { ...raw, checksStatus } as PrStatus;
 }
 
 export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
@@ -56,7 +70,8 @@ export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
 	const fullName = repoFullName();
 	const [owner, name] = fullName.split('/');
 
-	const fields = 'number title state isDraft url reviewDecision';
+	const fields = `number title state isDraft url reviewDecision
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`;
 	const aliases = prNumbers
 		.map(
 			(n) =>
@@ -74,12 +89,13 @@ export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
 	if (!result.ok) return new Map();
 
 	const data = JSON.parse(result.stdout) as {
-		data: { repository: Record<string, { number: number; title: string; state: string; isDraft: boolean; url: string; reviewDecision: string | null }> };
+		data: { repository: Record<string, { number: number; title: string; state: string; isDraft: boolean; url: string; reviewDecision: string | null; commits: { nodes: Array<{ commit: { statusCheckRollup: { state: string } | null } }> } }> };
 	};
 
 	const statuses = new Map<number, PrStatus>();
 	for (const entry of Object.values(data.data.repository)) {
 		if (entry && typeof entry.number === 'number') {
+			const rollup = entry.commits?.nodes?.[0]?.commit?.statusCheckRollup;
 			statuses.set(entry.number, {
 				number: entry.number,
 				title: entry.title,
@@ -87,6 +103,7 @@ export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
 				isDraft: entry.isDraft,
 				url: entry.url,
 				reviewDecision: entry.reviewDecision ?? '',
+				checksStatus: (rollup?.state as PrStatus['checksStatus']) ?? null,
 			});
 		}
 	}

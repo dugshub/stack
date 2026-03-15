@@ -30,6 +30,7 @@ export interface PrStatus {
   isDraft: boolean;
   url: string;
   reviewDecision: string;
+  checksStatus: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'EXPECTED' | 'ERROR' | null;
 }
 
 export type StatusEmoji =

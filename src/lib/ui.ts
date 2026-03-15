@@ -2,6 +2,10 @@ import Table from 'cli-table3';
 import { theme } from './theme.js';
 import type { PrStatus, Stack, StackPosition, StatusEmoji } from './types.js';
 
+function hyperlink(text: string, url: string): string {
+	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
+}
+
 export function success(msg: string): void {
 	process.stderr.write(`${theme.success('\u2713')} ${msg}\n`);
 }
@@ -117,7 +121,9 @@ export function stackTree(
 		const isCurrent = i === position.index;
 		const emoji = statusEmoji(pr);
 		const text = statusText(pr);
-		const prStr = branch.pr != null ? `#${branch.pr}` : '';
+		const prStr = branch.pr != null && pr?.url
+			? hyperlink(`#${branch.pr}`, pr.url)
+			: branch.pr != null ? `#${branch.pr}` : '';
 		const marker = isCurrent ? theme.accent('\u2190 you are here') : '';
 		const nameStr = isCurrent ? theme.branch(branch.name) : branch.name;
 

@@ -43,6 +43,21 @@ export function statusText(pr: PrStatus | null): string {
 	return 'Review';
 }
 
+export function checksEmoji(pr: PrStatus | null): string {
+	if (!pr || pr.checksStatus == null) return '';
+	if (pr.checksStatus === 'SUCCESS') return '✅';
+	if (pr.checksStatus === 'FAILURE' || pr.checksStatus === 'ERROR') return '❌';
+	return '🔄'; // PENDING, EXPECTED
+}
+
+export function checksText(pr: PrStatus | null): string {
+	if (!pr || pr.checksStatus == null) return '';
+	if (pr.checksStatus === 'SUCCESS') return 'Pass';
+	if (pr.checksStatus === 'FAILURE') return 'Fail';
+	if (pr.checksStatus === 'ERROR') return 'Error';
+	return 'Running'; // PENDING, EXPECTED
+}
+
 export interface BranchRow {
 	index: number;
 	name: string;
@@ -82,6 +97,7 @@ export function stackTree(
 		theme.muted('Branch'),
 		theme.muted('PR'),
 		theme.muted('Status'),
+		theme.muted('Checks'),
 		'',
 	]);
 
@@ -96,7 +112,10 @@ export function stackTree(
 		const marker = isCurrent ? theme.accent('\u2190 you are here') : '';
 		const nameStr = isCurrent ? theme.branch(branch.name) : branch.name;
 
-		table.push([String(i + 1), nameStr, prStr, `${emoji} ${text}`, marker]);
+		const chk = checksText(pr);
+		const chkEmoji = checksEmoji(pr);
+		const checksStr = chk ? `${chkEmoji} ${chk}` : '';
+		table.push([String(i + 1), nameStr, prStr, `${emoji} ${text}`, checksStr, marker]);
 	}
 
 	process.stderr.write(`${table.toString()}\n`);

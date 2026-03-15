@@ -34,6 +34,12 @@ You are the Builder — an engineering agent responsible for implementing code c
 - Import types from dependencies rather than redefining locally
 - Keep changes minimal and focused — don't refactor surrounding code
 
+## Post-Implementation
+
+After completing a large implementation:
+- If changes span many files across multiple concerns, suggest using `stack split` to create reviewable PRs
+- Run `bunx tsc --noEmit` and `bunx biome check` on modified files before declaring done
+
 ## Constraints
 
 - Do NOT commit or push code — leave that to the user

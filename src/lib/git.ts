@@ -230,6 +230,83 @@ export function repoRoot(): string {
   return run('rev-parse', '--show-toplevel');
 }
 
+/** Parse `git diff --numstat` output for staged+unstaged changes. */
+export function diffNumstat(): Array<{ path: string; added: number; removed: number }> {
+  const result = tryRun('diff', '--numstat', 'HEAD');
+  if (!result.ok || result.stdout.length === 0) return [];
+  return result.stdout
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const parts = line.split('\t');
+      return {
+        added: parts[0] === '-' ? 0 : Number.parseInt(parts[0] ?? '0', 10),
+        removed: parts[1] === '-' ? 0 : Number.parseInt(parts[1] ?? '0', 10),
+        path: parts[2] ?? '',
+      };
+    })
+    .filter((entry) => entry.path.length > 0);
+}
+
+export function stashPush(opts: { includeUntracked?: boolean; message?: string }): void {
+  const args = ['stash', 'push'];
+  if (opts.includeUntracked) args.push('-u');
+  if (opts.message) args.push('-m', opts.message);
+  run(...args);
+}
+
+export function stashPop(): void {
+  run('stash', 'pop');
+}
+
+/** Find a stash by its message and drop it. */
+export function stashDrop(message: string): void {
+  const result = tryRun('stash', 'list');
+  if (!result.ok || result.stdout.length === 0) return;
+  const lines = result.stdout.split('\n');
+  for (const line of lines) {
+    if (line.includes(message)) {
+      const match = line.match(/^(stash@\{\d+\})/);
+      if (match?.[1]) {
+        tryRun('stash', 'drop', match[1]);
+        return;
+      }
+    }
+  }
+}
+
+/** Reset working tree to match HEAD: discard modifications and remove untracked files. */
+export function cleanWorkingTree(): void {
+  tryRun('checkout', '--', '.');
+  tryRun('clean', '-fd');
+}
+
+/** Returns all dirty files: modified, staged, and untracked (individual files). */
+export function allDirtyFiles(): string[] {
+  // -u shows individual untracked files (not just directories)
+  // Don't use tryRun — its .trim() corrupts the leading space of porcelain output
+  const result = Bun.spawnSync(['git', 'status', '--porcelain', '-u'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  if (result.exitCode !== 0) return [];
+  const raw = result.stdout.toString();
+  if (raw.trim().length === 0) return [];
+  return raw
+    .split('\n')
+    .filter((line) => line.length >= 4) // XY + space + at least 1 char path
+    .map((line) => {
+      // Porcelain format: XY PATH where XY is 2-char status, then space, then path
+      const path = line.slice(3);
+      // Handle renames: "R  old -> new" — use only the new path
+      if ((line[0] === 'R' || line[1] === 'R') && path.includes(' -> ')) {
+        return path.split(' -> ').pop() ?? path;
+      }
+      return path;
+    })
+    .filter((path) => path.length > 0);
+}
+
 export function isRebaseInProgress(cwd?: string): boolean {
   const { existsSync } = require('fs');
   const gitPaths = ['rebase-merge', 'rebase-apply'];

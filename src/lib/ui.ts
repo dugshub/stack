@@ -93,6 +93,15 @@ export function stackTree(
 	});
 
 	table.push([
+		theme.muted('↑'),
+		theme.muted(stack.trunk),
+		'',
+		'',
+		'',
+		'',
+	]);
+
+	table.push([
 		theme.muted('#'),
 		theme.muted('Branch'),
 		theme.muted('PR'),

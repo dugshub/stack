@@ -49,3 +49,5 @@ export interface StackPosition {
   isTop: boolean;
   isBottom: boolean;
 }
+
+export type MergeStrategy = 'squash' | 'merge' | 'rebase';

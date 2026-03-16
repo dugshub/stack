@@ -219,8 +219,11 @@ export class MergeCommand extends Command {
 		}
 		process.stderr.write('\n');
 
+		// Ensure config exists
+		const config = this.ensureConfig();
+
 		// Ensure server is running
-		const port = this.getServerPort();
+		const port = config.port;
 		const serverRunning = await this.checkHealth(port);
 		if (!serverRunning) {
 			ui.info('Starting merge server...');
@@ -232,6 +235,20 @@ export class MergeCommand extends Command {
 				return 2;
 			}
 			ui.success('Merge server started');
+		}
+
+		// Ensure tunnel is running
+		const tunnelUrl = await this.ensureTunnel(port);
+		if (!tunnelUrl) {
+			ui.error('Could not establish tunnel. Install cloudflared or set publicUrl in server config.');
+			return 2;
+		}
+
+		// Ensure webhook exists
+		const webhookOk = this.ensureWebhook(repo, tunnelUrl, config.webhookSecret);
+		if (!webhookOk) {
+			ui.error('Could not create GitHub webhook.');
+			return 2;
 		}
 
 		// POST job to server
@@ -331,6 +348,10 @@ export class MergeCommand extends Command {
 							return 0;
 						}
 						if (data.job.status === 'failed') {
+							if (this.tunnelProc) {
+								this.tunnelProc.kill();
+								this.tunnelProc = null;
+							}
 							const failedStep = data.job.steps.find(
 								(s) => s.status === 'failed',
 							);
@@ -358,6 +379,12 @@ export class MergeCommand extends Command {
 		stackName: string,
 		stack: ReturnType<typeof loadState>['stacks'][string] & object,
 	): void {
+		// Kill tunnel if we started one
+		if (this.tunnelProc) {
+			this.tunnelProc.kill();
+			this.tunnelProc = null;
+		}
+
 		// Delete local branches
 		let deletedCount = 0;
 		for (const branch of stack.branches) {
@@ -382,6 +409,137 @@ export class MergeCommand extends Command {
 		} catch {
 			// Non-fatal
 		}
+	}
+
+	private ensureConfig(): ServerConfig {
+		const configPath = join(homedir(), '.claude', 'stacks', 'server.config.json');
+		let config: ServerConfig;
+
+		if (existsSync(configPath)) {
+			try {
+				config = JSON.parse(readFileSync(configPath, 'utf-8')) as ServerConfig;
+				if (config.webhookSecret && config.port) return config;
+			} catch {
+				// Regenerate
+			}
+		}
+
+		const secret = `whsec_${crypto.randomUUID().replace(/-/g, '')}`;
+		config = { port: DEFAULT_PORT, webhookSecret: secret };
+		mkdirSync(join(homedir(), '.claude', 'stacks'), { recursive: true });
+		writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+		ui.success(`Generated webhook secret`);
+		return config;
+	}
+
+	private tunnelProc: ReturnType<typeof Bun.spawn> | null = null;
+
+	private async ensureTunnel(port: number): Promise<string | null> {
+		// Check if publicUrl is already configured (user-managed tunnel)
+		const configPath = join(homedir(), '.claude', 'stacks', 'server.config.json');
+		try {
+			const config = JSON.parse(readFileSync(configPath, 'utf-8')) as ServerConfig;
+			if (config.publicUrl) {
+				ui.info(`Using configured tunnel: ${config.publicUrl}`);
+				return config.publicUrl;
+			}
+		} catch {
+			// Continue to auto-launch
+		}
+
+		// Check if cloudflared is available
+		const which = Bun.spawnSync(['which', 'cloudflared'], { stdout: 'pipe', stderr: 'pipe' });
+		if (which.exitCode !== 0) {
+			ui.error('cloudflared not found.');
+			ui.info('Install it:');
+			ui.info('  brew install cloudflared');
+			ui.info('Or set publicUrl in ~/.claude/stacks/server.config.json for a custom tunnel.');
+			return null;
+		}
+
+		ui.info('Starting cloudflare tunnel...');
+		const proc = Bun.spawn(['cloudflared', 'tunnel', '--url', `http://localhost:${port}`], {
+			stdout: 'pipe',
+			stderr: 'pipe',
+			stdin: 'ignore',
+		});
+		this.tunnelProc = proc;
+
+		// Parse URL from stderr (cloudflared outputs there)
+		const tunnelUrl = await new Promise<string | null>((resolve) => {
+			const timeout = setTimeout(() => resolve(null), 30000);
+			const reader = proc.stderr.getReader();
+			let buffer = '';
+
+			const read = (): void => {
+				reader.read().then(({ done, value }) => {
+					if (done) {
+						clearTimeout(timeout);
+						resolve(null);
+						return;
+					}
+					buffer += new TextDecoder().decode(value);
+					const match = buffer.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+					if (match) {
+						clearTimeout(timeout);
+						resolve(match[0]);
+						return;
+					}
+					read();
+				});
+			};
+			read();
+		});
+
+		if (tunnelUrl) {
+			ui.success(`Tunnel: ${tunnelUrl}`);
+		}
+
+		return tunnelUrl;
+	}
+
+	private ensureWebhook(repo: string, tunnelUrl: string, secret: string): boolean {
+		const webhookUrl = `${tunnelUrl}/webhooks/github`;
+		const [owner, name] = repo.split('/');
+		if (!owner || !name) return false;
+
+		// Check for existing webhook pointing to trycloudflare.com
+		const listResult = Bun.spawnSync([
+			'gh', 'api', `repos/${owner}/${name}/hooks`,
+			'--jq', '.[] | select(.config.url | test("trycloudflare\\\\.com")) | .id',
+		], { stdout: 'pipe', stderr: 'pipe' });
+
+		const existingIds = listResult.stdout.toString().trim().split('\n').filter(Boolean);
+
+		// Delete old tunnel webhooks (they have ephemeral URLs)
+		for (const id of existingIds) {
+			Bun.spawnSync([
+				'gh', 'api', `repos/${owner}/${name}/hooks/${id}`, '-X', 'DELETE',
+			], { stdout: 'pipe', stderr: 'pipe' });
+		}
+
+		// Create new webhook
+		const createResult = Bun.spawnSync([
+			'gh', 'api', `repos/${owner}/${name}/hooks`,
+			'-X', 'POST',
+			'-f', `url=${webhookUrl}`,
+			'-f', 'content_type=json',
+			'-f', `secret=${secret}`,
+			'-f', 'events[]=pull_request',
+			'-f', 'events[]=push',
+			'-f', 'active=true',
+			'--jq', '.id',
+		], { stdout: 'pipe', stderr: 'pipe' });
+
+		if (createResult.exitCode !== 0) {
+			const stderr = createResult.stderr.toString();
+			ui.error(`Webhook creation failed: ${stderr}`);
+			return false;
+		}
+
+		const hookId = createResult.stdout.toString().trim();
+		ui.success(`Webhook created (id: ${hookId})`);
+		return true;
 	}
 
 	private getServerPort(): number {

@@ -1,4 +1,5 @@
-import type { Stack } from './types.js';
+import type { PrStatus, Stack } from './types.js';
+import { statusEmoji, statusText } from './ui.js';
 
 /** Marker used to identify stack navigation comments posted by the bot. */
 export const COMMENT_MARKER = '### PR Stack';
@@ -6,29 +7,40 @@ export const COMMENT_MARKER = '### PR Stack';
 export function generateComment(
   stack: Stack,
   currentPrNumber: number,
-  _prStatuses: Map<number, unknown>,
-  _repoUrl: string,
+  prStatuses: Map<number, PrStatus>,
+  repoUrl: string,
 ): string {
   const lines: string[] = [];
 
   lines.push(COMMENT_MARKER);
   lines.push('');
+  lines.push('| Status | PR | Title |');
+  lines.push('|--------|-----|-------|');
 
   for (let i = 0; i < stack.branches.length; i++) {
     const branch = stack.branches[i];
     if (!branch) continue;
 
+    const pr = branch.pr != null ? (prStatuses.get(branch.pr) ?? null) : null;
     const isCurrent = branch.pr === currentPrNumber;
-    const prRef = branch.pr != null ? `#${branch.pr}` : '';
-    const marker = isCurrent ? ' 👈' : '';
-    const line = isCurrent
-      ? `* **${prRef}**${marker}`
-      : `* ${prRef}`;
+    const emoji = statusEmoji(pr);
+    const text = statusText(pr);
+    const prLink = branch.pr != null
+      ? `[#${branch.pr}](${repoUrl}/pull/${branch.pr})`
+      : '';
+    const title = pr?.title ?? '';
+    const pointer = isCurrent ? ' 👈' : '';
 
-    lines.push(line);
+    const statusCell = `${emoji} ${text}`;
+    const prCell = isCurrent ? `**${prLink}**${pointer}` : prLink;
+    const titleCell = isCurrent ? `**${title}**` : title;
+
+    lines.push(`| ${statusCell} | ${prCell} | ${titleCell} |`);
   }
 
-  lines.push(`* \`${stack.trunk}\``);
+  // Trunk row
+  lines.push(`| | \`${stack.trunk}\` | |`);
+
   lines.push('');
   lines.push('<sub>Managed by Claude Code <code>/stack</code></sub>');
 

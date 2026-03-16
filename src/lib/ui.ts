@@ -93,7 +93,7 @@ export function stackTree(
 		const emoji = statusEmoji(pr);
 		const text = statusText(pr);
 		const prStr = branch.pr != null ? `#${branch.pr}` : '';
-		const marker = isCurrent ? theme.accent('\u2190 you are here') : '';
+		const marker = isCurrent ? '👈' : '';
 		const nameStr = isCurrent ? theme.branch(branch.name) : branch.name;
 
 		table.push([String(i + 1), nameStr, prStr, `${emoji} ${text}`, marker]);

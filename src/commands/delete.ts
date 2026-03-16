@@ -3,7 +3,7 @@ import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { resolveStack } from '../lib/resolve.js';
-import { loadState, saveState } from '../lib/state.js';
+import { loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -33,7 +33,7 @@ export class DeleteCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
 
     let resolved: Awaited<ReturnType<typeof resolveStack>>;
     try {

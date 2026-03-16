@@ -3,11 +3,12 @@ import { generateComment } from '../lib/comment.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { resolveStack } from '../lib/resolve.js';
-import { loadState, saveState } from '../lib/state.js';
+import { loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus, RestackState } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
+import { findActiveJobForStack } from '../server/state.js';
 
 export class SyncCommand extends Command {
   static override paths = [['sync']];
@@ -22,7 +23,26 @@ export class SyncCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
+
+    // Guard: check if a merge job is active for the current stack
+    const currentBranchForGuard = git.tryRun('branch', '--show-current');
+    if (currentBranchForGuard.ok) {
+      for (const [name, s] of Object.entries(state.stacks)) {
+        for (const branch of s.branches) {
+          if (branch.name === currentBranchForGuard.stdout) {
+            const activeJob = findActiveJobForStack(name);
+            if (activeJob) {
+              ui.error(
+                `A merge job is active for this stack. Use ${theme.command('stack merge --status')} to check progress.`,
+              );
+              return 2;
+            }
+            break;
+          }
+        }
+      }
+    }
 
     let resolved: Awaited<ReturnType<typeof resolveStack>>;
     try {

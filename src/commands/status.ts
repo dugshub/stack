@@ -1,7 +1,7 @@
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import { resolveStack, type ResolvedStack } from '../lib/resolve.js';
-import { findActiveStack, loadState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState, loadState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
@@ -25,7 +25,7 @@ export class StatusCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
 
     if (this.stackName) {
       let resolved: ResolvedStack;

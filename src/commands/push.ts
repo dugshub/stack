@@ -1,6 +1,6 @@
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
@@ -22,7 +22,7 @@ export class PushCommand extends Command {
 
   async execute(): Promise<number> {
     const currentBranch = git.currentBranch();
-    const state = loadState();
+    const state = loadAndRefreshState();
 
     // Find the stack to push to
     let stackName: string | undefined;

@@ -2,6 +2,7 @@
 import { Builtins, Cli } from 'clipanion';
 import { AbsorbCommand } from './commands/absorb.js';
 import { CreateCommand } from './commands/create.js';
+import { MergeCommand } from './commands/merge.js';
 import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
 import { NavCommand } from './commands/nav.js';
@@ -37,6 +38,7 @@ cli.register(AbsorbCommand);
 cli.register(RestackCommand);
 cli.register(SyncCommand);
 cli.register(UndoCommand);
+cli.register(MergeCommand);
 cli.register(InitCommand);
 cli.register(UpdateCommand);
 
@@ -76,6 +78,7 @@ if (args.length === 0) {
     ['restack',                 'Rebase downstream after mid-stack edits'],
     ['sync',                    'Clean up after PRs merge'],
     ['undo',                    'Undo last mutating command'],
+    ['merge --all',             'Merge entire stack bottom-up'],
     ['',                        ''],
     ['init',                    'Install Claude Code skills'],
     ['update',                  'Self-update to latest version'],

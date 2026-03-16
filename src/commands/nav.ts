@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { Stack, StackPosition } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
@@ -29,7 +29,7 @@ export class NavCommand extends Command {
       return this.interactive();
     }
 
-    const state = loadState();
+    const state = loadAndRefreshState();
     const position = findActiveStack(state);
 
     if (!position) {
@@ -213,7 +213,7 @@ export class NavCommand extends Command {
   }
 
   private async interactive(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
     const position = findActiveStack(state);
 
     if (!position) {

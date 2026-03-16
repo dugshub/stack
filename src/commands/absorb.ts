@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { resolveStack } from '../lib/resolve.js';
-import { loadState, saveState } from '../lib/state.js';
+import { loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { RestackState } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -34,7 +34,7 @@ export class AbsorbCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
 
     let resolved: Awaited<ReturnType<typeof resolveStack>>;
     try {
@@ -44,15 +44,15 @@ export class AbsorbCommand extends Command {
       return 2;
     }
 
-    const stack = state.stacks[resolved.stackName];
+    const { stackName: resolvedName, stack, position } = resolved;
     if (!stack) {
-      ui.error(`Stack "${resolved.stackName}" not found`);
+      ui.error(`Stack "${resolvedName}" not found`);
       return 2;
     }
 
     // If HEAD is ahead of the branch's recorded tip, soft-reset to turn
     // committed changes back into staged changes for absorption.
-    const branchTip = stack.branches[position.index]?.tip;
+    const branchTip = position ? stack.branches[position.index]?.tip : undefined;
     if (branchTip) {
       const head = git.revParse('HEAD');
       if (head !== branchTip) {

@@ -1,9 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { isatty } from 'node:tty';
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
+import {
+	type MergeDisplay,
+	type StepDisplay,
+	lineCount,
+	renderMergeDisplay,
+} from '../lib/merge-display.js';
+import { fetchCheckStatus } from '../lib/merge-poller.js';
 import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
@@ -310,6 +318,257 @@ export class MergeCommand extends Command {
 		stackName: string,
 		stack: ReturnType<typeof loadState>['stacks'][string] & object,
 	): Promise<number> {
+		const isTTY = isatty(2);
+
+		// For non-TTY, fall back to simple log-line behavior
+		if (!isTTY) {
+			return this.streamEventsSimple(port, jobId, state, stackName, stack);
+		}
+
+		const repo = state.repo || gh.repoFullName();
+		const [owner, repoName] = repo.split('/');
+		if (!owner || !repoName) {
+			ui.error('Could not determine repo owner/name');
+			return 2;
+		}
+
+		// Build initial display model from stack branches
+		const branchesWithPR = stack.branches.filter((b) => b.pr != null);
+		const mergeStart = Date.now();
+		const stepStartTimes = new Map<number, number>();
+
+		const display: MergeDisplay = {
+			stackName,
+			steps: branchesWithPR.map((b) => ({
+				prNumber: b.pr as number,
+				branchShort: b.name.split('/').pop() ?? b.name,
+				state: 'pending' as StepDisplay['state'],
+			})),
+			totalElapsed: 0,
+		};
+
+		// Mark first step as active
+		if (display.steps[0]) {
+			display.steps[0].state = 'auto-merge-enabled';
+			stepStartTimes.set(display.steps[0].prNumber, Date.now());
+		}
+
+		let previousLineCount = 0;
+		const rerender = (): void => {
+			display.totalElapsed = Date.now() - mergeStart;
+			// Update elapsed for active steps
+			for (const step of display.steps) {
+				const startTime = stepStartTimes.get(step.prNumber);
+				if (startTime && step.state !== 'pending') {
+					step.elapsed = Date.now() - startTime;
+				}
+			}
+			if (previousLineCount > 0) {
+				process.stderr.write(`\x1b[${previousLineCount}A\x1b[J`);
+			}
+			const frame = renderMergeDisplay(display);
+			process.stderr.write(`${frame}\n`);
+			previousLineCount = lineCount(frame);
+		};
+
+		rerender();
+
+		// Poll check status every 5s
+		const pollInterval = setInterval(() => {
+			const activeStep = display.steps.find(
+				(s) =>
+					s.state === 'checks-running' ||
+					s.state === 'auto-merge-enabled' ||
+					s.state === 'merging',
+			);
+			if (activeStep) {
+				activeStep.checks = fetchCheckStatus(
+					owner,
+					repoName,
+					activeStep.prNumber,
+				);
+				// If checks exist and step is auto-merge-enabled, transition to checks-running
+				if (
+					activeStep.state === 'auto-merge-enabled' &&
+					activeStep.checks.length > 0
+				) {
+					activeStep.state = 'checks-running';
+				}
+			}
+			rerender();
+		}, 5000);
+
+		try {
+			const response = await fetch(
+				`http://localhost:${port}/api/jobs/${jobId}/events`,
+			);
+			if (!response.ok || !response.body) {
+				clearInterval(pollInterval);
+				ui.error('Failed to connect to event stream');
+				return 2;
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() ?? '';
+
+				for (const line of lines) {
+					if (!line.startsWith('data: ')) continue;
+					const data = JSON.parse(line.slice(6)) as {
+						type: string;
+						job?: MergeJob;
+						message?: string;
+						level?: string;
+					};
+
+					if (data.type === 'notify' && data.message) {
+						this.updateDisplayFromNotify(
+							display,
+							data.message,
+							data.level,
+							stepStartTimes,
+						);
+						rerender();
+					}
+
+					if (data.type === 'error' && data.message) {
+						// Find current active step and mark failed
+						const active = display.steps.find(
+							(s) => s.state !== 'merged' && s.state !== 'pending',
+						);
+						if (active) {
+							active.state = 'failed';
+							active.error = data.message;
+						}
+						rerender();
+					}
+
+					if (data.type === 'done' && data.job) {
+						clearInterval(pollInterval);
+
+						if (data.job.status === 'completed') {
+							// Mark all steps as merged
+							for (const step of display.steps) {
+								if (step.state !== 'merged') {
+									step.state = 'merged';
+								}
+							}
+							display.activeMessage = undefined;
+							rerender();
+
+							process.stderr.write('\n');
+							ui.success(
+								`Stack "${stackName}" fully merged (${data.job.steps.length} PRs)`,
+							);
+							this.cleanupLocal(state, stackName, stack);
+							return 0;
+						}
+						if (data.job.status === 'failed') {
+							const failedStep = data.job.steps.find(
+								(s) => s.status === 'failed',
+							);
+							const displayStep = display.steps.find(
+								(s) => s.prNumber === failedStep?.prNumber,
+							);
+							if (displayStep) {
+								displayStep.state = 'failed';
+								displayStep.error = failedStep?.error;
+							}
+							rerender();
+
+							if (this.tunnelProc) {
+								this.tunnelProc.kill();
+								this.tunnelProc = null;
+							}
+							process.stderr.write('\n');
+							ui.error(
+								`Merge failed: ${failedStep?.error ?? 'unknown error'}`,
+							);
+							return 1;
+						}
+					}
+				}
+			}
+		} catch (err) {
+			clearInterval(pollInterval);
+			const msg = err instanceof Error ? err.message : String(err);
+			ui.error(`SSE stream error: ${msg}`);
+			ui.info(
+				`Use ${theme.command('stack merge --status')} to check progress.`,
+			);
+		}
+
+		clearInterval(pollInterval);
+		return 0;
+	}
+
+	private updateDisplayFromNotify(
+		display: MergeDisplay,
+		message: string,
+		level: string | undefined,
+		stepStartTimes: Map<number, number>,
+	): void {
+		// Detect "merged" messages: "#18 merged" or similar
+		const mergedMatch = message.match(/#(\d+)\s+.*merged/i);
+		if (mergedMatch) {
+			const prNum = Number(mergedMatch[1]);
+			const step = display.steps.find((s) => s.prNumber === prNum);
+			if (step) {
+				step.state = 'merged';
+			}
+		}
+
+		// Detect rebase messages: "Rebasing #19" or similar
+		const rebaseMatch = message.match(/[Rr]ebas(?:ing|e)\s+#(\d+)/);
+		if (rebaseMatch) {
+			const prNum = Number(rebaseMatch[1]);
+			const step = display.steps.find((s) => s.prNumber === prNum);
+			if (step) {
+				step.state = 'rebasing';
+				if (!stepStartTimes.has(prNum)) {
+					stepStartTimes.set(prNum, Date.now());
+				}
+			}
+			display.activeMessage = message;
+			return;
+		}
+
+		// Detect auto-merge enabled: "auto-merge enabled" with PR number
+		const autoMergeMatch = message.match(/#(\d+)\s+.*auto-merge\s+enabled/i);
+		if (autoMergeMatch) {
+			const prNum = Number(autoMergeMatch[1]);
+			const step = display.steps.find((s) => s.prNumber === prNum);
+			if (step && step.state !== 'merged') {
+				step.state = 'auto-merge-enabled';
+				if (!stepStartTimes.has(prNum)) {
+					stepStartTimes.set(prNum, Date.now());
+				}
+			}
+			display.activeMessage = undefined;
+			return;
+		}
+
+		// Clear active message when transitioning away from rebase
+		if (level === 'success') {
+			display.activeMessage = undefined;
+		}
+	}
+
+	private async streamEventsSimple(
+		port: number,
+		jobId: string,
+		state: ReturnType<typeof loadState>,
+		stackName: string,
+		stack: ReturnType<typeof loadState>['stacks'][string] & object,
+	): Promise<number> {
 		try {
 			const response = await fetch(
 				`http://localhost:${port}/api/jobs/${jobId}/events`,
@@ -360,8 +619,6 @@ export class MergeCommand extends Command {
 							ui.success(
 								`Stack "${stackName}" fully merged (${data.job.steps.length} PRs)`,
 							);
-
-							// Clean up local branches
 							this.cleanupLocal(state, stackName, stack);
 							return 0;
 						}

@@ -123,11 +123,8 @@ async function handleWebhook(
 	// Push action results to SSE
 	for (const actionResult of actionResults) {
 		if (actionResult.action.type === 'notify') {
-			pushSSE(job.id, {
-				type: 'notify',
-				message: (actionResult.action as { message: string }).message,
-				level: (actionResult.action as { level: string }).level,
-			});
+			const { message, level } = actionResult.action;
+			pushSSE(job.id, { type: 'notify', message, level });
 		}
 	}
 

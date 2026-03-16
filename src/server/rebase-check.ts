@@ -9,10 +9,11 @@
  * 4. Post a commit status (success/failure) via gh API
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ensureClone, fetchClone } from './clone.js';
+import { ghAsync, gitAsync } from './spawn.js';
 import type { WebhookEvent } from './types.js';
 
 const CHECK_CONTEXT = 'stack/rebase-status';
@@ -34,40 +35,30 @@ interface BranchPosition {
 	parentBranch: string; // trunk or the branch below
 }
 
-async function ghAsync(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-	const proc = Bun.spawn(['gh', ...args], {
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const exitCode = await proc.exited;
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	return { ok: exitCode === 0, stdout: stdout.trim(), stderr: stderr.trim() };
-}
-
-async function gitAsync(
-	args: string[],
-	opts?: { cwd?: string },
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-	const proc = Bun.spawn(['git', ...args], {
-		stdout: 'pipe',
-		stderr: 'pipe',
-		cwd: opts?.cwd,
-	});
-	const exitCode = await proc.exited;
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	return { ok: exitCode === 0, stdout: stdout.trim(), stderr: stderr.trim() };
-}
-
-function loadStackState(repoName: string): StackFile | null {
-	const filePath = join(homedir(), '.claude', 'stacks', `${repoName}.json`);
+/** Find the stack state file for a given repo (e.g. "owner/repo").
+ *  Scans all state files and matches on the `repo` field, which is the
+ *  canonical full name stored by the CLI. */
+function loadStackStateForRepo(fullRepoName: string): StackFile | null {
+	const stacksDir = join(homedir(), '.claude', 'stacks');
+	let files: string[];
 	try {
-		const text = readFileSync(filePath, 'utf-8');
-		return JSON.parse(text) as StackFile;
+		files = readdirSync(stacksDir);
 	} catch {
 		return null;
 	}
+	for (const file of files) {
+		if (!file.endsWith('.json') || file === 'merge-jobs.json' || file === 'server.config.json') continue;
+		try {
+			const text = readFileSync(join(stacksDir, file), 'utf-8');
+			const state = JSON.parse(text) as StackFile;
+			if (state.repo === fullRepoName) {
+				return state;
+			}
+		} catch {
+			continue;
+		}
+	}
+	return null;
 }
 
 function findBranchInStack(
@@ -94,13 +85,13 @@ async function postCommitStatus(
 	state: 'success' | 'failure' | 'pending',
 	description: string,
 ): Promise<void> {
-	await ghAsync([
+	await ghAsync(
 		'api',
 		`repos/${repo}/statuses/${sha}`,
 		'-f', `state=${state}`,
 		'-f', `context=${CHECK_CONTEXT}`,
 		'-f', `description=${description}`,
-	]);
+	);
 }
 
 /**
@@ -110,13 +101,9 @@ async function postCommitStatus(
 export async function handlePushEvent(
 	event: Extract<WebhookEvent, { type: 'push' }>,
 ): Promise<void> {
-	// Derive repo name for state lookup (owner-repo format used by clone.ts)
 	const repoName = event.repo.replace('/', '-');
-	// State files use just the repo basename
-	const stateRepoName = event.repo.split('/')[1];
-	if (!stateRepoName) return;
 
-	const state = loadStackState(stateRepoName);
+	const state = loadStackStateForRepo(event.repo);
 	if (!state) return;
 
 	const position = findBranchInStack(state, event.branch);

@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { isatty } from 'node:tty';
 import * as p from '@clack/prompts';
@@ -832,10 +832,13 @@ export class MergeCommand extends Command {
 			events: ['pull_request', 'push'],
 			active: true,
 		});
+		const tmpFile = join(tmpdir(), `stack-webhook-${Date.now()}.json`);
+		writeFileSync(tmpFile, payload, 'utf-8');
 		const createResult = Bun.spawnSync([
 			'gh', 'api', `repos/${owner}/${name}/hooks`,
-			'-X', 'POST', '--input', '-', '--jq', '.id',
-		], { stdout: 'pipe', stderr: 'pipe', stdin: Buffer.from(payload) });
+			'--method', 'POST', '--input', tmpFile, '--jq', '.id',
+		], { stdout: 'pipe', stderr: 'pipe' });
+		try { unlinkSync(tmpFile); } catch { /* ignore */ }
 
 		if (createResult.exitCode !== 0) {
 			const stderr = createResult.stderr.toString();

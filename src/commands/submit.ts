@@ -8,7 +8,7 @@ import {
 	MutationBatch,
 } from "../lib/graphql.js";
 import { resolveStack } from "../lib/resolve.js";
-import { loadState, saveState } from "../lib/state.js";
+import { loadAndRefreshState, saveState } from "../lib/state.js";
 import { theme } from "../lib/theme.js";
 import type { PrStatus } from "../lib/types.js";
 import { saveSnapshot } from "../lib/undo.js";
@@ -34,7 +34,7 @@ export class SubmitCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
-		const state = loadState();
+		const state = loadAndRefreshState();
 
 		let resolved: Awaited<ReturnType<typeof resolveStack>>;
 		try {
@@ -54,7 +54,7 @@ export class SubmitCommand extends Command {
 	}
 
 	private showDryRun(
-		stack: ReturnType<typeof loadState>["stacks"][string] & object,
+		stack: ReturnType<typeof loadAndRefreshState>["stacks"][string] & object,
 		_stackName: string,
 	): number {
 		const createCount = stack.branches.filter((b) => b.pr == null).length;
@@ -93,8 +93,8 @@ export class SubmitCommand extends Command {
 	}
 
 	private async fullSubmit(
-		state: ReturnType<typeof loadState>,
-		stack: ReturnType<typeof loadState>["stacks"][string] & object,
+		state: ReturnType<typeof loadAndRefreshState>,
+		stack: ReturnType<typeof loadAndRefreshState>["stacks"][string] & object,
 		stackName: string,
 		position: import("../lib/types.js").StackPosition | null,
 	): Promise<number> {
@@ -175,12 +175,13 @@ export class SubmitCommand extends Command {
 			const base =
 				i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
 			const title = this.deriveTitle(branch.name);
+			const body = this.generatePrBody(i, stack.branches.length, stackName);
 			const alias = `create_${i}`;
 			createBatch.createPR(alias, {
 				base,
 				head: branch.name,
 				title,
-				body: "",
+				body,
 				draft: true,
 			});
 			createAliases.set(alias, i);
@@ -232,6 +233,7 @@ export class SubmitCommand extends Command {
 				isDraft: details.isDraft,
 				url: details.url,
 				reviewDecision: details.reviewDecision,
+				checksStatus: null,
 			});
 		}
 
@@ -249,6 +251,7 @@ export class SubmitCommand extends Command {
 				isDraft: true,
 				url: `${repoUrl}/pull/${branch.pr}`,
 				reviewDecision: "",
+				checksStatus: null,
 			});
 		}
 
@@ -347,6 +350,11 @@ export class SubmitCommand extends Command {
 			ui.info(`  ${i + 1}. ${theme.branch(branch.name)} \u2192 ${prStr}`);
 		}
 		return 0;
+	}
+
+	private generatePrBody(branchIndex: number, totalBranches: number, stackName: string): string {
+		const position = `PR ${branchIndex + 1} of ${totalBranches}`;
+		return `**Stack:** \`${stackName}\` (${position})\n\n---\n*🤖 Generated with [Claude Code](https://claude.com/claude-code)*`;
 	}
 
 	private deriveTitle(branchName: string): string {

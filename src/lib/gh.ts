@@ -211,14 +211,20 @@ export function prMergeAutoDisable(
 	return { ok: true };
 }
 
-export function repoSettings(): { deleteBranchOnMerge: boolean } {
+export function repoSettings(): { deleteBranchOnMerge: boolean; allowAutoMerge: boolean; visibility: string } {
   const result = exec(
     'api',
     'repos/{owner}/{repo}',
-    '-q',
-    '.delete_branch_on_merge',
+    '--jq',
+    '[.delete_branch_on_merge, .allow_auto_merge, .visibility] | @tsv',
   );
+  if (!result.ok) {
+    return { deleteBranchOnMerge: false, allowAutoMerge: false, visibility: 'unknown' };
+  }
+  const [deleteBranch, autoMerge, visibility] = result.stdout.split('\t');
   return {
-    deleteBranchOnMerge: result.ok && result.stdout === 'true',
+    deleteBranchOnMerge: deleteBranch === 'true',
+    allowAutoMerge: autoMerge === 'true',
+    visibility: visibility ?? 'unknown',
   };
 }

@@ -315,10 +315,6 @@ export class MergeCommand extends Command {
 						}
 					}
 
-					if (data.type === 'state' && data.job) {
-						this.renderJobState(data.job);
-					}
-
 					if (data.type === 'error' && data.message) {
 						ui.error(data.message);
 					}
@@ -355,14 +351,6 @@ export class MergeCommand extends Command {
 		}
 
 		return 0;
-	}
-
-	private renderJobState(job: MergeJob): void {
-		for (const step of job.steps) {
-			if (step.status === 'merged' || step.status === 'done') {
-				// Already reported via notify
-			}
-		}
 	}
 
 	private cleanupLocal(

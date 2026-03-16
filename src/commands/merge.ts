@@ -191,6 +191,23 @@ export class MergeCommand extends Command {
 			return 2;
 		}
 
+		// Filter out already-merged PRs (handles resuming after partial merge)
+		const prStatuses = gh.prViewBatch(branchesWithPR.map((b) => b.pr as number));
+		const unmergedBranches = branchesWithPR.filter((b) => {
+			const status = prStatuses.get(b.pr as number);
+			if (status?.state === 'MERGED') {
+				ui.success(`#${b.pr} already merged — skipping`);
+				return false;
+			}
+			return true;
+		});
+
+		if (unmergedBranches.length === 0) {
+			ui.success('All PRs in this stack are already merged.');
+			this.cleanupLocal(state, stackName, stack);
+			return 0;
+		}
+
 		// Check if auto-merge is available
 		const settings = gh.repoSettings();
 		if (!settings.allowAutoMerge) {
@@ -209,9 +226,16 @@ export class MergeCommand extends Command {
 			return 2;
 		}
 
+		// Retarget first unmerged PR to trunk if its base was already merged
+		const firstUnmerged = unmergedBranches[0];
+		if (firstUnmerged && firstUnmerged !== branchesWithPR[0]) {
+			ui.info(`Retargeting #${firstUnmerged.pr} to ${stack.trunk}...`);
+			gh.prEdit(firstUnmerged.pr as number, { base: stack.trunk });
+		}
+
 		// Build merge job
 		const jobId = `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		const steps: MergeStep[] = branchesWithPR.map((branch) => ({
+		const steps: MergeStep[] = unmergedBranches.map((branch) => ({
 			prNumber: branch.pr as number,
 			branch: branch.name,
 			status: 'pending' as const,

@@ -17,11 +17,17 @@ export function loadState(): StackFile {
   const filePath = getStackFilePath();
   try {
     const text = readFileSync(filePath, 'utf-8');
-    return JSON.parse(text) as StackFile;
+    const data = JSON.parse(text) as StackFile;
+    // Ensure currentStack field exists (migration from older state files)
+    if (data.currentStack === undefined) {
+      data.currentStack = null;
+    }
+    return data;
   } catch {
     return {
       repo: '',
       stacks: {},
+      currentStack: null,
     };
   }
 }

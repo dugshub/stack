@@ -43,6 +43,12 @@ export function descriptionToTitle(description: string): string {
     .join(' ');
 }
 
+const RESERVED_NAMES = new Set([
+  'absorb', 'create', 'delete', 'help', 'init', 'merge', 'nav', 'push',
+  'remove', 'restack', 'split', 'status', 'submit', 'sync', 'undo',
+  'update', 'version',
+]);
+
 export function validateStackName(name: string): {
   valid: boolean;
   error?: string;
@@ -58,6 +64,12 @@ export function validateStackName(name: string): {
       valid: false,
       error:
         'Stack name must be kebab-case (lowercase letters, numbers, hyphens)',
+    };
+  }
+  if (RESERVED_NAMES.has(name)) {
+    return {
+      valid: false,
+      error: `"${name}" is reserved (conflicts with a command)`,
     };
   }
   return { valid: true };

@@ -116,6 +116,9 @@ export class DeleteCommand extends Command {
 
     // Remove from state
     delete state.stacks[stackName];
+    if (state.currentStack === stackName) {
+      state.currentStack = null;
+    }
     saveState(state);
 
     ui.success(`Removed stack ${theme.stack(stackName)} from tracking.`);

@@ -106,6 +106,7 @@ export class CreateCommand extends Command {
       updated: now,
       restackState: null,
     };
+    state.currentStack = name;
     saveState(state);
 
     ui.success(`Created stack ${theme.stack(name)} with branch ${theme.branch(branchName)}`);
@@ -174,6 +175,7 @@ export class CreateCommand extends Command {
       updated: now,
       restackState: null,
     };
+    state.currentStack = suggestedName;
     saveState(state);
 
     ui.success(`Created stack ${theme.stack(suggestedName)} with branch ${theme.branch(currentBranch)}`);
@@ -232,6 +234,7 @@ export class CreateCommand extends Command {
       updated: now,
       restackState: null,
     };
+    state.currentStack = name;
     saveState(state);
 
     ui.success(`Created stack ${theme.stack(name)} with ${branches.length} branches`);

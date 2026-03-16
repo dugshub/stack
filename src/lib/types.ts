@@ -1,6 +1,7 @@
 export interface StackFile {
   repo: string;
   stacks: Record<string, Stack>;
+  currentStack: string | null;
 }
 
 export interface Stack {

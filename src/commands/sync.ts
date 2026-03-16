@@ -182,6 +182,9 @@ export class SyncCommand extends Command {
     // 5. If all merged, remove stack entry
     if (allMerged) {
       delete state.stacks[resolvedName];
+      if (state.currentStack === resolvedName) {
+        state.currentStack = null;
+      }
       saveState(state);
       ui.success(`Stack ${theme.stack(resolvedName)} fully merged and removed.`);
       return 0;

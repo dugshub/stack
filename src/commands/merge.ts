@@ -808,12 +808,18 @@ export class MergeCommand extends Command {
 
 	private ensureWebhook(repo: string, tunnelUrl: string, secret: string): boolean {
 		const webhookUrl = `${tunnelUrl}/webhooks/github`;
-		const [owner, name] = repo.split('/');
-		if (!owner || !name) return false;
+
+		// Resolve canonical repo full_name (handles renamed/transferred repos that return 307)
+		const repoResult = Bun.spawnSync([
+			'gh', 'api', `repos/${repo}`, '--jq', '.full_name',
+		], { stdout: 'pipe', stderr: 'pipe' });
+		const canonicalRepo = repoResult.exitCode === 0
+			? repoResult.stdout.toString().trim()
+			: repo;
 
 		// Check for existing webhook pointing to trycloudflare.com
 		const listResult = Bun.spawnSync([
-			'gh', 'api', `repos/${owner}/${name}/hooks`,
+			'gh', 'api', `repos/${canonicalRepo}/hooks`,
 			'--jq', '.[] | select(.config.url | test("trycloudflare\\\\.com")) | .id',
 		], { stdout: 'pipe', stderr: 'pipe' });
 
@@ -822,7 +828,7 @@ export class MergeCommand extends Command {
 		// Delete old tunnel webhooks (they have ephemeral URLs)
 		for (const id of existingIds) {
 			Bun.spawnSync([
-				'gh', 'api', `repos/${owner}/${name}/hooks/${id}`, '-X', 'DELETE',
+				'gh', 'api', `repos/${canonicalRepo}/hooks/${id}`, '-X', 'DELETE',
 			], { stdout: 'pipe', stderr: 'pipe' });
 		}
 
@@ -835,7 +841,7 @@ export class MergeCommand extends Command {
 		const tmpFile = join(tmpdir(), `stack-webhook-${Date.now()}.json`);
 		writeFileSync(tmpFile, payload, 'utf-8');
 		const createResult = Bun.spawnSync([
-			'gh', 'api', `repos/${owner}/${name}/hooks`,
+			'gh', 'api', `repos/${canonicalRepo}/hooks`,
 			'--method', 'POST', '--input', tmpFile, '--jq', '.id',
 		], { stdout: 'pipe', stderr: 'pipe' });
 		try { unlinkSync(tmpFile); } catch { /* ignore */ }

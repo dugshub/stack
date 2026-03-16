@@ -2,6 +2,7 @@
 import { Builtins, Cli } from 'clipanion';
 import { AbsorbCommand } from './commands/absorb.js';
 import { CreateCommand } from './commands/create.js';
+import { DefaultCommand } from './commands/default.js';
 import { MergeCommand } from './commands/merge.js';
 import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
@@ -14,6 +15,7 @@ import { SubmitCommand } from './commands/submit.js';
 import { SyncCommand } from './commands/sync.js';
 import { UndoCommand } from './commands/undo.js';
 import { UpdateCommand } from './commands/update.js';
+import { showDashboard } from './lib/dashboard.js';
 import * as git from './lib/git.js';
 import { theme } from './lib/theme.js';
 import * as ui from './lib/ui.js';
@@ -41,6 +43,7 @@ cli.register(UndoCommand);
 cli.register(MergeCommand);
 cli.register(InitCommand);
 cli.register(UpdateCommand);
+cli.register(DefaultCommand);
 
 // Commands that don't require a git repo
 const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update'];
@@ -58,13 +61,15 @@ if (needsRepo && !git.tryRun('rev-parse', '--show-toplevel').ok) {
   process.exit(2);
 }
 
-// Bare `stack` with no args — show styled usage instead of clipanion default
-if (args.length === 0) {
+// Show help text
+function showHelp(): never {
   const v = currentVersion();
   process.stderr.write(`\n  ${theme.label(`stack`)} ${theme.muted(`v${v}`)}\n`);
   process.stderr.write(`  ${theme.muted('Stacked PRs for GitHub')}\n\n`);
 
   const cmds = [
+    ['<name>',                    'Switch to a stack'],
+    ['<number>',                  'Jump to branch N in current stack'],
     ['create [name]',           'Start a new stack'],
     ['delete [name]',           'Remove a stack from tracking'],
     ['status',                  'Show stack and PR status'],
@@ -94,6 +99,22 @@ if (args.length === 0) {
 
   process.stderr.write(`\n  ${theme.muted('Run any command with -h for details')}\n\n`);
   process.exit(0);
+}
+
+// `stack --help` / `stack -h` — always show our custom help
+if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+  showHelp();
+}
+
+// Bare `stack` with no args — show dashboard if stacks exist, otherwise help
+if (args.length === 0) {
+  if (git.tryRun('rev-parse', '--show-toplevel').ok) {
+    const dashResult = showDashboard();
+    if (dashResult !== null) {
+      process.exit(dashResult);
+    }
+  }
+  showHelp();
 }
 
 // Check for updates after command runs (non-blocking)

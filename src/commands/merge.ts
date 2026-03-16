@@ -13,7 +13,8 @@ import {
 	renderMergeDisplay,
 } from '../lib/merge-display.js';
 import { fetchCheckStatus } from '../lib/merge-poller.js';
-import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
+import { resolveStack } from '../lib/resolve.js';
+import { loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { link, theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 import { findActiveJobForStack } from '../server/state.js';
@@ -50,6 +51,10 @@ export class MergeCommand extends Command {
 		description: 'Configure webhook secret and server settings',
 	});
 
+	stackOpt = Option.String('--stack,-s', {
+		description: 'Target stack by name',
+	});
+
 	async execute(): Promise<number> {
 		if (this.setup) {
 			return this.runSetup();
@@ -60,23 +65,19 @@ export class MergeCommand extends Command {
 		}
 
 		const state = loadAndRefreshState();
-		const position = findActiveStack(state);
 
-		if (!position) {
-			ui.error(
-				`Not on a stack branch. Use ${theme.command('stack status')} to see tracked stacks.`,
-			);
+		let resolved: Awaited<ReturnType<typeof resolveStack>>;
+		try {
+			resolved = await resolveStack({ state, explicitName: this.stackOpt });
+		} catch (err) {
+			ui.error(err instanceof Error ? err.message : String(err));
 			return 2;
 		}
 
-		const stack = state.stacks[position.stackName];
-		if (!stack) {
-			ui.error(`Stack "${position.stackName}" not found`);
-			return 2;
-		}
+		const { stackName: resolvedName, stack } = resolved;
 
 		if (this.dryRun) {
-			return this.showDryRun(stack, position.stackName);
+			return this.showDryRun(stack, resolvedName);
 		}
 
 		if (!this.all) {
@@ -86,7 +87,7 @@ export class MergeCommand extends Command {
 			return 2;
 		}
 
-		return this.startMerge(state, stack, position.stackName);
+		return this.startMerge(state, stack, resolvedName);
 	}
 
 	private showDryRun(
@@ -124,16 +125,19 @@ export class MergeCommand extends Command {
 		return 0;
 	}
 
-	private showStatus(): number {
+	private async showStatus(): Promise<number> {
 		const state = loadAndRefreshState();
-		const position = findActiveStack(state);
 
-		if (!position) {
-			ui.error('Not on a stack branch.');
+		let resolvedName: string;
+		try {
+			const resolved = await resolveStack({ state, explicitName: this.stackOpt });
+			resolvedName = resolved.stackName;
+		} catch (err) {
+			ui.error(err instanceof Error ? err.message : String(err));
 			return 2;
 		}
 
-		const activeJob = findActiveJobForStack(position.stackName);
+		const activeJob = findActiveJobForStack(resolvedName);
 		if (!activeJob) {
 			ui.info('No active merge job for this stack.');
 			return 0;
@@ -732,6 +736,9 @@ export class MergeCommand extends Command {
 
 		// Remove stack from state
 		delete state.stacks[stackName];
+		if (state.currentStack === stackName) {
+			state.currentStack = null;
+		}
 		saveState(state);
 
 		// Checkout trunk

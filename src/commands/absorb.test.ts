@@ -153,6 +153,7 @@ function createBasicStack(): TestRepo {
   // Write stack state
   const state: StackFile = {
     repo: 'test/repo',
+    currentStack: null,
     stacks: {
       stack: {
         trunk: 'main',
@@ -212,6 +213,7 @@ function createOverlappingStack(): TestRepo {
 
   const state: StackFile = {
     repo: 'test/repo',
+    currentStack: null,
     stacks: {
       stack: {
         trunk: 'main',
@@ -654,6 +656,7 @@ describe('stack absorb', () => {
 
       const state: StackFile = {
         repo: 'test/repo',
+        currentStack: null,
         stacks: {
           deep: {
             trunk: 'main',

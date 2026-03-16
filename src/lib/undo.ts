@@ -170,6 +170,7 @@ export function restoreSnapshot(steps: number): RestoreResult {
 	const newState = {
 		repo: currentState.repo,
 		stacks: newStacks,
+		currentStack: currentState.currentStack,
 	};
 	saveState(newState);
 

@@ -76,3 +76,9 @@ const defaultTheme: Theme = {
 };
 
 export const theme = defaultTheme;
+
+/** Wrap text in an OSC 8 hyperlink (clickable in supported terminals). */
+export function link(text: string, url: string): string {
+	if (!colorEnabled) return text;
+	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
+}

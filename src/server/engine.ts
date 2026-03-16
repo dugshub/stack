@@ -49,7 +49,7 @@ export function processEvent(
 			actions.push({
 				type: 'rebase-and-push',
 				branch: nextStep.branch,
-				onto: `origin/${updated.trunk}`,
+				onto: updated.trunk,
 				oldBase: currentStep.branchTip,
 			});
 

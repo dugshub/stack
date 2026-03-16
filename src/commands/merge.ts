@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isatty } from 'node:tty';
+import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
@@ -13,7 +14,7 @@ import {
 } from '../lib/merge-display.js';
 import { fetchCheckStatus } from '../lib/merge-poller.js';
 import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
-import { theme } from '../lib/theme.js';
+import { link, theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 import { findActiveJobForStack } from '../server/state.js';
 import type { MergeJob, MergeStep, ServerConfig } from '../server/types.js';
@@ -98,6 +99,7 @@ export class MergeCommand extends Command {
 			return 2;
 		}
 
+		const repoUrl = `https://github.com/${gh.repoFullName()}`;
 		ui.heading('\n  Merge Plan');
 		process.stderr.write(
 			`  ${theme.muted(''.padEnd(34, '\u2500'))}\n`,
@@ -106,12 +108,13 @@ export class MergeCommand extends Command {
 		for (let i = 0; i < branchesWithPR.length; i++) {
 			const branch = branchesWithPR[i];
 			if (!branch) continue;
+			const prText = link(theme.pr(`#${branch.pr}`), `${repoUrl}/pull/${branch.pr}`);
 			const suffix =
 				i === 0
 					? `squash \u2192 ${stack.trunk}`
 					: `squash \u2192 ${stack.trunk} (after #${branchesWithPR[i - 1]?.pr})`;
 			process.stderr.write(
-				`  ${i + 1}. ${theme.pr(`#${branch.pr}`)}  ${theme.branch(branch.name.split('/').pop() ?? branch.name)}  ${theme.muted(suffix)}\n`,
+				`  ${i + 1}. ${prText}  ${theme.branch(branch.name.split('/').pop() ?? branch.name)}  ${theme.muted(suffix)}\n`,
 			);
 		}
 
@@ -230,20 +233,34 @@ export class MergeCommand extends Command {
 		};
 
 		// Show the plan
+		const repoUrl = `https://github.com/${repo}`;
 		ui.heading('\n  Merge Plan');
 		process.stderr.write(`  ${theme.muted(''.padEnd(34, '\u2500'))}\n`);
 		for (let i = 0; i < steps.length; i++) {
 			const step = steps[i];
 			if (!step) continue;
+			const prText = link(theme.pr(`#${step.prNumber}`), `${repoUrl}/pull/${step.prNumber}`);
 			const suffix =
 				i === 0
 					? `squash \u2192 ${stack.trunk}`
 					: `squash \u2192 ${stack.trunk} (after #${steps[i - 1]?.prNumber})`;
 			process.stderr.write(
-				`  ${i + 1}. ${theme.pr(`#${step.prNumber}`)}  ${theme.branch(step.branch.split('/').pop() ?? step.branch)}  ${theme.muted(suffix)}\n`,
+				`  ${i + 1}. ${prText}  ${theme.branch(step.branch.split('/').pop() ?? step.branch)}  ${theme.muted(suffix)}\n`,
 			);
 		}
 		process.stderr.write('\n');
+
+		// Confirm before proceeding
+		if (process.stderr.isTTY) {
+			const confirm = await p.confirm({
+				message: `Merge ${steps.length} PRs into ${stack.trunk}?`,
+			});
+			if (p.isCancel(confirm) || !confirm) {
+				ui.info('Merge cancelled.');
+				return 0;
+			}
+			process.stderr.write('\n');
+		}
 
 		// Ensure config exists
 		const config = this.ensureConfig();
@@ -398,116 +415,124 @@ export class MergeCommand extends Command {
 			rerender();
 		}, 5000);
 
-		try {
-			const response = await fetch(
-				`http://localhost:${port}/api/jobs/${jobId}/events`,
-			);
-			if (!response.ok || !response.body) {
-				clearInterval(pollInterval);
-				ui.error('Failed to connect to event stream');
-				return 2;
-			}
+		// SSE loop with auto-reconnect
+		let reconnects = 0;
+		const maxReconnects = 120; // ~10 minutes of reconnect attempts
 
-			const reader = response.body.getReader();
-			const decoder = new TextDecoder();
-			let buffer = '';
+		while (reconnects < maxReconnects) {
+			try {
+				const response = await fetch(
+					`http://localhost:${port}/api/jobs/${jobId}/events`,
+				);
+				if (!response.ok || !response.body) {
+					clearInterval(pollInterval);
+					ui.error('Failed to connect to event stream');
+					return 2;
+				}
 
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
+				reconnects = 0; // reset on successful connect
+				const reader = response.body.getReader();
+				const decoder = new TextDecoder();
+				let buffer = '';
 
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split('\n');
-				buffer = lines.pop() ?? '';
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
 
-				for (const line of lines) {
-					if (!line.startsWith('data: ')) continue;
-					const data = JSON.parse(line.slice(6)) as {
-						type: string;
-						job?: MergeJob;
-						message?: string;
-						level?: string;
-					};
+					buffer += decoder.decode(value, { stream: true });
+					const lines = buffer.split('\n');
+					buffer = lines.pop() ?? '';
 
-					if (data.type === 'notify' && data.message) {
-						this.updateDisplayFromNotify(
-							display,
-							data.message,
-							data.level,
-							stepStartTimes,
-						);
-						rerender();
-					}
+					for (const line of lines) {
+						if (!line.startsWith('data: ')) continue;
+						const data = JSON.parse(line.slice(6)) as {
+							type: string;
+							job?: MergeJob;
+							message?: string;
+							level?: string;
+						};
 
-					if (data.type === 'error' && data.message) {
-						// Find current active step and mark failed
-						const active = display.steps.find(
-							(s) => s.state !== 'merged' && s.state !== 'pending',
-						);
-						if (active) {
-							active.state = 'failed';
-							active.error = data.message;
+						if (data.type === 'notify' && data.message) {
+							this.updateDisplayFromNotify(
+								display,
+								data.message,
+								data.level,
+								stepStartTimes,
+							);
+							rerender();
 						}
-						rerender();
-					}
 
-					if (data.type === 'done' && data.job) {
-						clearInterval(pollInterval);
+						if (data.type === 'error' && data.message) {
+							const active = display.steps.find(
+								(s) => s.state !== 'merged' && s.state !== 'pending',
+							);
+							if (active) {
+								active.state = 'failed';
+								active.error = data.message;
+							}
+							rerender();
+						}
 
-						if (data.job.status === 'completed') {
-							// Mark all steps as merged
-							for (const step of display.steps) {
-								if (step.state !== 'merged') {
-									step.state = 'merged';
+						if (data.type === 'done' && data.job) {
+							clearInterval(pollInterval);
+
+							if (data.job.status === 'completed') {
+								for (const step of display.steps) {
+									if (step.state !== 'merged') {
+										step.state = 'merged';
+									}
 								}
-							}
-							display.activeMessage = undefined;
-							rerender();
+								display.activeMessage = undefined;
+								rerender();
 
-							process.stderr.write('\n');
-							ui.success(
-								`Stack "${stackName}" fully merged (${data.job.steps.length} PRs)`,
-							);
-							this.cleanupLocal(state, stackName, stack);
-							return 0;
-						}
-						if (data.job.status === 'failed') {
-							const failedStep = data.job.steps.find(
-								(s) => s.status === 'failed',
-							);
-							const displayStep = display.steps.find(
-								(s) => s.prNumber === failedStep?.prNumber,
-							);
-							if (displayStep) {
-								displayStep.state = 'failed';
-								displayStep.error = failedStep?.error;
+								process.stderr.write('\n');
+								ui.success(
+									`Stack "${stackName}" fully merged (${data.job.steps.length} PRs)`,
+								);
+								this.cleanupLocal(state, stackName, stack);
+								return 0;
 							}
-							rerender();
+							if (data.job.status === 'failed') {
+								const failedStep = data.job.steps.find(
+									(s) => s.status === 'failed',
+								);
+								const displayStep = display.steps.find(
+									(s) => s.prNumber === failedStep?.prNumber,
+								);
+								if (displayStep) {
+									displayStep.state = 'failed';
+									displayStep.error = failedStep?.error;
+								}
+								rerender();
 
-							if (this.tunnelProc) {
-								this.tunnelProc.kill();
-								this.tunnelProc = null;
+								if (this.tunnelProc) {
+									this.tunnelProc.kill();
+									this.tunnelProc = null;
+								}
+								process.stderr.write('\n');
+								ui.error(
+									`Merge failed: ${failedStep?.error ?? 'unknown error'}`,
+								);
+								return 1;
 							}
-							process.stderr.write('\n');
-							ui.error(
-								`Merge failed: ${failedStep?.error ?? 'unknown error'}`,
-							);
-							return 1;
 						}
 					}
 				}
+
+				// Stream ended without a done event — reconnect
+				reconnects++;
+				await new Promise((r) => setTimeout(r, 2000));
+			} catch {
+				// Connection error — reconnect
+				reconnects++;
+				await new Promise((r) => setTimeout(r, 2000));
 			}
-		} catch (err) {
-			clearInterval(pollInterval);
-			const msg = err instanceof Error ? err.message : String(err);
-			ui.error(`SSE stream error: ${msg}`);
-			ui.info(
-				`Use ${theme.command('stack merge --status')} to check progress.`,
-			);
 		}
 
 		clearInterval(pollInterval);
-		return 0;
+		ui.error('Lost connection to merge server after multiple retries.');
+		ui.info(`Use ${theme.command('stack merge --status')} to check progress.`);
+		return 1;
 	}
 
 	private updateDisplayFromNotify(
@@ -569,84 +594,92 @@ export class MergeCommand extends Command {
 		stackName: string,
 		stack: ReturnType<typeof loadState>['stacks'][string] & object,
 	): Promise<number> {
-		try {
-			const response = await fetch(
-				`http://localhost:${port}/api/jobs/${jobId}/events`,
-			);
-			if (!response.ok || !response.body) {
-				ui.error('Failed to connect to event stream');
-				return 2;
-			}
+		let reconnects = 0;
+		const maxReconnects = 120;
 
-			const reader = response.body.getReader();
-			const decoder = new TextDecoder();
-			let buffer = '';
+		while (reconnects < maxReconnects) {
+			try {
+				const response = await fetch(
+					`http://localhost:${port}/api/jobs/${jobId}/events`,
+				);
+				if (!response.ok || !response.body) {
+					ui.error('Failed to connect to event stream');
+					return 2;
+				}
 
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
+				reconnects = 0;
+				const reader = response.body.getReader();
+				const decoder = new TextDecoder();
+				let buffer = '';
 
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split('\n');
-				buffer = lines.pop() ?? '';
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
 
-				for (const line of lines) {
-					if (!line.startsWith('data: ')) continue;
-					const data = JSON.parse(line.slice(6)) as {
-						type: string;
-						job?: MergeJob;
-						message?: string;
-						level?: string;
-					};
+					buffer += decoder.decode(value, { stream: true });
+					const lines = buffer.split('\n');
+					buffer = lines.pop() ?? '';
 
-					if (data.type === 'notify' && data.message) {
-						if (data.level === 'success') {
-							ui.success(data.message);
-						} else if (data.level === 'error') {
-							ui.error(data.message);
-						} else {
-							ui.info(data.message);
-						}
-					}
+					for (const line of lines) {
+						if (!line.startsWith('data: ')) continue;
+						const data = JSON.parse(line.slice(6)) as {
+							type: string;
+							job?: MergeJob;
+							message?: string;
+							level?: string;
+						};
 
-					if (data.type === 'error' && data.message) {
-						ui.error(data.message);
-					}
-
-					if (data.type === 'done' && data.job) {
-						if (data.job.status === 'completed') {
-							process.stderr.write('\n');
-							ui.success(
-								`Stack "${stackName}" fully merged (${data.job.steps.length} PRs)`,
-							);
-							this.cleanupLocal(state, stackName, stack);
-							return 0;
-						}
-						if (data.job.status === 'failed') {
-							if (this.tunnelProc) {
-								this.tunnelProc.kill();
-								this.tunnelProc = null;
+						if (data.type === 'notify' && data.message) {
+							if (data.level === 'success') {
+								ui.success(data.message);
+							} else if (data.level === 'error') {
+								ui.error(data.message);
+							} else {
+								ui.info(data.message);
 							}
-							const failedStep = data.job.steps.find(
-								(s) => s.status === 'failed',
-							);
-							ui.error(
-								`Merge failed: ${failedStep?.error ?? 'unknown error'}`,
-							);
-							return 1;
+						}
+
+						if (data.type === 'error' && data.message) {
+							ui.error(data.message);
+						}
+
+						if (data.type === 'done' && data.job) {
+							if (data.job.status === 'completed') {
+								process.stderr.write('\n');
+								ui.success(
+									`Stack "${stackName}" fully merged (${data.job.steps.length} PRs)`,
+								);
+								this.cleanupLocal(state, stackName, stack);
+								return 0;
+							}
+							if (data.job.status === 'failed') {
+								if (this.tunnelProc) {
+									this.tunnelProc.kill();
+									this.tunnelProc = null;
+								}
+								const failedStep = data.job.steps.find(
+									(s) => s.status === 'failed',
+								);
+								ui.error(
+									`Merge failed: ${failedStep?.error ?? 'unknown error'}`,
+								);
+								return 1;
+							}
 						}
 					}
 				}
+
+				reconnects++;
+				await new Promise((r) => setTimeout(r, 2000));
+			} catch {
+				reconnects++;
+				await new Promise((r) => setTimeout(r, 2000));
 			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			ui.error(`SSE stream error: ${msg}`);
-			ui.info(
-				`Use ${theme.command('stack merge --status')} to check progress.`,
-			);
 		}
 
-		return 0;
+		ui.error('Lost connection to merge server after multiple retries.');
+		ui.info(`Use ${theme.command('stack merge --status')} to check progress.`);
+		return 1;
 	}
 
 	private cleanupLocal(
@@ -793,18 +826,16 @@ export class MergeCommand extends Command {
 			], { stdout: 'pipe', stderr: 'pipe' });
 		}
 
-		// Create new webhook
+		// Create new webhook via JSON input (GitHub API requires nested config object)
+		const payload = JSON.stringify({
+			config: { url: webhookUrl, content_type: 'json', secret },
+			events: ['pull_request', 'push'],
+			active: true,
+		});
 		const createResult = Bun.spawnSync([
 			'gh', 'api', `repos/${owner}/${name}/hooks`,
-			'-X', 'POST',
-			'-f', `url=${webhookUrl}`,
-			'-f', 'content_type=json',
-			'-f', `secret=${secret}`,
-			'-f', 'events[]=pull_request',
-			'-f', 'events[]=push',
-			'-f', 'active=true',
-			'--jq', '.id',
-		], { stdout: 'pipe', stderr: 'pipe' });
+			'-X', 'POST', '--input', '-', '--jq', '.id',
+		], { stdout: 'pipe', stderr: 'pipe', stdin: Buffer.from(payload) });
 
 		if (createResult.exitCode !== 0) {
 			const stderr = createResult.stderr.toString();

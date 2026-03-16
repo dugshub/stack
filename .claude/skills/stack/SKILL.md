@@ -1,7 +1,7 @@
 ---
 name: stack
-description: Manage PR stacks — create, push, submit, restack, sync, navigate. Use when user mentions stacks, stacked PRs, restack, stack submit, or branch dependencies.
-argument-hint: [create|push|submit|restack|sync|nav|status]
+description: Manage PR stacks — create, push, submit, restack, sync, merge, split, navigate, undo, and more. Use when user mentions stacks, stacked PRs, restack, stack submit, merge, split, or branch dependencies.
+argument-hint: [create|push|submit|restack|sync|merge|split|nav|status|absorb|undo|delete|remove|init|update]
 allowed-tools: Bash, Read
 ---
 
@@ -9,23 +9,71 @@ allowed-tools: Bash, Read
 
 Thin wrapper around the `stack` CLI. All operations delegate to the CLI binary.
 
-## Usage
+## Commands Reference
 
+### Stack lifecycle
 ```
-/stack                     # show current stack status
-/stack create [name]       # initialize new stack
-/stack push                # add current branch to top of active stack
-/stack submit              # push all + create/update PRs + comments
-/stack submit --dry-run    # preview what submit would do
-/stack restack             # cascade rebase after mid-stack edit
-/stack restack --continue  # resume after resolving conflicts
-/stack sync                # retarget after PR merge
-/stack nav up|down|top|bottom  # navigate stack
-/stack split --dry-run "name:pattern" ...  # preview splitting dirty tree into stack
-/stack split --name <stack> "name:pattern" ...  # execute the split
-/stack merge --dry-run     # preview cascade merge plan
-/stack merge --all         # cascade merge entire stack via webhooks
-/stack merge --status      # check active merge job
+stack create [name]               # Start a new stack (interactive if no name)
+stack create [name] -d <desc>     # Create with first branch description
+stack create --from b1 b2 b3      # Adopt existing branches into a stack
+stack delete [name]               # Remove stack from tracking
+stack delete [name] --branches    # Also delete local + remote git branches
+stack delete [name] --prs         # Also close open PRs
+stack init                        # Install Claude Code skills into current project
+stack update                      # Self-update to latest version from GitHub
+```
+
+### Branch management
+```
+stack push                        # Add current branch to active stack
+stack push -s <stack>             # Add to a specific stack
+stack remove [branch]             # Remove branch from stack (defaults to current)
+stack remove [branch] --branch    # Also delete the git branch
+stack remove [branch] --pr        # Also close the PR
+stack nav up|down|top|bottom      # Navigate between stack branches
+stack nav <number>                # Jump to branch by index
+stack nav                         # Interactive branch picker
+```
+
+### Working with changes
+```
+stack status                      # Show current stack and PR status
+stack status -s <stack>           # Show a specific stack
+stack status --json               # Machine-readable JSON output
+stack submit                      # Push all branches, create/update PRs
+stack submit -s <stack>           # Submit a specific stack
+stack submit --dry-run            # Preview what submit would do
+stack restack                     # Cascade rebase after mid-stack edit
+stack restack --continue          # Resume after resolving conflicts
+stack restack --abort             # Abort in-progress restack
+stack absorb                      # Route uncommitted fixes to correct stack branches
+stack absorb --dry-run            # Preview file routing plan
+stack absorb -m "message"         # Commit message for absorbed changes
+stack absorb -s <stack>           # Target a specific stack
+stack undo                        # Restore state to before last mutating command
+stack undo --steps 3              # Undo multiple operations
+stack undo --list                 # Show available restore points
+stack undo --dry-run              # Preview what would change
+```
+
+### Split workflow (large changes → stacked PRs)
+```
+stack split --dry-run "desc:pattern" ...          # Preview split plan
+stack split --name <stack> "desc:pattern" ...     # Execute the split
+```
+
+### Merge workflow (merge entire stack)
+```
+stack merge --dry-run             # Preview cascade merge plan
+stack merge --all                 # Merge entire stack bottom-up via webhooks
+stack merge --status              # Check active merge job status
+stack merge --setup               # Configure webhook secret and server
+```
+
+### Sync after merges
+```
+stack sync                        # Remove merged branches, rebase remaining
+stack sync -s <stack>             # Sync a specific stack
 ```
 
 ## Execution
@@ -63,8 +111,21 @@ When you have a large set of uncommitted changes to split into a stack:
 ### Merge workflow (merge entire stack)
 
 1. **Preview**: `stack merge --dry-run`
-2. **Execute**: `stack merge --all` (requires webhook server + branch protection)
-3. **Monitor**: `stack merge --status`
+2. **Execute**: `stack merge --all` (requires branch protection + webhook server)
+3. **Monitor**: `stack merge --status` or watch the live TUI
+
+### Sync after merge
+
+After one or more PRs in a stack are merged on GitHub:
+
+1. **Sync**: `stack sync` — removes merged branches, retargets remaining PRs, rebases
+2. If all PRs were merged, the stack is automatically cleaned up
+
+### Undo mistakes
+
+1. **List restore points**: `stack undo --list`
+2. **Preview**: `stack undo --dry-run`
+3. **Undo**: `stack undo` (or `stack undo --steps N` for multiple)
 
 ## When to use proactively
 
@@ -73,3 +134,5 @@ When you have a large set of uncommitted changes to split into a stack:
 - Before asking for review, run `stack submit` to push and create/update all PRs
 - After a large implementation task, use `stack split` to break changes into reviewable PRs
 - When all PRs are approved, use `stack merge --all` to cascade merge
+- After merges land on GitHub, use `stack sync` to clean up
+- If something goes wrong, use `stack undo` to restore previous state

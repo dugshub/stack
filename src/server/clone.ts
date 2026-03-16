@@ -1,31 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-
-interface SpawnResult {
-	ok: boolean;
-	stdout: string;
-	stderr: string;
-}
-
-async function execAsync(
-	cmd: string[],
-	opts?: { cwd?: string },
-): Promise<SpawnResult> {
-	const proc = Bun.spawn(cmd, {
-		stdout: 'pipe',
-		stderr: 'pipe',
-		cwd: opts?.cwd,
-	});
-	const exitCode = await proc.exited;
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	return {
-		ok: exitCode === 0,
-		stdout: stdout.trim(),
-		stderr: stderr.trim(),
-	};
-}
+import { execAsync } from './spawn.js';
 
 function getClonesDir(): string {
 	return join(homedir(), '.claude', 'stacks', 'clones');

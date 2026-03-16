@@ -1,4 +1,5 @@
-export type MergeStrategy = 'squash' | 'merge' | 'rebase';
+import type { MergeStrategy } from '../lib/types.js';
+export type { MergeStrategy };
 
 export type StepStatus =
 	| 'pending'

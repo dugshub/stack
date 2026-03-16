@@ -28,12 +28,6 @@ export class AbsorbCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const dirty = git.dirtyFiles();
-    if (dirty.length === 0) {
-      ui.info('No uncommitted changes to absorb.');
-      return 0;
-    }
-
     const state = loadState();
     const position = findActiveStack(state);
     if (!position) {
@@ -47,6 +41,28 @@ export class AbsorbCommand extends Command {
     if (!stack) {
       ui.error(`Stack "${position.stackName}" not found`);
       return 2;
+    }
+
+    // If HEAD is ahead of the branch's recorded tip, soft-reset to turn
+    // committed changes back into staged changes for absorption.
+    const branchTip = stack.branches[position.index]?.tip;
+    if (branchTip) {
+      const head = git.revParse('HEAD');
+      if (head !== branchTip) {
+        const commits = git.log(`${branchTip}..HEAD`);
+        if (commits.length > 0) {
+          git.run('reset', '--soft', branchTip);
+          ui.info(
+            `Unstaged ${commits.length} commit${commits.length === 1 ? '' : 's'} for absorption.`,
+          );
+        }
+      }
+    }
+
+    const dirty = git.dirtyFiles();
+    if (dirty.length === 0) {
+      ui.info('No uncommitted changes to absorb.');
+      return 0;
     }
 
     if (stack.restackState) {

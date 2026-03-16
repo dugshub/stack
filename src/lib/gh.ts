@@ -1,5 +1,4 @@
-import type { MergeStrategy } from '../server/types.js';
-import type { PrStatus } from './types.js';
+import type { MergeStrategy, PrStatus } from './types.js';
 
 interface RunResult {
   ok: boolean;

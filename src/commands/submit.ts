@@ -171,12 +171,13 @@ export class SubmitCommand extends Command {
 			const base =
 				i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
 			const title = this.deriveTitle(branch.name);
+			const body = this.generatePrBody(i, stack.branches.length, stackName);
 			const alias = `create_${i}`;
 			createBatch.createPR(alias, {
 				base,
 				head: branch.name,
 				title,
-				body: "",
+				body,
 				draft: true,
 			});
 			createAliases.set(alias, i);
@@ -341,6 +342,11 @@ export class SubmitCommand extends Command {
 			ui.info(`  ${i + 1}. ${theme.branch(branch.name)} \u2192 ${prStr}`);
 		}
 		return 0;
+	}
+
+	private generatePrBody(branchIndex: number, totalBranches: number, stackName: string): string {
+		const position = `PR ${branchIndex + 1} of ${totalBranches}`;
+		return `**Stack:** \`${stackName}\` (${position})\n\n---\n*🤖 Generated with [Claude Code](https://claude.com/claude-code)*`;
 	}
 
 	private deriveTitle(branchName: string): string {

@@ -1,4 +1,5 @@
 import * as clone from './clone.js';
+import { ghAsync, gitAsync } from './spawn.js';
 import type { EngineAction, MergeStrategy } from './types.js';
 
 export interface ActionResult {
@@ -9,40 +10,6 @@ export interface ActionResult {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function ghAsync(
-	...args: string[]
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-	const proc = Bun.spawn(['gh', ...args], {
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const exitCode = await proc.exited;
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	return {
-		ok: exitCode === 0,
-		stdout: stdout.trim(),
-		stderr: stderr.trim(),
-	};
-}
-
-async function gitAsync(
-	...args: string[]
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-	const proc = Bun.spawn(['git', ...args], {
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const exitCode = await proc.exited;
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	return {
-		ok: exitCode === 0,
-		stdout: stdout.trim(),
-		stderr: stderr.trim(),
-	};
 }
 
 function strategyFlag(strategy: MergeStrategy): string {
@@ -118,12 +85,12 @@ async function executeOne(
 			const errors: string[] = [];
 			for (const branch of action.branches) {
 				if (branch.remote) {
-					const result = await gitAsync(
+					const result = await gitAsync([
 						'push',
 						'origin',
 						'--delete',
 						branch.name,
-					);
+					]);
 					if (!result.ok) {
 						errors.push(
 							`Failed to delete remote ${branch.name}: ${result.stderr}`,
@@ -152,6 +119,11 @@ export async function executeActions(
 	for (const action of actions) {
 		const result = await executeOne(action, config);
 		results.push(result);
+		// Short-circuit on failure — later actions depend on earlier ones
+		// (e.g. retarget depends on rebase succeeding)
+		if (!result.ok && action.type !== 'notify' && action.type !== 'delete-branches') {
+			break;
+		}
 	}
 	return results;
 }

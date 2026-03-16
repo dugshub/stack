@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 import { findActiveJobForStack } from '../server/state.js';
@@ -50,7 +50,7 @@ export class MergeCommand extends Command {
 			return this.showStatus();
 		}
 
-		const state = loadState();
+		const state = loadAndRefreshState();
 		const position = findActiveStack(state);
 
 		if (!position) {
@@ -114,7 +114,7 @@ export class MergeCommand extends Command {
 	}
 
 	private showStatus(): number {
-		const state = loadState();
+		const state = loadAndRefreshState();
 		const position = findActiveStack(state);
 
 		if (!position) {

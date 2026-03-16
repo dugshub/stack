@@ -7,7 +7,7 @@ import {
 	fetchPRDetails,
 	MutationBatch,
 } from "../lib/graphql.js";
-import { findActiveStack, loadState, saveState } from "../lib/state.js";
+import { findActiveStack, loadAndRefreshState, loadState, saveState } from "../lib/state.js";
 import { theme } from "../lib/theme.js";
 import type { PrStatus } from "../lib/types.js";
 import * as ui from "../lib/ui.js";
@@ -28,7 +28,7 @@ export class SubmitCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
-		const state = loadState();
+		const state = loadAndRefreshState();
 		const position = findActiveStack(state);
 
 		if (!position) {

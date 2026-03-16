@@ -1,6 +1,6 @@
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { RestackState } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
@@ -51,7 +51,7 @@ export class RestackCommand extends Command {
       return 2;
     }
 
-    const state = loadState();
+    const state = loadAndRefreshState();
     const position = findActiveStack(state);
     if (!position) {
       ui.error(
@@ -196,7 +196,7 @@ export class RestackCommand extends Command {
   }
 
   private doContinue(): number {
-    const state = loadState();
+    const state = loadAndRefreshState();
     const position = findActiveStack(state);
 
     // Find stack with restackState — may not be on a stack branch if in conflict
@@ -283,7 +283,7 @@ export class RestackCommand extends Command {
   }
 
   private doAbort(): number {
-    const state = loadState();
+    const state = loadAndRefreshState();
 
     // Find stack with restackState
     let stackName: string | undefined;

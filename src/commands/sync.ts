@@ -2,7 +2,7 @@ import { Command } from 'clipanion';
 import { generateComment } from '../lib/comment.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
-import { loadState, saveState } from '../lib/state.js';
+import { loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus, RestackState } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
@@ -17,7 +17,7 @@ export class SyncCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
 
     // Find a stack that the user might be on, or the only stack
     let stackName: string | undefined;

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { RestackState } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
@@ -28,7 +28,7 @@ export class AbsorbCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
     const position = findActiveStack(state);
     if (!position) {
       ui.error(

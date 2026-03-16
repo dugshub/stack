@@ -35,6 +35,29 @@ export function saveState(state: StackFile): void {
   renameSync(tmpPath, filePath);
 }
 
+export function refreshTips(state: StackFile): boolean {
+	let changed = false;
+	for (const stack of Object.values(state.stacks)) {
+		for (const branch of stack.branches) {
+			const result = git.tryRun('rev-parse', branch.name);
+			if (result.ok && result.stdout !== branch.tip) {
+				branch.tip = result.stdout;
+				changed = true;
+			}
+		}
+	}
+	if (changed) {
+		saveState(state);
+	}
+	return changed;
+}
+
+export function loadAndRefreshState(): StackFile {
+	const state = loadState();
+	refreshTips(state);
+	return state;
+}
+
 export function findActiveStack(state: StackFile): StackPosition | null {
   let branch: string;
   try {

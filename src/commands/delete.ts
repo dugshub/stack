@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
-import { findActiveStack, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
@@ -31,7 +31,7 @@ export class DeleteCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    const state = loadState();
+    const state = loadAndRefreshState();
 
     // Resolve stack name
     let stackName = this.name;

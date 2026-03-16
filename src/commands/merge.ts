@@ -180,6 +180,24 @@ export class MergeCommand extends Command {
 			return 2;
 		}
 
+		// Check if auto-merge is available
+		const settings = gh.repoSettings();
+		if (!settings.allowAutoMerge) {
+			ui.error('Auto-merge is not enabled on this repository.');
+			process.stderr.write('\n');
+			ui.info('To enable it:');
+			if (settings.visibility === 'private') {
+				ui.info('  1. Make the repo public, or upgrade to GitHub Pro');
+				ui.info('  2. Enable branch protection on the target branch');
+			} else {
+				ui.info('  1. Enable branch protection on the target branch:');
+				ui.info(`     gh api repos/{owner}/{repo}/branches/${stack.trunk}/protection -X PUT --input - <<< '{"required_status_checks":null,"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null}'`);
+			}
+			ui.info(`  ${settings.visibility === 'private' ? '3' : '2'}. Enable auto-merge:`);
+			ui.info('     gh api repos/{owner}/{repo} -X PATCH -f allow_auto_merge=true');
+			return 2;
+		}
+
 		// Build merge job
 		const jobId = `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 		const steps: MergeStep[] = branchesWithPR.map((branch) => ({

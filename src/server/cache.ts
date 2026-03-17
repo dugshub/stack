@@ -61,7 +61,12 @@ export async function refreshCache(repo: string): Promise<void> {
       pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
         nodes {
           number title state isDraft url reviewDecision
-          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+          commits(last: 1) { nodes { commit { statusCheckRollup {
+            contexts(first: 100) { nodes {
+              ... on CheckRun { name conclusion status }
+              ... on StatusContext { context state }
+            } }
+          } } } }
         }
       }
     }
@@ -85,7 +90,17 @@ export async function refreshCache(repo: string): Promise<void> {
 							commits: {
 								nodes: Array<{
 									commit: {
-										statusCheckRollup: { state: string } | null;
+										statusCheckRollup: {
+											contexts: {
+												nodes: Array<{
+													name?: string;
+													conclusion?: string;
+													status?: string;
+													context?: string;
+													state?: string;
+												}>;
+											};
+										} | null;
 									};
 								}>;
 							};
@@ -103,6 +118,22 @@ export async function refreshCache(repo: string): Promise<void> {
 
 		for (const pr of data.data.repository.pullRequests.nodes) {
 			const rollup = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup;
+			const contexts = rollup?.contexts?.nodes?.filter((c) => {
+				const id = c.name ?? c.context ?? '';
+				return !id.startsWith('stack/');
+			});
+			let checksStatus: PrStatus['checksStatus'] = null;
+			if (contexts && contexts.length > 0) {
+				const hasFailure = contexts.some((c) => {
+					if (c.conclusion) return c.conclusion === 'FAILURE' || c.conclusion === 'ERROR';
+					return c.state === 'FAILURE' || c.state === 'ERROR';
+				});
+				const allSuccess = contexts.every((c) => {
+					if (c.conclusion) return c.conclusion === 'SUCCESS';
+					return c.state === 'SUCCESS';
+				});
+				checksStatus = hasFailure ? 'FAILURE' : allSuccess ? 'SUCCESS' : 'PENDING';
+			}
 			entry.prs.set(pr.number, {
 				number: pr.number,
 				title: pr.title,
@@ -110,7 +141,7 @@ export async function refreshCache(repo: string): Promise<void> {
 				isDraft: pr.isDraft,
 				url: pr.url,
 				reviewDecision: pr.reviewDecision ?? '',
-				checksStatus: (rollup?.state as PrStatus['checksStatus']) ?? null,
+				checksStatus,
 			});
 		}
 		entry.lastRefresh = Date.now();

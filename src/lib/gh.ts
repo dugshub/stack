@@ -48,14 +48,19 @@ export function prView(prNumber: number): PrStatus | null {
   );
   if (!result.ok) return null;
   const raw = JSON.parse(result.stdout) as Record<string, unknown>;
-  const rollup = raw.statusCheckRollup as Array<{ state: string }> | null;
+  const rollup = raw.statusCheckRollup as Array<{ state: string; name?: string; context?: string }> | null;
   // gh pr view returns statusCheckRollup as an array of individual checks
+  // Filter out our own stack/* checks so they don't pollute the CI status
+  const checks = rollup?.filter((c) => {
+    const id = c.name ?? c.context ?? '';
+    return !id.startsWith('stack/');
+  });
   // Derive overall state: any failure = FAILURE, all success = SUCCESS, else PENDING
   let checksStatus: PrStatus['checksStatus'] = null;
-  if (rollup && rollup.length > 0) {
-    if (rollup.some((c) => c.state === 'FAILURE' || c.state === 'ERROR')) {
+  if (checks && checks.length > 0) {
+    if (checks.some((c) => c.state === 'FAILURE' || c.state === 'ERROR')) {
       checksStatus = 'FAILURE';
-    } else if (rollup.every((c) => c.state === 'SUCCESS')) {
+    } else if (checks.every((c) => c.state === 'SUCCESS')) {
       checksStatus = 'SUCCESS';
     } else {
       checksStatus = 'PENDING';
@@ -71,7 +76,12 @@ export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
 	const [owner, name] = fullName.split('/');
 
 	const fields = `number title state isDraft url reviewDecision
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`;
+      commits(last: 1) { nodes { commit { statusCheckRollup {
+        contexts(first: 100) { nodes {
+          ... on CheckRun { name conclusion status }
+          ... on StatusContext { context state }
+        } }
+      } } } }`;
 	const aliases = prNumbers
 		.map(
 			(n) =>
@@ -89,13 +99,30 @@ export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
 	if (!result.ok) return new Map();
 
 	const data = JSON.parse(result.stdout) as {
-		data: { repository: Record<string, { number: number; title: string; state: string; isDraft: boolean; url: string; reviewDecision: string | null; commits: { nodes: Array<{ commit: { statusCheckRollup: { state: string } | null } }> } }> };
+		data: { repository: Record<string, { number: number; title: string; state: string; isDraft: boolean; url: string; reviewDecision: string | null; commits: { nodes: Array<{ commit: { statusCheckRollup: { contexts: { nodes: Array<{ name?: string; conclusion?: string; status?: string; context?: string; state?: string }> } } | null } }> } }> };
 	};
 
 	const statuses = new Map<number, PrStatus>();
 	for (const entry of Object.values(data.data.repository)) {
 		if (entry && typeof entry.number === 'number') {
 			const rollup = entry.commits?.nodes?.[0]?.commit?.statusCheckRollup;
+			const contexts = rollup?.contexts?.nodes?.filter((c) => {
+				const id = c.name ?? c.context ?? '';
+				return !id.startsWith('stack/');
+			});
+			let checksStatus: PrStatus['checksStatus'] = null;
+			if (contexts && contexts.length > 0) {
+				// CheckRun uses conclusion/status; StatusContext uses state
+				const hasFailure = contexts.some((c) => {
+					if (c.conclusion) return c.conclusion === 'FAILURE' || c.conclusion === 'ERROR';
+					return c.state === 'FAILURE' || c.state === 'ERROR';
+				});
+				const allSuccess = contexts.every((c) => {
+					if (c.conclusion) return c.conclusion === 'SUCCESS';
+					return c.state === 'SUCCESS';
+				});
+				checksStatus = hasFailure ? 'FAILURE' : allSuccess ? 'SUCCESS' : 'PENDING';
+			}
 			statuses.set(entry.number, {
 				number: entry.number,
 				title: entry.title,
@@ -103,7 +130,7 @@ export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
 				isDraft: entry.isDraft,
 				url: entry.url,
 				reviewDecision: entry.reviewDecision ?? '',
-				checksStatus: (rollup?.state as PrStatus['checksStatus']) ?? null,
+				checksStatus,
 			});
 		}
 	}

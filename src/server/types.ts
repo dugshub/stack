@@ -40,6 +40,7 @@ export interface MergeJob {
 	updated: string;
 }
 
+/** Parsed webhook events from GitHub */
 export type WebhookEvent =
 	| { type: 'pr_merged'; prNumber: number; repo: string }
 	| { type: 'pr_closed'; prNumber: number; repo: string }

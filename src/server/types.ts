@@ -13,7 +13,7 @@ export type StepStatus =
 /** Overall status of a merge job */
 export type JobStatus = 'running' | 'completed' | 'failed';
 
-/** A single PR merge step within a merge job */
+/** A single PR merge step */
 export interface MergeStep {
 	prNumber: number;
 	branch: string;

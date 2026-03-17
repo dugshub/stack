@@ -33,3 +33,5 @@ export function gitAsync(
 ): Promise<SpawnResult> {
 	return execAsync(['git', ...args], opts);
 }
+
+// Spawn provides async process execution helpers

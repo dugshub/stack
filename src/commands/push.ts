@@ -95,7 +95,11 @@ export class PushCommand extends Command {
     saveSnapshot('push');
 
     const tip = git.revParse('HEAD');
-    stack.branches.push({ name: currentBranch, tip, pr: null });
+    const parentBranch = stack.branches[stack.branches.length - 1];
+    const parentTip = parentBranch
+      ? parentBranch.tip ?? git.revParse(parentBranch.name)
+      : git.revParse(stack.trunk);
+    stack.branches.push({ name: currentBranch, tip, pr: null, parentTip });
     stack.updated = new Date().toISOString();
     saveState(state);
 
@@ -107,7 +111,7 @@ export class PushCommand extends Command {
       stackName,
       index: newIndex,
       total: stack.branches.length,
-      branch: { name: currentBranch, tip, pr: null },
+      branch: { name: currentBranch, tip, pr: null, parentTip },
       isTop: true,
       isBottom: stack.branches.length === 1,
     });

@@ -2,10 +2,11 @@ import { Command, Option } from 'clipanion';
 import { generateComment } from '../lib/comment.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
+import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
 import { loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { PrStatus, RestackState } from '../lib/types.js';
+import type { PrStatus } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 import { findActiveJobForStack } from '../server/state.js';
@@ -212,7 +213,7 @@ export class SyncCommand extends Command {
       return 2;
     }
 
-    // Build restack state for remaining branches
+    // Rebase remaining branches
     if (stack.branches.length > 0) {
       const oldTips: Record<string, string> = {};
       for (const branch of stack.branches) {
@@ -220,81 +221,31 @@ export class SyncCommand extends Command {
         oldTips[branch.name] = tip;
       }
 
+      const worktreeMap = git.worktreeList();
+
       // Rebase first branch onto trunk
       const firstBranch = stack.branches[0];
       if (firstBranch) {
-        const oldTip = oldTips[firstBranch.name];
-        if (oldTip) {
-          // Use the stored tip of the last merged branch as the exclusion point.
-          // This correctly skips already-merged commits after squash-merge.
-          // Falls back to merge-base only if no merged branch tip was captured.
-          let oldBase: string;
-          if (mergedBranchTip) {
-            oldBase = mergedBranchTip;
-          } else {
-            const mergeBaseResult = git.tryRun(
-              'merge-base',
-              firstBranch.name,
-              stack.trunk,
-            );
-            oldBase = mergeBaseResult.ok ? mergeBaseResult.stdout : oldTip;
-          }
-
-          const result = git.rebaseOnto(stack.trunk, oldBase, firstBranch.name);
-          if (result.ok) {
-            firstBranch.tip = git.revParse(firstBranch.name);
-            oldTips[firstBranch.name] = firstBranch.tip;
-            ui.success(`Rebased ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`);
-          } else {
-            // Save restackState for continuation
-            const restackState: RestackState = {
-              fromIndex: -1,
-              currentIndex: 0,
-              oldTips,
-            };
-            stack.restackState = restackState;
-            saveState(state);
-            ui.error(
-              `Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`,
-            );
-            if (result.conflicts.length > 0) {
-              ui.info('Conflicting files:');
-              for (const file of result.conflicts) {
-                ui.info(`  ${file}`);
-              }
-            }
-            ui.info(
-              `Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
-            );
-            return 1;
-          }
-        }
-      }
-
-      // Rebase subsequent branches
-      for (let i = 1; i < stack.branches.length; i++) {
-        const branch = stack.branches[i];
-        const parentBranch = stack.branches[i - 1];
-        if (!branch || !parentBranch) continue;
-
-        const oldTip = oldTips[parentBranch.name];
-        if (!oldTip) continue;
-
-        const result = git.rebaseOnto(parentBranch.name, oldTip, branch.name);
+        ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}...`);
+        const result = rebaseBranch({
+          branch: firstBranch,
+          parentRef: stack.trunk,
+          fallbackOldBase: mergedBranchTip ?? undefined,
+          worktreeMap,
+        });
         if (result.ok) {
-          branch.tip = git.revParse(branch.name);
-          oldTips[branch.name] = branch.tip;
-          ui.success(`Rebased ${theme.branch(branch.name)}`);
+          if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
+          ui.success(`Rebased ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`);
         } else {
-          // Save restackState for continuation
-          const restackState: RestackState = {
+          stack.restackState = {
             fromIndex: -1,
-            currentIndex: i,
+            currentIndex: 0,
             oldTips,
           };
-          stack.restackState = restackState;
           saveState(state);
-          ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
+          ui.error(
+            `Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`,
+          );
           if (result.conflicts.length > 0) {
             ui.info('Conflicting files:');
             for (const file of result.conflicts) {
@@ -307,10 +258,18 @@ export class SyncCommand extends Command {
           return 1;
         }
       }
-    }
 
-    stack.updated = new Date().toISOString();
-    saveState(state);
+      // Cascade rebase subsequent branches
+      const cascadeResult = cascadeRebase({
+        state,
+        stack,
+        fromIndex: -1,
+        startIndex: 1,
+        worktreeMap,
+        oldTips,
+      });
+      if (!cascadeResult.ok) return 1;
+    }
 
     // 7. Update stack comments on remaining PRs
     ui.info('Updating stack comments...');

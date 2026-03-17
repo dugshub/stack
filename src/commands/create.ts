@@ -91,8 +91,10 @@ export class CreateCommand extends Command {
     const user = gh.currentUser();
     const branchName = `${user}/${name}/1-${desc}`;
 
+    const trunk = git.defaultBranch();
     git.createBranch(branchName);
     const tip = git.revParse('HEAD');
+    const parentTip = git.revParse(trunk);
 
     // Init stack in state
     if (!state.repo) {
@@ -100,8 +102,8 @@ export class CreateCommand extends Command {
     }
     const now = new Date().toISOString();
     state.stacks[name] = {
-      trunk: git.defaultBranch(),
-      branches: [{ name: branchName, tip, pr: null }],
+      trunk,
+      branches: [{ name: branchName, tip, pr: null, parentTip }],
       created: now,
       updated: now,
       restackState: null,
@@ -163,14 +165,16 @@ export class CreateCommand extends Command {
 
     const tip = git.revParse('HEAD');
     const pr = gh.prList(currentBranch);
+    const trunk = git.defaultBranch();
+    const parentTip = git.revParse(trunk);
 
     if (!state.repo) {
       state.repo = gh.repoFullName();
     }
     const now = new Date().toISOString();
     state.stacks[suggestedName] = {
-      trunk: git.defaultBranch(),
-      branches: [{ name: currentBranch, tip, pr }],
+      trunk,
+      branches: [{ name: currentBranch, tip, pr, parentTip }],
       created: now,
       updated: now,
       restackState: null,
@@ -217,10 +221,14 @@ export class CreateCommand extends Command {
     }
 
     // Build branch entries
-    const branchEntries = branches.map((branch) => {
+    const trunk = git.defaultBranch();
+    const branchEntries = branches.map((branch, i) => {
       const tip = git.revParse(branch);
       const pr = gh.prList(branch);
-      return { name: branch, tip, pr };
+      const parentRef = i === 0 ? trunk : branches[i - 1];
+      const mb = parentRef ? git.tryRun('merge-base', parentRef, branch) : null;
+      const parentTip = mb?.ok ? mb.stdout : null;
+      return { name: branch, tip, pr, parentTip };
     });
 
     if (!state.repo) {
@@ -228,7 +236,7 @@ export class CreateCommand extends Command {
     }
     const now = new Date().toISOString();
     state.stacks[name] = {
-      trunk: git.defaultBranch(),
+      trunk,
       branches: branchEntries,
       created: now,
       updated: now,

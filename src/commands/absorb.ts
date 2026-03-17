@@ -2,10 +2,10 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
+import { rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
 import { loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { RestackState } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
@@ -296,58 +296,36 @@ export class AbsorbCommand extends Command {
 
       // --- Rebase this branch if an upstream branch was modified ---
       if (i > lowestModifiedIndex && parentBranch) {
-        const oldTip = originalTips[parentBranch.name];
-        if (oldTip) {
-          let rebaseResult: { ok: boolean; conflicts: string[] };
+        const rebaseResult = rebaseBranch({
+          branch,
+          parentRef: parentBranch.name,
+          fallbackOldBase: originalTips[parentBranch.name],
+          worktreeMap,
+        });
 
-          if (worktreePath) {
-            const result = Bun.spawnSync(
-              ['git', 'rebase', '--onto', parentBranch.name, oldTip, branch.name],
-              { stdout: 'pipe', stderr: 'pipe', cwd: worktreePath },
-            );
-            if (result.exitCode === 0) {
-              rebaseResult = { ok: true, conflicts: [] };
-            } else {
-              const statusResult = Bun.spawnSync(
-                ['git', 'status', '--porcelain'],
-                { stdout: 'pipe', stderr: 'pipe', cwd: worktreePath },
-              );
-              const conflicts = statusResult.stdout
-                .toString()
-                .split('\n')
-                .filter((line) => line.startsWith('UU '))
-                .map((line) => line.slice(3));
-              rebaseResult = { ok: false, conflicts };
+        if (rebaseResult.ok) {
+          if (branch.tip) oldTips[branch.name] = branch.tip;
+          ui.success(`Rebased ${theme.branch(branch.name)}`);
+        } else {
+          stack.restackState = {
+            fromIndex: lowestModifiedIndex,
+            currentIndex: i,
+            oldTips,
+          };
+          stack.updated = new Date().toISOString();
+          saveState(state);
+
+          ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
+          if (rebaseResult.conflicts.length > 0) {
+            ui.info('Conflicting files:');
+            for (const file of rebaseResult.conflicts) {
+              ui.info(`  ${file}`);
             }
-          } else {
-            rebaseResult = git.rebaseOnto(parentBranch.name, oldTip, branch.name);
           }
-
-          if (rebaseResult.ok) {
-            branch.tip = git.revParse(branch.name, { cwd: worktreePath ?? undefined });
-            oldTips[branch.name] = branch.tip;
-            ui.success(`Rebased ${theme.branch(branch.name)}`);
-          } else {
-            stack.restackState = {
-              fromIndex: lowestModifiedIndex,
-              currentIndex: i,
-              oldTips,
-            };
-            stack.updated = new Date().toISOString();
-            saveState(state);
-
-            ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
-            if (rebaseResult.conflicts.length > 0) {
-              ui.info('Conflicting files:');
-              for (const file of rebaseResult.conflicts) {
-                ui.info(`  ${file}`);
-              }
-            }
-            ui.info(
-              `Resolve conflicts, then run ${theme.command('stack restack --continue')}.`,
-            );
-            return 1;
-          }
+          ui.info(
+            `Resolve conflicts, then run ${theme.command('stack restack --continue')}.`,
+          );
+          return 1;
         }
       }
 

@@ -16,6 +16,7 @@ export interface Branch {
   name: string;
   tip: string | null;
   pr: number | null;
+  parentTip: string | null;  // Parent's tip SHA when this branch was last rebased/created
 }
 
 export interface RestackState {

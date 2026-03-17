@@ -358,10 +358,11 @@ export class SplitCommand extends Command {
 			const now = new Date().toISOString();
 			state.stacks[plan.stackName] = {
 				trunk,
-				branches: createdBranches.map((name) => ({
+				branches: createdBranches.map((name, i) => ({
 					name,
 					tip: git.revParse(name),
 					pr: null,
+					parentTip: i === 0 ? git.revParse(trunk) : git.revParse(createdBranches[i - 1] as string),
 				})),
 				created: now,
 				updated: now,

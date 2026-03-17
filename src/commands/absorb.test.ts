@@ -627,6 +627,111 @@ describe('stack absorb', () => {
     });
   });
 
+  describe('manual routing (--branch)', () => {
+    test('--branch routes file to specified branch', () => {
+      const repo = trackRepo(createBasicStack());
+      // Modify routes.ts (owned by branch 2) and route it to branch 2 manually
+      writeFile(repo.dir, 'src/routes.ts', 'export function getRoutes() { return ["/manual"]; }\n');
+
+      const result = runAbsorb(repo.dir, '--branch', '2', 'src/routes.ts');
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain('Committed to');
+
+      // Verify it landed in branch 2
+      const content = fileAtBranch(repo.dir, 'test/stack/2-routes', 'src/routes.ts');
+      expect(content).toContain('/manual');
+    });
+
+    test('--branch with non-dirty file warns and skips', () => {
+      const repo = trackRepo(createBasicStack());
+      // Also dirty one valid file so the command doesn't error on "all clean"
+      writeFile(repo.dir, 'src/auth.ts', 'modified\n');
+
+      const result = runAbsorb(repo.dir, '--branch', '1', 'src/auth.ts', 'src/clean-file.ts');
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain('clean-file.ts is not dirty');
+    });
+
+    test('--branch out of range errors', () => {
+      const repo = trackRepo(createBasicStack());
+      writeFile(repo.dir, 'src/auth.ts', 'modified\n');
+
+      // Index 0 is out of range (1-based)
+      const result0 = runAbsorb(repo.dir, '--branch', '0', 'src/auth.ts');
+      expect(result0.exitCode).toBe(2);
+      expect(result0.stderr).toContain('Branch index must be between 1 and');
+
+      // Index > branch count is out of range
+      const result99 = runAbsorb(repo.dir, '--branch', '99', 'src/auth.ts');
+      expect(result99.exitCode).toBe(2);
+      expect(result99.stderr).toContain('Branch index must be between 1 and');
+    });
+
+    test('--branch without files errors', () => {
+      const repo = trackRepo(createBasicStack());
+      writeFile(repo.dir, 'src/auth.ts', 'modified\n');
+
+      const result = runAbsorb(repo.dir, '--branch', '1');
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain('--branch requires file paths');
+    });
+
+    test('--branch with only non-dirty positional args errors after warnings', () => {
+      const repo = trackRepo(createBasicStack());
+      // Dirty a file that is NOT in our positional args
+      writeFile(repo.dir, 'src/auth.ts', 'modified\n');
+
+      const result = runAbsorb(repo.dir, '--branch', '1', 'src/clean-file.ts');
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain('is not dirty');
+      expect(result.stderr).toContain('None of the specified files have uncommitted changes');
+    });
+
+    test('--branch overrides ownership', () => {
+      const repo = trackRepo(createBasicStack());
+      // auth.ts is owned by branch 1, but we route it to branch 2
+      writeFile(repo.dir, 'src/auth.ts', 'export function login() { return "overridden"; }\n');
+
+      const result = runAbsorb(repo.dir, '--branch', '2', 'src/auth.ts');
+      expect(result.exitCode).toBe(0);
+
+      // Verify it landed in branch 2, not branch 1
+      const contentAtBranch2 = fileAtBranch(repo.dir, 'test/stack/2-routes', 'src/auth.ts');
+      expect(contentAtBranch2).toContain('overridden');
+    });
+
+    test('--branch + auto-absorb combined', () => {
+      const repo = trackRepo(createOverlappingStack());
+      // auth.ts → auto-routable to branch 1
+      writeFile(repo.dir, 'src/auth.ts', 'export function login() { return "auto"; }\n');
+      // shared.ts → conflicted (branch 1 + 3), manually route to branch 3
+      writeFile(repo.dir, 'src/shared.ts', 'export const VERSION = "manual";\n');
+      // newfile.ts → unowned, should be restored
+      writeFile(repo.dir, 'src/newfile.ts', 'unowned content\n');
+      git(repo.dir, 'add', 'src/newfile.ts');
+
+      const result = runAbsorb(repo.dir, '--branch', '3', 'src/shared.ts');
+      expect(result.exitCode).toBe(0);
+
+      // auth.ts should be auto-absorbed into branch 1
+      expect(fileAtBranch(repo.dir, 'test/stack/1-auth', 'src/auth.ts')).toContain('auto');
+      // shared.ts should be manually routed to branch 3
+      expect(fileAtBranch(repo.dir, 'test/stack/3-tests', 'src/shared.ts')).toContain('manual');
+      // newfile.ts should be restored to working tree
+      expect(readFile(repo.dir, 'src/newfile.ts')).toBe('unowned content\n');
+    });
+
+    test('--branch dry-run shows manual annotation', () => {
+      const repo = trackRepo(createBasicStack());
+      writeFile(repo.dir, 'src/auth.ts', 'modified\n');
+
+      const result = runAbsorb(repo.dir, '--dry-run', '--branch', '2', 'src/auth.ts');
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain('(manual)');
+      expect(result.stderr).toContain('Dry run');
+    });
+  });
+
   describe('5-branch deep stack', () => {
     test('absorbs across a deep stack correctly', () => {
       const dir = mkdtempSync(join(tmpdir(), 'stack-absorb-deep-'));

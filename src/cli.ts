@@ -46,7 +46,7 @@ cli.register(UpdateCommand);
 cli.register(DefaultCommand);
 
 // Commands that don't require a git repo
-const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update'];
+const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai'];
 const rawArgs = process.argv.slice(2);
 
 // `stack 3` → `stack nav 3`
@@ -97,7 +97,16 @@ function showHelp(): never {
     process.stderr.write(`  ${theme.command(`stack ${cmd}`.padEnd(34))} ${theme.muted(desc ?? '')}\n`);
   }
 
-  process.stderr.write(`\n  ${theme.muted('Run any command with -h for details')}\n\n`);
+  process.stderr.write(`\n  ${theme.muted('Run any command with -h for details')}\n`);
+  process.stderr.write(`  ${theme.muted('Run --ai or <command> --ai for LLM-friendly docs')}\n\n`);
+  process.exit(0);
+}
+
+// `stack --ai [command]` — plain-text docs for LLMs
+if (args.includes('--ai')) {
+  const { printAiDocs } = await import('./lib/ai-docs.js');
+  const cmdArg = args.filter((a) => a !== '--ai')[0];
+  printAiDocs(cmdArg);
   process.exit(0);
 }
 

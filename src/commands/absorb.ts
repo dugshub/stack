@@ -17,6 +17,7 @@ export class AbsorbCommand extends Command {
     examples: [
       ['Absorb changes into their owning branches', 'stack absorb'],
       ['Preview without making changes', 'stack absorb --dry-run'],
+      ['Route files to branch 5 manually', 'stack absorb --branch 5 GroupedTable.tsx'],
       ['Absorb with a custom commit message', 'stack absorb -m "fix typos"'],
     ],
   });
@@ -33,6 +34,12 @@ export class AbsorbCommand extends Command {
     description: 'Commit message for absorbed changes',
   });
 
+  branchTarget = Option.String('--branch,-b', {
+    description: '1-based branch index to route files to',
+  });
+
+  files = Option.Rest();
+
   async execute(): Promise<number> {
     const state = loadAndRefreshState();
 
@@ -47,6 +54,11 @@ export class AbsorbCommand extends Command {
     const { stackName: resolvedName, stack, position } = resolved;
     if (!stack) {
       ui.error(`Stack "${resolvedName}" not found`);
+      return 2;
+    }
+
+    if (!position) {
+      ui.error('Not on a stack branch. Switch to a branch in the stack first.');
       return 2;
     }
 
@@ -98,12 +110,48 @@ export class AbsorbCommand extends Command {
       }
     }
 
+    // Manual routing: --branch N file1 file2
+    const manualRoute = new Map<number, string[]>(); // branchIndex -> files
+    const manualFiles = new Set<string>();
+
+    if (this.branchTarget !== undefined) {
+      const idx = parseInt(this.branchTarget, 10) - 1; // 1-based → 0-based
+      if (Number.isNaN(idx) || idx < 0 || idx >= stack.branches.length) {
+        ui.error(`Branch index must be between 1 and ${stack.branches.length}`);
+        return 2;
+      }
+
+      const restArgs = this.files ?? [];
+      if (restArgs.length === 0) {
+        ui.error('--branch requires file paths as positional arguments');
+        return 2;
+      }
+
+      const validFiles: string[] = [];
+      for (const file of restArgs) {
+        if (dirty.includes(file)) {
+          validFiles.push(file);
+          manualFiles.add(file);
+        } else {
+          ui.warn(`${file} is not dirty — skipping`);
+        }
+      }
+
+      if (validFiles.length > 0) {
+        manualRoute.set(idx, validFiles);
+      } else {
+        ui.error('None of the specified files have uncommitted changes');
+        return 2;
+      }
+    }
+
     // Classify dirty files
     const absorbable = new Map<number, string[]>(); // branchIndex -> files
     const conflicted: Array<{ file: string; branches: string[] }> = [];
     const unowned: string[] = [];
 
     for (const file of dirty) {
+      if (manualFiles.has(file)) continue; // handled by --branch
       const owners = ownershipMap.get(file);
       if (!owners || owners.length === 0) {
         unowned.push(file);
@@ -120,6 +168,13 @@ export class AbsorbCommand extends Command {
       }
     }
 
+    // Merge manual routes into absorbable map before display and early-exit guard
+    for (const [idx, files] of manualRoute) {
+      const existing = absorbable.get(idx) ?? [];
+      existing.push(...files);
+      absorbable.set(idx, existing);
+    }
+
     // Display plan
     ui.heading('Absorb plan');
     process.stderr.write('\n');
@@ -131,7 +186,8 @@ export class AbsorbCommand extends Command {
           `${theme.branch(branchName)} ${theme.muted(`(${files.length} file${files.length === 1 ? '' : 's'})`)}`,
         );
         for (const file of files) {
-          ui.info(`  ${file}`);
+          const isManual = manualFiles.has(file);
+          ui.info(`  ${file}${isManual ? theme.muted(' (manual)') : ''}`);
         }
       }
     }

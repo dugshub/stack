@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
-import { parseBranchName, validateStackName } from '../lib/branch.js';
+import { parseBranchName, toKebabCase, validateStackName } from '../lib/branch.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
@@ -32,6 +32,10 @@ export class CreateCommand extends Command {
     description: 'Description for the first branch (kebab-case)',
   });
 
+  yes = Option.Boolean('--yes,-y', false, {
+    description: 'Skip confirmation prompts (non-interactive mode)',
+  });
+
   from = Option.Array('--from', {
     description: 'Existing branches to adopt into the stack',
   });
@@ -56,6 +60,7 @@ export class CreateCommand extends Command {
   }
 
   private async explicit(name: string): Promise<number> {
+    name = toKebabCase(name);
     const validation = validateStackName(name);
     if (!validation.valid) {
       ui.error(validation.error ?? 'Invalid stack name');
@@ -70,14 +75,16 @@ export class CreateCommand extends Command {
 
     let desc = this.description;
     if (!desc) {
+      if (this.yes || !process.stdin.isTTY) {
+        ui.error('--description is required in non-interactive mode');
+        return 2;
+      }
       const result = await p.text({
         message: 'First branch description (kebab-case)',
         placeholder: 'e.g. sticky-header',
         validate: (value: string | undefined) => {
           if (!value || value.length === 0)
             return 'Description cannot be empty';
-          if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(value))
-            return 'Must be kebab-case';
           return undefined;
         },
       });
@@ -86,6 +93,12 @@ export class CreateCommand extends Command {
         return 0;
       }
       desc = result;
+    }
+
+    desc = toKebabCase(desc);
+    if (desc.length === 0) {
+      ui.error('Description resolves to empty after normalization');
+      return 2;
     }
 
     const user = gh.currentUser();
@@ -142,12 +155,14 @@ export class CreateCommand extends Command {
     const parsed = parseBranchName(currentBranch);
     const suggestedName = parsed?.stack ?? currentBranch.split('/').pop() ?? '';
 
-    const confirmed = await p.confirm({
-      message: `Create stack "${suggestedName}" with current branch "${currentBranch}"?`,
-    });
-    if (p.isCancel(confirmed) || !confirmed) {
-      ui.info('Cancelled.');
-      return 0;
+    if (!this.yes && process.stdin.isTTY) {
+      const confirmed = await p.confirm({
+        message: `Create stack "${suggestedName}" with current branch "${currentBranch}"?`,
+      });
+      if (p.isCancel(confirmed) || !confirmed) {
+        ui.info('Cancelled.');
+        return 0;
+      }
     }
 
     const validation = validateStackName(suggestedName);

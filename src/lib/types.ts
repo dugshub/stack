@@ -52,3 +52,11 @@ export interface StackPosition {
 }
 
 export type MergeStrategy = 'squash' | 'merge' | 'rebase';
+
+export interface CheckResult {
+	branch: string;
+	index: number;
+	exitCode: number;
+	ok: boolean;
+	durationMs: number;
+}

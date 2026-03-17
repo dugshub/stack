@@ -1,6 +1,6 @@
 import Table from 'cli-table3';
 import { theme } from './theme.js';
-import type { PrStatus, Stack, StackPosition, StatusEmoji } from './types.js';
+import type { CheckResult, PrStatus, Stack, StackPosition, StatusEmoji } from './types.js';
 
 function hyperlink(text: string, url: string): string {
 	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
@@ -157,6 +157,25 @@ export function branchTable(rows: BranchRow[]): void {
 	}
 
 	process.stderr.write(`${table.toString()}\n`);
+}
+
+export function checkResultsTable(results: CheckResult[]): void {
+	const numW = String(Math.max(...results.map(r => r.index))).length;
+	const branchW = Math.max(6, ...results.map(r => r.branch.length));
+	const gap = '  ';
+
+	// Header
+	process.stderr.write(` ${theme.muted('#'.padEnd(numW))}${gap}${theme.muted('Branch'.padEnd(branchW))}${gap}${theme.muted('Status'.padEnd(8))}${gap}${theme.muted('Time')}\n`);
+
+	for (const r of results) {
+		// Pad plain text FIRST, then apply color (ANSI codes break padEnd)
+		const statusPlain = r.ok ? '✓ pass' : '✗ FAIL';
+		const statusPadded = statusPlain.padEnd(8);
+		const statusStr = r.ok ? theme.success(statusPadded) : theme.error(statusPadded);
+
+		const time = `${(r.durationMs / 1000).toFixed(1)}s`;
+		process.stderr.write(` ${String(r.index).padEnd(numW)}${gap}${r.branch.padEnd(branchW)}${gap}${statusStr}${gap}${time}\n`);
+	}
 }
 
 export function positionReport(pos: StackPosition): void {

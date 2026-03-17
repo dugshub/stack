@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Builtins, Cli } from 'clipanion';
 import { AbsorbCommand } from './commands/absorb.js';
+import { CheckCommand } from './commands/check.js';
 import { CreateCommand } from './commands/create.js';
 import { DefaultCommand } from './commands/default.js';
 import { MergeCommand } from './commands/merge.js';
@@ -37,6 +38,7 @@ cli.register(PushCommand);
 cli.register(RemoveCommand);
 cli.register(SubmitCommand);
 cli.register(AbsorbCommand);
+cli.register(CheckCommand);
 cli.register(RestackCommand);
 cli.register(SyncCommand);
 cli.register(UndoCommand);
@@ -81,6 +83,7 @@ function showHelp(): never {
     ['submit',                  'Push branches, create/update PRs'],
     ['absorb',                  'Route fixes to correct stack branches'],
     ['restack',                 'Rebase downstream after mid-stack edits'],
+    ['check <cmd...>',           'Run a command on every branch'],
     ['sync',                    'Clean up after PRs merge'],
     ['undo',                    'Undo last mutating command'],
     ['merge --all',             'Merge entire stack bottom-up'],

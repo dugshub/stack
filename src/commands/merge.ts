@@ -409,11 +409,16 @@ export class MergeCommand extends Command {
 		// SSE loop with auto-reconnect
 		let reconnects = 0;
 		const maxReconnects = 120; // ~10 minutes of reconnect attempts
+		const { loadDaemonToken } = await import('../lib/daemon-client.js');
+		const sseToken = loadDaemonToken();
+		const sseHeaders: Record<string, string> = {};
+		if (sseToken) sseHeaders.Authorization = `Bearer ${sseToken}`;
 
 		while (reconnects < maxReconnects) {
 			try {
 				const response = await fetch(
 					`http://localhost:${port}/api/jobs/${jobId}/events`,
+					{ headers: sseHeaders },
 				);
 				if (!response.ok || !response.body) {
 					clearInterval(pollInterval);
@@ -583,11 +588,16 @@ export class MergeCommand extends Command {
 	): Promise<number> {
 		let reconnects = 0;
 		const maxReconnects = 120;
+		const { loadDaemonToken } = await import('../lib/daemon-client.js');
+		const sseToken = loadDaemonToken();
+		const sseHeaders: Record<string, string> = {};
+		if (sseToken) sseHeaders.Authorization = `Bearer ${sseToken}`;
 
 		while (reconnects < maxReconnects) {
 			try {
 				const response = await fetch(
 					`http://localhost:${port}/api/jobs/${jobId}/events`,
+					{ headers: sseHeaders },
 				);
 				if (!response.ok || !response.body) {
 					ui.error('Failed to connect to event stream');

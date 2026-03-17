@@ -1,3 +1,4 @@
+import { tryDaemonCache } from './daemon-client.js';
 import { formatRelativeTime } from './format.js';
 import * as gh from './gh.js';
 import * as git from './git.js';
@@ -10,7 +11,7 @@ import { currentVersion } from './version.js';
  * Show the stacks dashboard. Returns 0 on success, or null if no stacks
  * exist (caller should show help text instead).
  */
-export function showDashboard(): number | null {
+export async function showDashboard(): Promise<number | null> {
 	// Check if we're in a git repo
 	if (!git.tryRun('rev-parse', '--show-toplevel').ok) {
 		return null;
@@ -51,7 +52,15 @@ export function showDashboard(): number | null {
 				.map((b) => b.pr)
 				.filter((pr): pr is number => pr != null);
 			if (prNumbers.length > 0) {
-				const prStatuses = gh.prViewBatch(prNumbers);
+				// Try daemon cache first, fall back to GitHub API
+				const fullName = state.repo || gh.repoFullName();
+				const [owner, repoName] = fullName.split('/');
+				let prStatuses = owner && repoName
+					? await tryDaemonCache(owner, repoName)
+					: null;
+				if (!prStatuses) {
+					prStatuses = gh.prViewBatch(prNumbers);
+				}
 				const hint = getHint(currentStack, prStatuses);
 				if (hint) {
 					process.stderr.write(

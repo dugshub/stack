@@ -63,8 +63,16 @@ export type EngineAction =
 	  }
 	| { type: 'notify'; message: string; level: 'info' | 'success' | 'error' };
 
-export interface ServerConfig {
+export interface TunnelConfig {
+	configPath: string;
+	hostname: string;
+}
+
+export interface DaemonConfig {
 	port: number;
 	webhookSecret: string;
 	publicUrl?: string;
+	tunnel?: TunnelConfig;
+	webhooks: Record<string, number>;
+	repos: string[];
 }

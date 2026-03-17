@@ -12,7 +12,7 @@ export class DefaultCommand extends Command {
 
 	async execute(): Promise<number> {
 		if (!this.name) {
-			const result = showDashboard();
+			const result = await showDashboard();
 			if (result !== null) return result;
 			// No stacks — show basic info
 			ui.info('No stacks found. Use `stack create <name>` to start one.');

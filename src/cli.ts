@@ -3,6 +3,7 @@ import { Builtins, Cli } from 'clipanion';
 import { AbsorbCommand } from './commands/absorb.js';
 import { CheckCommand } from './commands/check.js';
 import { CreateCommand } from './commands/create.js';
+import { DaemonCommand } from './commands/daemon.js';
 import { DefaultCommand } from './commands/default.js';
 import { MergeCommand } from './commands/merge.js';
 import { DeleteCommand } from './commands/delete.js';
@@ -43,12 +44,13 @@ cli.register(RestackCommand);
 cli.register(SyncCommand);
 cli.register(UndoCommand);
 cli.register(MergeCommand);
+cli.register(DaemonCommand);
 cli.register(InitCommand);
 cli.register(UpdateCommand);
 cli.register(DefaultCommand);
 
 // Commands that don't require a git repo
-const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai'];
+const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon'];
 const rawArgs = process.argv.slice(2);
 
 // `stack 3` → `stack nav 3`
@@ -87,6 +89,7 @@ function showHelp(): never {
     ['sync',                    'Clean up after PRs merge'],
     ['undo',                    'Undo last mutating command'],
     ['merge --all',             'Merge entire stack bottom-up'],
+    ['daemon <action>',         'Manage background daemon'],
     ['',                        ''],
     ['init',                    'Install Claude Code skills'],
     ['update',                  'Self-update to latest version'],
@@ -121,12 +124,49 @@ if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
 // Bare `stack` with no args — show dashboard if stacks exist, otherwise help
 if (args.length === 0) {
   if (git.tryRun('rev-parse', '--show-toplevel').ok) {
-    const dashResult = showDashboard();
+    const dashResult = await showDashboard();
     if (dashResult !== null) {
       process.exit(dashResult);
     }
   }
   showHelp();
+}
+
+// Auto-start daemon unless running a command that doesn't need it
+const noDaemonCommands = ['daemon', 'update', '--help', '-h', '--version', '-v', '--ai'];
+const skipDaemon = args.length === 0 || args.some((a) => noDaemonCommands.includes(a));
+if (!skipDaemon) {
+  try {
+    const { ensureDaemon } = await import('./server/lifecycle.js');
+    await ensureDaemon();
+
+    // Fire-and-forget: register current repo with daemon
+    if (git.tryRun('rev-parse', '--show-toplevel').ok) {
+      try {
+        const { loadState } = await import('./lib/state.js');
+        const { loadDaemonToken } = await import('./lib/daemon-client.js');
+        const { getDaemonPort } = await import('./server/lifecycle.js');
+        const state = loadState();
+        let repoName = state.repo;
+        if (!repoName) {
+          const { repoFullName } = await import('./lib/gh.js');
+          repoName = repoFullName();
+        }
+        if (repoName) {
+          const token = loadDaemonToken();
+          const port = getDaemonPort();
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers.Authorization = `Bearer ${token}`;
+          fetch(`http://localhost:${port}/api/repos`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ repo: repoName }),
+            signal: AbortSignal.timeout(1000),
+          }).catch(() => {});
+        }
+      } catch { /* non-fatal */ }
+    }
+  } catch { /* daemon start failed — non-fatal, commands still work */ }
 }
 
 // Check for updates after command runs (non-blocking)

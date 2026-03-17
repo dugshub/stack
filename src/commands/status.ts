@@ -1,4 +1,5 @@
 import { Command, Option } from 'clipanion';
+import { tryDaemonCache } from '../lib/daemon-client.js';
 import { formatRelativeTime } from '../lib/format.js';
 import * as gh from '../lib/gh.js';
 import { getHint } from '../lib/hints.js';
@@ -37,7 +38,7 @@ export class StatusCommand extends Command {
         ui.error(err instanceof Error ? err.message : String(err));
         return 2;
       }
-      return this.showActiveStack(state, resolved);
+      return await this.showActiveStack(state, resolved);
     }
 
     // No flag: preserve dual-mode behavior
@@ -48,15 +49,15 @@ export class StatusCommand extends Command {
         ui.error(`Stack "${position.stackName}" not found in state`);
         return 2;
       }
-      return this.showActiveStack(state, { stackName: position.stackName, stack, position });
+      return await this.showActiveStack(state, { stackName: position.stackName, stack, position });
     }
     return this.showAllStacks(state);
   }
 
-  private showActiveStack(
+  private async showActiveStack(
     _state: ReturnType<typeof loadState>,
     resolved: ResolvedStack,
-  ): number {
+  ): Promise<number> {
     const { stackName: resolvedName, stack, position } = resolved;
     if (!stack) {
       ui.error(`Stack "${resolvedName}" not found in state`);
@@ -71,11 +72,20 @@ export class StatusCommand extends Command {
       );
     }
 
-    // Fetch PR statuses in a single GraphQL call
+    // Fetch PR statuses — try daemon cache first, fall back to GitHub API
     const prNumbers = stack.branches
       .map((b) => b.pr)
       .filter((pr): pr is number => pr != null);
-    const prStatuses = gh.prViewBatch(prNumbers);
+
+    const state = _state;
+    const fullName = state.repo || gh.repoFullName();
+    const [owner, repoName] = fullName.split('/');
+    let prStatuses = owner && repoName
+      ? await tryDaemonCache(owner, repoName)
+      : null;
+    if (!prStatuses) {
+      prStatuses = gh.prViewBatch(prNumbers);
+    }
 
     if (this.json) {
       const output = {

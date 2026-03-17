@@ -62,8 +62,11 @@ async function handleWebhook(
 	const signature = req.headers.get('x-hub-signature-256') ?? '';
 	const eventType = req.headers.get('x-github-event') ?? '';
 
+	console.log(`Webhook received: ${eventType}`);
+
 	const valid = await verifySignature(body, signature, config.webhookSecret);
 	if (!valid) {
+		console.log('Webhook signature verification failed');
 		return new Response('invalid signature', { status: 401 });
 	}
 
@@ -85,6 +88,7 @@ async function handleWebhook(
 
 	// Push events go to the rebase check handler (fire-and-forget)
 	if (event.type === 'push') {
+		console.log(`Push event: ${event.branch} (${event.headSha.slice(0, 7)})`);
 		handlePushEvent(event).catch((err) => {
 			console.error('Rebase check failed:', err);
 		});

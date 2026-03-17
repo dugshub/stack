@@ -123,12 +123,13 @@ export async function handlePushEvent(
 	await fetchClone(clonePath);
 
 	// Check: is the parent branch tip an ancestor of this branch?
+	// In a bare clone, branches are local refs (no origin/ prefix)
 	const result = await gitAsync(
 		[
 			'merge-base',
 			'--is-ancestor',
-			`origin/${position.parentBranch}`,
-			`origin/${event.branch}`,
+			position.parentBranch,
+			event.branch,
 		],
 		{ cwd: clonePath },
 	);

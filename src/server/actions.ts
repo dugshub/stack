@@ -127,3 +127,5 @@ export async function executeActions(
 	}
 	return results;
 }
+
+// Actions execute side effects from engine decisions

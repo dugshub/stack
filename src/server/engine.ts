@@ -130,3 +130,5 @@ export function processEvent(
 
 	return { job: updated, actions };
 }
+
+// Engine processes webhook events through a state machine

@@ -14,7 +14,7 @@ import { resolveStack } from '../lib/resolve.js';
 import { loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { link, theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
-import { findActiveJobForStack } from '../server/state.js';
+import { findActiveJobForStack, saveJob } from '../server/state.js';
 import { getDaemonPort } from '../server/lifecycle.js';
 import type { MergeJob, MergeStep } from '../server/types.js';
 
@@ -46,6 +46,10 @@ export class MergeCommand extends Command {
 		description: 'Target stack by name',
 	});
 
+	abort = Option.Boolean('--abort', false, {
+		description: 'Cancel an active merge job',
+	});
+
 	async execute(): Promise<number> {
 		if (this.status) {
 			return this.showStatus();
@@ -63,6 +67,10 @@ export class MergeCommand extends Command {
 
 		const { stackName: resolvedName, stack } = resolved;
 
+		if (this.abort) {
+			return this.abortMerge(resolvedName);
+		}
+
 		if (this.dryRun) {
 			return this.showDryRun(stack, resolvedName);
 		}
@@ -75,6 +83,26 @@ export class MergeCommand extends Command {
 		}
 
 		return this.startMerge(state, stack, resolvedName);
+	}
+
+	private abortMerge(stackName: string): number {
+		const job = findActiveJobForStack(stackName);
+		if (!job) {
+			ui.info('No active merge job for this stack.');
+			return 0;
+		}
+
+		job.status = 'failed';
+		const currentStep = job.steps[job.currentStep];
+		if (currentStep && currentStep.status !== 'done' && currentStep.status !== 'merged') {
+			currentStep.status = 'failed';
+			currentStep.error = 'Aborted by user';
+		}
+		job.updated = new Date().toISOString();
+		saveJob(job);
+
+		ui.success(`Merge job ${job.id} aborted.`);
+		return 0;
 	}
 
 	private showDryRun(
@@ -149,6 +177,14 @@ export class MergeCommand extends Command {
 			);
 		}
 
+		const ageMs = Date.now() - new Date(activeJob.updated).getTime();
+		const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+		if (activeJob.status === 'running' && ageMs > STALE_THRESHOLD_MS) {
+			process.stderr.write('\n');
+			ui.warn(`This job hasn't been updated in ${Math.round(ageMs / 60000)} minutes.`);
+			ui.info(`If it's stuck, run ${theme.command('stack merge --abort')} to cancel it.`);
+		}
+
 		process.stderr.write('\n');
 		return 0;
 	}
@@ -161,10 +197,38 @@ export class MergeCommand extends Command {
 		// Check for existing active job
 		const existing = findActiveJobForStack(stackName);
 		if (existing) {
-			ui.error(
-				`A merge job is already active for this stack. Use ${theme.command('stack merge --status')} to check progress.`,
-			);
-			return 2;
+			const ageMs = Date.now() - new Date(existing.updated).getTime();
+			const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+
+			if (ageMs > STALE_THRESHOLD_MS) {
+				ui.warn(`A merge job exists but hasn't been updated in ${Math.round(ageMs / 60000)} minutes.`);
+				if (process.stderr.isTTY) {
+					const abortStale = await p.confirm({
+						message: 'Abort the stale job and start a new merge?',
+					});
+					if (p.isCancel(abortStale) || !abortStale) {
+						ui.info(`Use ${theme.command('stack merge --status')} to check progress.`);
+						return 2;
+					}
+					existing.status = 'failed';
+					const currentStep = existing.steps[existing.currentStep];
+					if (currentStep && currentStep.status !== 'done' && currentStep.status !== 'merged') {
+						currentStep.status = 'failed';
+						currentStep.error = 'Aborted — stale job';
+					}
+					existing.updated = new Date().toISOString();
+					saveJob(existing);
+					ui.success('Stale job aborted.');
+				} else {
+					ui.error(`A stale merge job exists. Run ${theme.command('stack merge --abort')} to cancel it.`);
+					return 2;
+				}
+			} else {
+				ui.error(
+					`A merge job is already active for this stack. Use ${theme.command('stack merge --status')} to check progress.`,
+				);
+				return 2;
+			}
 		}
 
 		// Validate all branches have PRs
@@ -197,6 +261,40 @@ export class MergeCommand extends Command {
 			ui.success('All PRs in this stack are already merged.');
 			this.cleanupLocal(state, stackName, stack);
 			return 0;
+		}
+
+		// Check for draft PRs
+		const draftBranches = unmergedBranches.filter((b) => {
+			const status = prStatuses.get(b.pr as number);
+			return status?.isDraft;
+		});
+
+		if (draftBranches.length > 0) {
+			const draftList = draftBranches.map((b) => `#${b.pr}`).join(', ');
+			ui.warn(`Draft PRs found: ${draftList}`);
+
+			if (process.stderr.isTTY) {
+				const ready = await p.confirm({
+					message: `Mark ${draftBranches.length} draft PR${draftBranches.length > 1 ? 's' : ''} as ready for review?`,
+				});
+				if (p.isCancel(ready) || !ready) {
+					ui.info('Merge cancelled. Mark PRs as ready first:');
+					for (const b of draftBranches) {
+						ui.info(`  gh pr ready ${b.pr}`);
+					}
+					return 2;
+				}
+				for (const b of draftBranches) {
+					gh.prReady(b.pr as number);
+					ui.success(`Marked #${b.pr} as ready for review`);
+				}
+			} else {
+				ui.error('Cannot merge draft PRs. Mark them as ready first:');
+				for (const b of draftBranches) {
+					ui.info(`  gh pr ready ${b.pr}`);
+				}
+				return 2;
+			}
 		}
 
 		// Check if auto-merge is available

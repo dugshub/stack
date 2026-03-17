@@ -24,7 +24,7 @@ export interface MergeStep {
 	branchTip?: string;
 }
 
-/** Represents a full stack merge operation with ordered steps */
+/** Full stack merge operation */
 export interface MergeJob {
 	id: string;
 	stackName: string;

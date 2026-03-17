@@ -104,10 +104,18 @@ export async function handlePushEvent(
 	const repoName = event.repo.replace('/', '-');
 
 	const state = loadStackStateForRepo(event.repo);
-	if (!state) return;
+	if (!state) {
+		console.log(`Rebase check: no state for ${event.repo}`);
+		return;
+	}
 
 	const position = findBranchInStack(state, event.branch);
-	if (!position) return; // Not a stack branch — ignore
+	if (!position) {
+		console.log(`Rebase check: ${event.branch} not in any stack`);
+		return;
+	}
+
+	console.log(`Rebase check: ${event.branch} (parent: ${position.parentBranch})`);
 
 	// Post pending status immediately
 	await postCommitStatus(
@@ -122,7 +130,6 @@ export async function handlePushEvent(
 	const clonePath = await ensureClone(repoUrl, repoName);
 	await fetchClone(clonePath);
 
-	// Check: is the parent branch tip an ancestor of this branch?
 	// In a bare clone, branches are local refs (no origin/ prefix)
 	const result = await gitAsync(
 		[
@@ -135,6 +142,7 @@ export async function handlePushEvent(
 	);
 
 	if (result.ok) {
+		console.log(`Rebase check: ${event.branch} ✓ rebased on ${position.parentBranch}`);
 		await postCommitStatus(
 			event.repo,
 			event.headSha,
@@ -142,6 +150,7 @@ export async function handlePushEvent(
 			`Rebased on ${position.parentBranch}`,
 		);
 	} else {
+		console.log(`Rebase check: ${event.branch} ✗ NOT rebased on ${position.parentBranch} (stderr: ${result.stderr})`);
 		await postCommitStatus(
 			event.repo,
 			event.headSha,

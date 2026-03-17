@@ -30,6 +30,12 @@ export async function ensureClone(
 		throw new Error(`Failed to create bare clone: ${result.stderr}`);
 	}
 
+	// Bare clones don't set a fetch refspec — add one so fetch gets all branches
+	await execAsync(
+		['git', 'config', 'remote.origin.fetch', '+refs/heads/*:refs/heads/*'],
+		{ cwd: clonePath },
+	);
+
 	return clonePath;
 }
 

@@ -392,6 +392,7 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 
 	const server = Bun.serve({
 		port: cfg.port,
+		idleTimeout: 120, // seconds — webhook handlers may fetch/rebase which takes time
 		async fetch(req) {
 			const url = new URL(req.url);
 

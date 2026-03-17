@@ -1,6 +1,7 @@
 import type { MergeStrategy } from '../lib/types.js';
 export type { MergeStrategy };
 
+/** Status of an individual merge step in the pipeline */
 export type StepStatus =
 	| 'pending'
 	| 'auto-merge-enabled'

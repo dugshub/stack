@@ -10,6 +10,7 @@ export type StepStatus =
 	| 'done'
 	| 'failed';
 
+/** Overall status of a merge job */
 export type JobStatus = 'running' | 'completed' | 'failed';
 
 export interface MergeStep {

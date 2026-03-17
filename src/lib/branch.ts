@@ -43,6 +43,14 @@ export function descriptionToTitle(description: string): string {
     .join(' ');
 }
 
+export function toKebabCase(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 const RESERVED_NAMES = new Set([
   'absorb', 'create', 'delete', 'help', 'init', 'merge', 'nav', 'push',
   'remove', 'restack', 'split', 'status', 'submit', 'sync', 'undo',

@@ -130,10 +130,18 @@ export async function handlePushEvent(
 		'Checking rebase status...',
 	);
 
-	// Ensure bare clone exists and fetch latest
+	// Ensure bare clone exists and fetch latest (retry with fresh clone on failure)
 	const repoUrl = `https://github.com/${event.repo}.git`;
-	const clonePath = await ensureClone(repoUrl, repoName);
-	await fetchClone(clonePath);
+	let clonePath = await ensureClone(repoUrl, repoName);
+	try {
+		await fetchClone(clonePath);
+	} catch {
+		console.log(`Rebase check: fetch failed, re-cloning ${repoName}`);
+		const { rmSync } = await import('node:fs');
+		rmSync(clonePath, { recursive: true, force: true });
+		clonePath = await ensureClone(repoUrl, repoName);
+		await fetchClone(clonePath);
+	}
 
 	// In a bare clone, branches are local refs (no origin/ prefix)
 	const result = await gitAsync(

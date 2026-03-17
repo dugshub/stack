@@ -487,7 +487,20 @@ describe('stack absorb', () => {
 
       // Check the commit message on branch 1
       const log = git(repo.dir, 'log', '-1', '--format=%s', 'test/stack/1-auth');
-      expect(log).toBe('fixup: absorb changes from stack review');
+      expect(log).toBe('fixup: update auth.ts');
+    });
+
+    test('generates per-branch commit messages for multi-branch absorb', () => {
+      const repo = trackRepo(createBasicStack());
+      writeFile(repo.dir, 'src/auth.ts', 'modified auth\n');
+      writeFile(repo.dir, 'src/routes.ts', 'modified routes\n');
+
+      runAbsorb(repo.dir);
+
+      const log1 = git(repo.dir, 'log', '-1', '--format=%s', 'test/stack/1-auth');
+      expect(log1).toBe('fixup: update auth.ts');
+      const log2 = git(repo.dir, 'log', '-1', '--format=%s', 'test/stack/2-routes');
+      expect(log2).toBe('fixup: update routes.ts');
     });
 
     test('uses custom commit message via -m flag', () => {

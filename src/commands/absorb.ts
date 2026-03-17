@@ -9,6 +9,23 @@ import type { RestackState } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
+function generateCommitMessage(
+  files: string[],
+  fileContents: Map<string, Buffer | null>,
+): string {
+  const basenames = files.map((f) => f.split('/').pop() || f);
+  const allDeleted = files.every((f) => fileContents.get(f) === null);
+  const verb = allDeleted ? 'remove' : 'update';
+
+  if (basenames.length === 1) {
+    return `fixup: ${verb} ${basenames[0]}`;
+  }
+  if (basenames.length === 2) {
+    return `fixup: ${verb} ${basenames[0]}, ${basenames[1]}`;
+  }
+  return `fixup: ${verb} ${basenames[0]}, ${basenames[1]} (+${basenames.length - 2} more)`;
+}
+
 export class AbsorbCommand extends Command {
   static override paths = [['absorb']];
 
@@ -224,8 +241,6 @@ export class AbsorbCommand extends Command {
 
     // Execute absorption
     process.stderr.write('\n');
-    const commitMsg =
-      this.message ?? 'fixup: absorb changes from stack review';
     const originalBranch = git.currentBranch();
     const repoRoot = git.repoRoot();
 
@@ -339,6 +354,7 @@ export class AbsorbCommand extends Command {
       // --- Commit absorb files to this branch (if any) ---
       const files = absorbable.get(i);
       if (files && files.length > 0) {
+        const commitMsg = this.message ?? generateCommitMessage(files, fileContents);
         const baseDir = worktreePath ?? repoRoot;
         if (!worktreePath) {
           git.checkout(branch.name);

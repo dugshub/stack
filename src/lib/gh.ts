@@ -238,6 +238,10 @@ export function prMergeAutoDisable(
 	return { ok: true };
 }
 
+export function prReady(prNumber: number): void {
+  run('pr', 'ready', String(prNumber));
+}
+
 export function repoSettings(): { deleteBranchOnMerge: boolean; allowAutoMerge: boolean; visibility: string } {
   const result = exec(
     'api',

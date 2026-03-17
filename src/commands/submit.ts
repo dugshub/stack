@@ -1,6 +1,7 @@
 import { Command, Option } from "clipanion";
 import { descriptionToTitle, parseBranchName } from "../lib/branch.js";
 import { generateComment } from "../lib/comment.js";
+import * as gh from "../lib/gh.js";
 import * as git from "../lib/git.js";
 import {
 	type BatchReadResult,
@@ -31,6 +32,10 @@ export class SubmitCommand extends Command {
 
 	dryRun = Option.Boolean("--dry-run", false, {
 		description: "Show what would happen without making changes",
+	});
+
+	ready = Option.Boolean("--ready", false, {
+		description: "Mark all PRs as ready for review (not draft)",
 	});
 
 	async execute(): Promise<number> {
@@ -187,6 +192,9 @@ export class SubmitCommand extends Command {
 			createAliases.set(alias, i);
 		}
 
+		// Track newly created PR numbers for --ready suggestion
+		const newPRNumbers = new Set<number>();
+
 		// Map of nodeIds for all PRs (existing + newly created) for comment phase
 		const prNodeIds = new Map<number, string>();
 		for (const [num, details] of prDetailsMap) {
@@ -211,6 +219,7 @@ export class SubmitCommand extends Command {
 				if (created?.pullRequest) {
 					branch.pr = created.pullRequest.number;
 					prNodeIds.set(created.pullRequest.number, created.pullRequest.id);
+					newPRNumbers.add(created.pullRequest.number);
 					ui.success(
 						`Created ${theme.pr(`#${created.pullRequest.number}`)} for ${theme.branch(branch.name)} (draft)`,
 					);
@@ -349,6 +358,36 @@ export class SubmitCommand extends Command {
 			const prStr = branch.pr != null ? theme.pr(`#${branch.pr}`) : "no PR";
 			ui.info(`  ${i + 1}. ${theme.branch(branch.name)} \u2192 ${prStr}`);
 		}
+
+		// Mark PRs as ready if --ready flag is set
+		if (this.ready) {
+			for (const branch of stack.branches) {
+				if (branch.pr != null) {
+					const details = prDetailsMap.get(branch.pr);
+					// Only call ready on PRs that are drafts (new PRs are always drafts)
+					if (!details || details.isDraft) {
+						try {
+							gh.prReady(branch.pr);
+							ui.success(`Marked #${branch.pr} as ready for review`);
+						} catch {
+							ui.warn(`Could not mark #${branch.pr} as ready`);
+						}
+					}
+				}
+			}
+		}
+
+		if (!this.ready) {
+			const hasDrafts = newPRNumbers.size > 0 || stack.branches.some((b) => {
+				if (b.pr == null) return false;
+				const details = prDetailsMap.get(b.pr);
+				return details?.isDraft;
+			});
+			if (hasDrafts) {
+				ui.info(`\nTip: Use ${theme.command('stack submit --ready')} to mark draft PRs as ready for review.`);
+			}
+		}
+
 		return 0;
 	}
 

@@ -14,6 +14,7 @@ import { RemoveCommand } from './commands/remove.js';
 import { RestackCommand } from './commands/restack.js';
 import { StatusCommand } from './commands/status.js';
 import { SubmitCommand } from './commands/submit.js';
+import { SplitCommand } from './commands/split.js';
 import { SyncCommand } from './commands/sync.js';
 import { UndoCommand } from './commands/undo.js';
 import { UpdateCommand } from './commands/update.js';
@@ -41,6 +42,7 @@ cli.register(SubmitCommand);
 cli.register(AbsorbCommand);
 cli.register(CheckCommand);
 cli.register(RestackCommand);
+cli.register(SplitCommand);
 cli.register(SyncCommand);
 cli.register(UndoCommand);
 cli.register(MergeCommand);
@@ -84,6 +86,7 @@ function showHelp(): never {
     ['',                        ''],
     ['submit',                  'Push branches, create/update PRs'],
     ['absorb',                  'Route fixes to correct stack branches'],
+    ['split [specs...]',        'Split uncommitted changes into a stack'],
     ['restack',                 'Rebase downstream after mid-stack edits'],
     ['check <cmd...>',           'Run a command on every branch'],
     ['sync',                    'Clean up after PRs merge'],

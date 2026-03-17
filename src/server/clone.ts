@@ -108,3 +108,5 @@ export async function pushBranch(
 	}
 	return { ok: true };
 }
+
+// Clone manages bare repo for server-side rebasing

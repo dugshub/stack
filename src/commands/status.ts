@@ -1,6 +1,7 @@
 import { Command, Option } from 'clipanion';
 import { formatRelativeTime } from '../lib/format.js';
 import * as gh from '../lib/gh.js';
+import { getHint } from '../lib/hints.js';
 import { resolveStack, type ResolvedStack } from '../lib/resolve.js';
 import { findActiveStack, loadAndRefreshState, loadState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
@@ -113,6 +114,10 @@ export class StatusCommand extends Command {
         isBottom: false,
       };
       ui.stackTree(stack, noPosition, prStatuses);
+    }
+    const hint = getHint(stack, prStatuses);
+    if (hint) {
+      process.stderr.write(`\n  ${theme.muted('→')} ${theme.muted(hint)}\n`);
     }
     process.stderr.write('\n');
     return 0;

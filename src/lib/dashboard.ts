@@ -1,5 +1,7 @@
 import { formatRelativeTime } from './format.js';
+import * as gh from './gh.js';
 import * as git from './git.js';
+import { getHint } from './hints.js';
 import { findActiveStack, loadAndRefreshState } from './state.js';
 import { theme } from './theme.js';
 import { currentVersion } from './version.js';
@@ -40,6 +42,31 @@ export function showDashboard(): number | null {
 		process.stderr.write(
 			`${marker}${nameStr}   ${stack.branches.length} ${branchWord}   updated ${age}${restackMarker}\n`,
 		);
+	}
+
+	if (currentStackName) {
+		const currentStack = state.stacks[currentStackName];
+		if (currentStack) {
+			const prNumbers = currentStack.branches
+				.map((b) => b.pr)
+				.filter((pr): pr is number => pr != null);
+			if (prNumbers.length > 0) {
+				const prStatuses = gh.prViewBatch(prNumbers);
+				const hint = getHint(currentStack, prStatuses);
+				if (hint) {
+					process.stderr.write(
+						`\n  ${theme.muted('→')} ${theme.muted(hint)}\n`,
+					);
+				}
+			} else {
+				const hint = getHint(currentStack, new Map());
+				if (hint) {
+					process.stderr.write(
+						`\n  ${theme.muted('→')} ${theme.muted(hint)}\n`,
+					);
+				}
+			}
+		}
 	}
 
 	process.stderr.write(`\n  ${theme.muted('stack <name> to switch   stack create <name> to start')}\n\n`);

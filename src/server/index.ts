@@ -8,7 +8,7 @@ import { processEvent } from './engine.js';
 import { findJobForPR, loadAllJobs, loadJob, saveJob } from './state.js';
 import { startTunnel, stopTunnel, isTunnelRunning, getTunnelRestartCount } from './tunnel.js';
 import type { DaemonConfig, MergeJob } from './types.js';
-import { handlePushEvent } from './rebase-check.js';
+import { handlePushEvent, handlePRMergedEvent } from './stack-checks.js';
 import { parseWebhook, verifySignature } from './webhook.js';
 import { registerRepo, unregisterRepo, syncWebhooks } from './webhook-manager.js';
 
@@ -97,6 +97,10 @@ async function handleWebhook(
 
 	const job = findJobForPR(event.repo, event.prNumber);
 	if (!job) {
+		if (event.type === 'pr_merged') {
+			// No merge job — this was a manual/auto merge. Re-evaluate stack checks.
+			await handlePRMergedEvent(event);
+		}
 		return new Response('ok');
 	}
 

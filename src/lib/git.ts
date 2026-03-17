@@ -94,8 +94,30 @@ export function rebaseOnto(
   newBase: string,
   oldBase: string,
   branch: string,
+  opts?: { cwd?: string },
 ): RebaseResult {
-  const result = tryRun('rebase', '--onto', newBase, oldBase, branch);
+  const args = ['rebase', '--onto', newBase, oldBase, branch];
+  if (opts?.cwd) {
+    const result = Bun.spawnSync(['git', ...args], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      cwd: opts.cwd,
+    });
+    if (result.exitCode === 0) return { ok: true, conflicts: [] };
+    const statusResult = Bun.spawnSync(['git', 'status', '--porcelain'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      cwd: opts.cwd,
+    });
+    const conflicts = statusResult.stdout
+      .toString()
+      .split('\n')
+      .filter((line) => line.startsWith('UU '))
+      .map((line) => line.slice(3));
+    return { ok: false, conflicts };
+  }
+  // existing non-worktree path
+  const result = tryRun(...args);
   if (result.ok) {
     return { ok: true, conflicts: [] };
   }

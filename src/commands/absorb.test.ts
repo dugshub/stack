@@ -158,9 +158,9 @@ function createBasicStack(): TestRepo {
       stack: {
         trunk: 'main',
         branches: [
-          { name: 'test/stack/1-auth', tip: tip1, pr: null },
-          { name: 'test/stack/2-routes', tip: tip2, pr: null },
-          { name: 'test/stack/3-tests', tip: tip3, pr: null },
+          { name: 'test/stack/1-auth', tip: tip1, pr: null, parentTip: null },
+          { name: 'test/stack/2-routes', tip: tip2, pr: null, parentTip: null },
+          { name: 'test/stack/3-tests', tip: tip3, pr: null, parentTip: null },
         ],
         created: new Date().toISOString(),
         updated: new Date().toISOString(),
@@ -218,9 +218,9 @@ function createOverlappingStack(): TestRepo {
       stack: {
         trunk: 'main',
         branches: [
-          { name: 'test/stack/1-auth', tip: tip1, pr: null },
-          { name: 'test/stack/2-routes', tip: tip2, pr: null },
-          { name: 'test/stack/3-tests', tip: tip3, pr: null },
+          { name: 'test/stack/1-auth', tip: tip1, pr: null, parentTip: null },
+          { name: 'test/stack/2-routes', tip: tip2, pr: null, parentTip: null },
+          { name: 'test/stack/3-tests', tip: tip3, pr: null, parentTip: null },
         ],
         created: new Date().toISOString(),
         updated: new Date().toISOString(),
@@ -782,6 +782,7 @@ describe('stack absorb', () => {
               name,
               tip: tips[i]!,
               pr: null,
+              parentTip: null,
             })),
             created: new Date().toISOString(),
             updated: new Date().toISOString(),

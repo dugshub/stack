@@ -63,9 +63,33 @@ export function refreshTips(state: StackFile): boolean {
 	return changed;
 }
 
+function backfillParentTips(state: StackFile): boolean {
+	let dirty = false;
+	for (const stack of Object.values(state.stacks)) {
+		for (let i = 0; i < stack.branches.length; i++) {
+			const branch = stack.branches[i];
+			if (branch && branch.parentTip == null) {
+				const parentRef =
+					i === 0 ? stack.trunk : stack.branches[i - 1]?.name;
+				if (parentRef) {
+					const result = git.tryRun('merge-base', parentRef, branch.name);
+					if (result.ok) {
+						branch.parentTip = result.stdout;
+						dirty = true;
+					}
+				}
+			}
+		}
+	}
+	return dirty;
+}
+
 export function loadAndRefreshState(): StackFile {
 	const state = loadState();
 	refreshTips(state);
+	if (backfillParentTips(state)) {
+		saveState(state);
+	}
 	return state;
 }
 

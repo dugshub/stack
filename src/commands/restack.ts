@@ -1,5 +1,6 @@
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
+import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
 import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
@@ -95,154 +96,63 @@ export class RestackCommand extends Command {
 			oldTips[branch.name] = tip;
 		}
 
-		const currentIndex = fromIndex === -1 ? 0 : fromIndex + 1;
+		// Build worktree map
+		const worktreeMap = git.worktreeList();
 
 		// If restacking from bottom (fromIndex === -1), rebase first branch onto trunk
 		if (fromIndex === -1 && stack.branches.length > 0) {
 			const firstBranch = stack.branches[0];
 			if (firstBranch) {
-				const oldTip = oldTips[firstBranch.name];
-				if (oldTip) {
-					const mergeBaseResult = git.tryRun('merge-base', firstBranch.name, stack.trunk);
-					const oldBase = mergeBaseResult.ok ? mergeBaseResult.stdout : oldTip;
-
-					ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}...`);
-					const result = git.rebaseOnto(stack.trunk, oldBase, firstBranch.name);
-					if (result.ok) {
-						firstBranch.tip = git.revParse(firstBranch.name);
-						oldTips[firstBranch.name] = firstBranch.tip;
-						ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
-					} else {
-						const restackState: RestackState = {
-							fromIndex,
-							currentIndex: 0,
-							oldTips,
-						};
-						stack.restackState = restackState;
-						saveState(state);
-						ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`);
-						if (result.conflicts.length > 0) {
-							ui.info('Conflicting files:');
-							for (const file of result.conflicts) {
-								ui.info(`  ${file}`);
-							}
+				ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}...`);
+				const result = rebaseBranch({
+					branch: firstBranch,
+					parentRef: stack.trunk,
+					fallbackOldBase: oldTips[firstBranch.name],
+					worktreeMap,
+				});
+				if (result.ok) {
+					if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
+					ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
+				} else {
+					const restackState: RestackState = {
+						fromIndex,
+						currentIndex: 0,
+						oldTips,
+					};
+					stack.restackState = restackState;
+					saveState(state);
+					ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`);
+					if (result.conflicts.length > 0) {
+						ui.info('Conflicting files:');
+						for (const file of result.conflicts) {
+							ui.info(`  ${file}`);
 						}
-						ui.info(
-							`Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
-						);
-						return 1;
 					}
+					ui.info(
+						`Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
+					);
+					return 1;
 				}
 			}
 		}
-
-		const restackState: RestackState = {
-			fromIndex,
-			currentIndex: fromIndex === -1 ? 1 : currentIndex,
-			oldTips,
-		};
-		stack.restackState = restackState;
-		saveState(state);
-
-		// Build worktree map
-		const worktreeMap = git.worktreeList();
 
 		// Cascade rebase for each downstream branch
-		return this.cascadeRebase(state, stack, resolvedName, worktreeMap);
-	}
+		const cascadeResult = cascadeRebase({
+			state,
+			stack,
+			fromIndex,
+			startIndex: fromIndex === -1 ? 1 : fromIndex + 1,
+			worktreeMap,
+			oldTips,
+		});
 
-	private cascadeRebase(
-		state: ReturnType<typeof loadState>,
-		stack: NonNullable<ReturnType<typeof loadState>['stacks'][string]>,
-		stackName: string,
-		worktreeMap: Map<string, string>,
-	): number {
-		const restackState = stack.restackState;
-		if (!restackState) return 0;
-
-		for (let i = restackState.currentIndex; i < stack.branches.length; i++) {
-			const branch = stack.branches[i];
-			if (!branch) continue;
-
-			const parentBranch = stack.branches[i - 1];
-			if (!parentBranch) continue;
-
-			const oldTip = restackState.oldTips[parentBranch.name];
-			if (!oldTip) {
-				ui.warn(
-					`No old tip recorded for "${parentBranch.name}" -- skipping rebase of "${branch.name}"`,
-				);
-				continue;
-			}
-
-			ui.info(`Rebasing ${theme.branch(branch.name)} onto ${theme.branch(parentBranch.name)}...`);
-
-			// Determine execution directory for worktree-aware rebase
-			const worktreePath = worktreeMap.get(branch.name);
-			let rebaseResult: ReturnType<typeof git.rebaseOnto>;
-
-			if (worktreePath) {
-				// Execute from worktree directory
-				const result = Bun.spawnSync(
-					['git', 'rebase', '--onto', parentBranch.name, oldTip, branch.name],
-					{ stdout: 'pipe', stderr: 'pipe', cwd: worktreePath },
-				);
-				if (result.exitCode === 0) {
-					rebaseResult = { ok: true, conflicts: [] };
-				} else {
-					const statusResult = Bun.spawnSync(['git', 'status', '--porcelain'], {
-						stdout: 'pipe',
-						stderr: 'pipe',
-						cwd: worktreePath,
-					});
-					const conflicts = statusResult.stdout
-						.toString()
-						.split('\n')
-						.filter((line) => line.startsWith('UU '))
-						.map((line) => line.slice(3));
-					rebaseResult = { ok: false, conflicts };
-				}
-			} else {
-				rebaseResult = git.rebaseOnto(parentBranch.name, oldTip, branch.name);
-			}
-
-			if (rebaseResult.ok) {
-				// Update tip and advance -- use worktree cwd if branch is in a worktree
-				branch.tip = git.revParse(branch.name, {
-					cwd: worktreePath ?? undefined,
-				});
-				restackState.currentIndex = i + 1;
-				// Record new tip as old tip for next iteration
-				restackState.oldTips[branch.name] = branch.tip;
-				saveState(state);
-				ui.success(`Rebased ${theme.branch(branch.name)}`);
-			} else {
-				// Conflict -- save state and exit
-				restackState.currentIndex = i;
-				saveState(state);
-				ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
-				if (rebaseResult.conflicts.length > 0) {
-					ui.info('Conflicting files:');
-					for (const file of rebaseResult.conflicts) {
-						ui.info(`  ${file}`);
-					}
-				}
-				ui.info(
-					`Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
-				);
-				return 1;
-			}
+		if (cascadeResult.ok) {
+			ui.success(
+				`Restacked ${cascadeResult.rebased + (fromIndex === -1 && stack.branches.length > 0 ? 1 : 0)} branches in "${resolvedName}"`,
+			);
 		}
 
-		// All done -- clear restackState
-		stack.restackState = null;
-		stack.updated = new Date().toISOString();
-		saveState(state);
-
-		ui.success(
-			`Restacked ${stack.branches.length - (restackState.fromIndex === -1 ? 0 : restackState.fromIndex) - 1} branches in "${stackName}"`,
-		);
-		return 0;
+		return cascadeResult.ok ? 0 : 1;
 	}
 
 	private doContinue(): number {
@@ -319,17 +229,37 @@ export class RestackCommand extends Command {
 			ui.info('Rebase already completed externally, updating stack state...');
 		}
 
-		// Update tip and advance -- use worktree cwd if branch is in a worktree
+		// Update tip and parentTip -- use worktree cwd if branch is in a worktree
 		currentBranch.tip = git.revParse(currentBranch.name, {
 			cwd: worktreePath ?? undefined,
 		});
+		// Parent ref: previous branch, or trunk if first branch
+		const parentBranch = stack.branches[restackState.currentIndex - 1];
+		currentBranch.parentTip = parentBranch
+			? git.revParse(parentBranch.name)
+			: git.revParse(stack.trunk);
 		restackState.oldTips[currentBranch.name] = currentBranch.tip;
 		restackState.currentIndex += 1;
 		saveState(state);
 		ui.success(`Rebased ${theme.branch(currentBranch.name)}`);
 
 		// Continue cascade
-		return this.cascadeRebase(state, stack, stackName, worktreeMap);
+		const cascadeResult = cascadeRebase({
+			state,
+			stack,
+			fromIndex: restackState.fromIndex,
+			startIndex: restackState.currentIndex,
+			worktreeMap,
+			oldTips: restackState.oldTips,
+		});
+
+		if (cascadeResult.ok) {
+			ui.success(
+				`Restacked remaining branches in "${stackName}"`,
+			);
+		}
+
+		return cascadeResult.ok ? 0 : 1;
 	}
 
 	private doAbort(): number {

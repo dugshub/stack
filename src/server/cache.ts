@@ -128,3 +128,5 @@ export function cacheToJson(repo: string): Record<string, PrStatus> {
 	}
 	return result;
 }
+
+// Cache maintains webhook-invalidated PR state for instant CLI queries

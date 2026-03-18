@@ -187,8 +187,10 @@ if (!skipDaemon) {
 
 // Check for updates after command runs (non-blocking)
 const exitCode = await cli.run(args);
-const updateMsg = checkForUpdate();
-if (updateMsg) {
-  process.stderr.write(`\n${theme.warning(updateMsg)}\n`);
+if (args[0] !== 'update') {
+  const updateMsg = checkForUpdate();
+  if (updateMsg) {
+    process.stderr.write(`\n${theme.warning(updateMsg)}\n`);
+  }
 }
 process.exit(exitCode);

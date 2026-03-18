@@ -1,10 +1,10 @@
-import { Command } from 'clipanion';
+import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import { tryDaemonCache } from '../lib/daemon-client.js';
 import { findActiveStack, findDependentStacks, loadAndRefreshState } from '../lib/state.js';
-import type { PrStatus, Stack, StackFile } from '../lib/types.js';
+import type { Branch, PrStatus, Stack, StackFile } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
-import type { GraphNode } from '../lib/ui.js';
+import type { GraphStackNode } from '../lib/ui.js';
 
 export class GraphCommand extends Command {
 	static override paths = [['graph']];
@@ -12,8 +12,13 @@ export class GraphCommand extends Command {
 	static override usage = Command.Usage({
 		description: 'Show dependency graph across all stacks',
 		examples: [
-			['Show the full stack graph', 'stack graph'],
+			['Show stack graph (expand current stack)', 'stack graph'],
+			['Expand all stacks', 'stack graph --expand'],
 		],
+	});
+
+	expand = Option.Boolean('--expand,-e', false, {
+		description: 'Expand all stacks to show branches',
 	});
 
 	async execute(): Promise<number> {
@@ -25,19 +30,22 @@ export class GraphCommand extends Command {
 			return 0;
 		}
 
-		// Determine current stack
 		const position = findActiveStack(state);
 		const currentStackName = position?.stackName ?? null;
+		const currentBranchName = position?.branch.name ?? null;
 
-		// Fetch PR statuses for all stacks
 		const prStatuses = await this.fetchAllPrStatuses(state);
 
-		// Build the graph: group stacks by trunk, nesting dependents under parents
-		const roots = buildGraph(state, currentStackName, prStatuses);
+		const roots = buildGraph(
+			state,
+			currentStackName,
+			currentBranchName,
+			prStatuses,
+			this.expand,
+		);
 
 		process.stderr.write('\n');
-		ui.heading('Stack graph:\n');
-		ui.stackGraph(roots, currentStackName);
+		ui.renderStackGraph(roots);
 		process.stderr.write('\n');
 
 		return 0;
@@ -46,7 +54,6 @@ export class GraphCommand extends Command {
 	private async fetchAllPrStatuses(
 		state: StackFile,
 	): Promise<Map<number, PrStatus>> {
-		// Collect all PR numbers across all stacks
 		const allPrNumbers: number[] = [];
 		for (const stack of Object.values(state.stacks)) {
 			for (const branch of stack.branches) {
@@ -58,7 +65,6 @@ export class GraphCommand extends Command {
 
 		if (allPrNumbers.length === 0) return new Map();
 
-		// Try daemon cache first
 		const fullName = state.repo || gh.repoFullName();
 		const [owner, repoName] = fullName.split('/');
 		let prStatuses = owner && repoName
@@ -72,15 +78,22 @@ export class GraphCommand extends Command {
 	}
 }
 
+interface GraphRoot {
+	trunk: string;
+	stacks: GraphStackNode[];
+}
+
 function buildGraph(
 	state: StackFile,
 	currentStackName: string | null,
+	currentBranchName: string | null,
 	prStatuses: Map<number, PrStatus>,
-): Array<{ trunk: string; children: GraphNode[] }> {
+	expandAll: boolean,
+): GraphRoot[] {
 	// Group root stacks (not dependent on another stack) by trunk
 	const trunkGroups = new Map<string, Array<{ name: string; stack: Stack }>>();
 	for (const [name, stack] of Object.entries(state.stacks)) {
-		if (stack.dependsOn?.stack) continue; // Skip dependent stacks — they'll be nested
+		if (stack.dependsOn?.stack) continue;
 		const trunk = stack.trunk;
 		let group = trunkGroups.get(trunk);
 		if (!group) {
@@ -90,50 +103,84 @@ function buildGraph(
 		group.push({ name, stack });
 	}
 
-	// Build tree recursively
-	const roots: Array<{ trunk: string; children: GraphNode[] }> = [];
+	const roots: GraphRoot[] = [];
 	for (const [trunk, stacks] of trunkGroups) {
-		const children: GraphNode[] = [];
+		const nodes: GraphStackNode[] = [];
 		for (const { name, stack } of stacks) {
-			children.push(
-				buildNodeRecursive(state, name, stack, currentStackName, prStatuses),
+			nodes.push(
+				buildStackNode(state, name, stack, currentStackName, currentBranchName, prStatuses, expandAll),
 			);
 		}
-		roots.push({ trunk, children });
+		roots.push({ trunk, stacks: nodes });
 	}
 
 	return roots;
 }
 
-function buildNodeRecursive(
+function buildStackNode(
 	state: StackFile,
 	stackName: string,
 	stack: Stack,
 	currentStackName: string | null,
+	currentBranchName: string | null,
 	prStatuses: Map<number, PrStatus>,
-): GraphNode {
-	// Compute aggregate status from all branches
+	expandAll: boolean,
+): GraphStackNode {
+	const isCurrent = stackName === currentStackName;
+	const expanded = expandAll || isCurrent;
+
+	// Compute aggregate status
 	const emojis = stack.branches.map((b) => {
 		const pr = b.pr != null ? (prStatuses.get(b.pr) ?? null) : null;
 		return ui.statusEmoji(pr);
 	});
 	const aggregateStatus = ui.aggregateStatusEmoji(emojis);
 
-	// Find dependent stacks and recurse
+	// Find dependent stacks that fork from branches in this stack
 	const dependents = findDependentStacks(state, stackName);
-	const children: GraphNode[] = [];
+
+	// Build a map: branch name -> dependent stack nodes that fork from it
+	const forkMap = new Map<string, GraphStackNode[]>();
 	for (const { name: depName, stack: depStack } of dependents) {
-		children.push(
-			buildNodeRecursive(state, depName, depStack, currentStackName, prStatuses),
+		const forkBranch = depStack.dependsOn?.branch ?? '';
+		let list = forkMap.get(forkBranch);
+		if (!list) {
+			list = [];
+			forkMap.set(forkBranch, list);
+		}
+		list.push(
+			buildStackNode(state, depName, depStack, currentStackName, currentBranchName, prStatuses, expandAll),
 		);
 	}
 
+	// Build branch info for expanded view
+	const branches = expanded
+		? stack.branches.map((b: Branch) => {
+			const pr = b.pr != null ? (prStatuses.get(b.pr) ?? null) : null;
+			return {
+				name: b.name,
+				pr: b.pr,
+				prStatus: pr,
+				isCurrent: b.name === currentBranchName,
+				dependents: forkMap.get(b.name) ?? [],
+			};
+		})
+		: undefined;
+
+	// For collapsed view, collect all dependents into a flat children array
+	const children = expanded
+		? undefined
+		: dependents.map(({ name: depName, stack: depStack }) =>
+			buildStackNode(state, depName, depStack, currentStackName, currentBranchName, prStatuses, expandAll),
+		);
+
 	return {
 		name: stackName,
-		trunk: stack.trunk,
 		branchCount: stack.branches.length,
 		aggregateStatus,
-		isCurrent: stackName === currentStackName,
+		isCurrent,
+		expanded,
+		branches,
 		children,
 	};
 }

@@ -1,10 +1,12 @@
+import { isatty } from 'node:tty';
+import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
-import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, findDependentStacks, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { RestackState } from '../lib/types.js';
+import type { RestackState, StackFile } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
@@ -30,6 +32,10 @@ export class RestackCommand extends Command {
 
 	abort = Option.Boolean('--abort', false, {
 		description: 'Abort in-progress restack',
+	});
+
+	cascade = Option.Boolean('--cascade', true, {
+		description: 'Cascade restack to dependent stacks',
 	});
 
 	async execute(): Promise<number> {
@@ -150,12 +156,13 @@ export class RestackCommand extends Command {
 			ui.success(
 				`Restacked ${cascadeResult.rebased + (fromIndex === -1 && stack.branches.length > 0 ? 1 : 0)} branches in "${resolvedName}"`,
 			);
+			await this.cascadeDependentStacks(state, resolvedName, this.cascade, new Set());
 		}
 
 		return cascadeResult.ok ? 0 : 1;
 	}
 
-	private doContinue(): number {
+	private async doContinue(): Promise<number> {
 		const state = loadAndRefreshState();
 		const position = findActiveStack(state);
 
@@ -257,6 +264,7 @@ export class RestackCommand extends Command {
 			ui.success(
 				`Restacked remaining branches in "${stackName}"`,
 			);
+			await this.cascadeDependentStacks(state, stackName, true, new Set());
 		}
 
 		return cascadeResult.ok ? 0 : 1;
@@ -314,5 +322,104 @@ export class RestackCommand extends Command {
 			`Branches after position ${fromIndex + 1} are in their pre-restack state.`,
 		);
 		return 0;
+	}
+
+	private async cascadeDependentStacks(
+		state: StackFile,
+		stackName: string,
+		cascade: boolean,
+		visited: Set<string>,
+	): Promise<void> {
+		visited.add(stackName);
+		const dependents = findDependentStacks(state, stackName);
+		if (dependents.length === 0) return;
+
+		for (const { name: depName, stack: depStack } of dependents) {
+			if (visited.has(depName)) {
+				ui.warn(`Circular dependency detected: "${depName}" already visited, skipping.`);
+				continue;
+			}
+
+			if (depStack.restackState != null) {
+				ui.warn(`Restack already in progress on "${depName}", skipping.`);
+				continue;
+			}
+
+			const depBranch = depStack.dependsOn?.branch ?? depStack.trunk;
+			process.stderr.write('\n');
+			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
+
+			if (!cascade) {
+				ui.info(`Tip: Run ${theme.command(`stack restack -s ${depName}`)} to update it.`);
+				continue;
+			}
+
+			if (isatty(2)) {
+				const confirmed = await p.confirm({
+					message: `Restack dependent stack "${depName}"?`,
+					initialValue: true,
+				});
+				if (p.isCancel(confirmed) || !confirmed) {
+					continue;
+				}
+			}
+
+			saveSnapshot('restack');
+
+			const oldTips: Record<string, string> = {};
+			for (const branch of depStack.branches) {
+				const tip = branch.tip ?? git.revParse(branch.name);
+				oldTips[branch.name] = tip;
+			}
+
+			const worktreeMap = git.worktreeList();
+
+			if (depStack.branches.length > 0) {
+				const firstBranch = depStack.branches[0];
+				if (firstBranch) {
+					ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}...`);
+					const result = rebaseBranch({
+						branch: firstBranch,
+						parentRef: depStack.trunk,
+						fallbackOldBase: oldTips[firstBranch.name],
+						worktreeMap,
+					});
+					if (result.ok) {
+						if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
+						ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
+					} else {
+						depStack.restackState = { fromIndex: -1, currentIndex: 0, oldTips };
+						saveState(state);
+						ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}`);
+						if (result.conflicts.length > 0) {
+							ui.info('Conflicting files:');
+							for (const file of result.conflicts) {
+								ui.info(`  ${file}`);
+							}
+						}
+						ui.info(`Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`);
+						return;
+					}
+				}
+			}
+
+			const cascadeResult = cascadeRebase({
+				state,
+				stack: depStack,
+				fromIndex: -1,
+				startIndex: 1,
+				worktreeMap,
+				oldTips,
+			});
+
+			if (cascadeResult.ok) {
+				ui.success(
+					`Restacked ${cascadeResult.rebased + (depStack.branches.length > 0 ? 1 : 0)} branches in "${depName}"`,
+				);
+				await this.cascadeDependentStacks(state, depName, cascade, visited);
+			} else {
+				return;
+			}
+		}
 	}
 }

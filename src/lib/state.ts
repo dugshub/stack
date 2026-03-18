@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as git from './git.js';
-import type { StackFile, StackPosition } from './types.js';
+import type { Stack, StackFile, StackPosition } from './types.js';
 
 export function getStackDir(): string {
   return join(homedir(), '.claude', 'stacks');
@@ -91,6 +91,19 @@ export function loadAndRefreshState(): StackFile {
 		saveState(state);
 	}
 	return state;
+}
+
+export function findDependentStacks(
+  state: StackFile,
+  stackName: string,
+): Array<{ name: string; stack: Stack }> {
+  const result: Array<{ name: string; stack: Stack }> = [];
+  for (const [name, stack] of Object.entries(state.stacks)) {
+    if (stack.dependsOn?.stack === stackName) {
+      result.push({ name, stack });
+    }
+  }
+  return result;
 }
 
 export function findActiveStack(state: StackFile): StackPosition | null {

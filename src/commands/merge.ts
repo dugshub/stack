@@ -194,6 +194,27 @@ export class MergeCommand extends Command {
 		stack: ReturnType<typeof loadState>['stacks'][string] & object,
 		stackName: string,
 	): Promise<number> {
+		// Guard: dependent stacks must have their base branch merged first
+		if (stack.dependsOn) {
+			const parentStack = state.stacks[stack.dependsOn.stack];
+			if (parentStack) {
+				const baseBranch = parentStack.branches.find(
+					(b) => b.name === stack.dependsOn!.branch,
+				);
+				if (baseBranch?.pr != null) {
+					const prStatus = gh.prView(baseBranch.pr);
+					if (prStatus && prStatus.state !== 'MERGED') {
+						ui.error(
+							`This stack depends on ${theme.branch(stack.dependsOn.branch)} ` +
+								`(PR ${theme.pr(`#${baseBranch.pr}`)}) which hasn't merged yet. ` +
+								`Merge the parent stack "${stack.dependsOn.stack}" first.`,
+						);
+						return 1;
+					}
+				}
+			}
+		}
+
 		// Check for existing active job
 		const existing = findActiveJobForStack(stackName);
 		if (existing) {

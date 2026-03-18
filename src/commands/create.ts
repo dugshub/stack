@@ -5,6 +5,7 @@ import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
+import type { Stack } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class CreateCommand extends Command {
@@ -23,6 +24,14 @@ export class CreateCommand extends Command {
         'stack create frozen-column --from branch1 branch2',
       ],
       ['Auto-detect from current branch', 'stack create'],
+      [
+        'Create a dependent stack from a specific branch',
+        'stack create cache-invalidation --base user/stack/5-cache-docs -d initial-setup',
+      ],
+      [
+        'Create a dependent stack from current branch',
+        'stack create cache-invalidation -b . -d initial-setup',
+      ],
     ],
   });
 
@@ -38,6 +47,10 @@ export class CreateCommand extends Command {
 
   from = Option.Array('--from', {
     description: 'Existing branches to adopt into the stack',
+  });
+
+  base = Option.String('--base,-b', {
+    description: 'Base branch to build on (creates a dependent stack). Use "." for current branch.',
   });
 
   async execute(): Promise<number> {
@@ -104,8 +117,24 @@ export class CreateCommand extends Command {
     const user = gh.currentUser();
     const branchName = `${user}/${name}/1-${desc}`;
 
-    const trunk = git.defaultBranch();
-    git.createBranch(branchName);
+    // Resolve --base flag for dependent stack
+    const baseResult = this.resolveBase(state);
+    if (baseResult.error) {
+      ui.error(baseResult.error);
+      return 2;
+    }
+
+    const trunk = baseResult.trunk ?? git.defaultBranch();
+    const dependsOn = baseResult.dependsOn;
+
+    if (baseResult.baseTip) {
+      // Dependent stack: create branch at base tip
+      git.branchCreate(branchName, baseResult.baseTip);
+      git.checkout(branchName);
+    } else {
+      git.createBranch(branchName);
+    }
+
     const tip = git.revParse('HEAD');
     const parentTip = git.revParse(trunk);
 
@@ -114,17 +143,24 @@ export class CreateCommand extends Command {
       state.repo = gh.repoFullName();
     }
     const now = new Date().toISOString();
-    state.stacks[name] = {
+    const stackEntry: Stack = {
       trunk,
       branches: [{ name: branchName, tip, pr: null, parentTip }],
       created: now,
       updated: now,
       restackState: null,
     };
+    if (dependsOn) {
+      stackEntry.dependsOn = dependsOn;
+    }
+    state.stacks[name] = stackEntry;
     state.currentStack = name;
     saveState(state);
 
     ui.success(`Created stack ${theme.stack(name)} with branch ${theme.branch(branchName)}`);
+    if (dependsOn) {
+      ui.info(`  Depends on: ${theme.stack(dependsOn.stack)} (${theme.branch(dependsOn.branch)})`);
+    }
 
     // First-time repo settings check
     const settings = gh.repoSettings();
@@ -139,6 +175,11 @@ export class CreateCommand extends Command {
   }
 
   private async autoDetect(): Promise<number> {
+    if (this.base) {
+      ui.warn('--base requires a stack name. Usage: stack create <name> --base <branch>');
+      return 2;
+    }
+
     const currentBranch = git.currentBranch();
 
     // Check if already in a stack
@@ -235,8 +276,17 @@ export class CreateCommand extends Command {
       }
     }
 
+    // Resolve --base flag for dependent stack
+    const baseResult = this.resolveBase(state);
+    if (baseResult.error) {
+      ui.error(baseResult.error);
+      return 2;
+    }
+
     // Build branch entries
-    const trunk = git.defaultBranch();
+    const trunk = baseResult.trunk ?? git.defaultBranch();
+    const dependsOn = baseResult.dependsOn;
+
     const branchEntries = branches.map((branch, i) => {
       const tip = git.revParse(branch);
       const pr = gh.prList(branch);
@@ -250,17 +300,24 @@ export class CreateCommand extends Command {
       state.repo = gh.repoFullName();
     }
     const now = new Date().toISOString();
-    state.stacks[name] = {
+    const stackEntry: Stack = {
       trunk,
       branches: branchEntries,
       created: now,
       updated: now,
       restackState: null,
     };
+    if (dependsOn) {
+      stackEntry.dependsOn = dependsOn;
+    }
+    state.stacks[name] = stackEntry;
     state.currentStack = name;
     saveState(state);
 
     ui.success(`Created stack ${theme.stack(name)} with ${branches.length} branches`);
+    if (dependsOn) {
+      ui.info(`  Depends on: ${theme.stack(dependsOn.stack)} (${theme.branch(dependsOn.branch)})`);
+    }
     for (let i = 0; i < branchEntries.length; i++) {
       const entry = branchEntries[i];
       if (!entry) continue;
@@ -268,5 +325,45 @@ export class CreateCommand extends Command {
       ui.info(`  ${i + 1}. ${theme.branch(entry.name)}${prStr}`);
     }
     return 0;
+  }
+
+  private resolveBase(state: ReturnType<typeof loadState>): {
+    trunk?: string;
+    baseTip?: string;
+    dependsOn?: { stack: string; branch: string };
+    error?: string;
+  } {
+    if (!this.base) {
+      return {};
+    }
+
+    // Resolve "." to current branch
+    const baseBranch = this.base === '.' ? git.currentBranch() : this.base;
+
+    // Validate base branch exists
+    const verifyResult = git.tryRun('rev-parse', '--verify', baseBranch);
+    if (!verifyResult.ok) {
+      return { error: `Base branch "${baseBranch}" does not exist` };
+    }
+
+    const baseTip = git.revParse(baseBranch);
+
+    // Scan all stacks to find which stack owns the base branch
+    let dependsOn: { stack: string; branch: string } | undefined;
+    for (const [stackName, stack] of Object.entries(state.stacks)) {
+      for (const branch of stack.branches) {
+        if (branch.name === baseBranch) {
+          dependsOn = { stack: stackName, branch: baseBranch };
+          break;
+        }
+      }
+      if (dependsOn) break;
+    }
+
+    return {
+      trunk: baseBranch,
+      baseTip,
+      dependsOn,
+    };
   }
 }

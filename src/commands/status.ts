@@ -88,7 +88,7 @@ export class StatusCommand extends Command {
     }
 
     if (this.json) {
-      const output = {
+      const output: Record<string, unknown> = {
         stackName: resolvedName,
         position: position?.index ?? null,
         total: stack.branches.length,
@@ -101,6 +101,9 @@ export class StatusCommand extends Command {
         })),
         restackState: stack.restackState,
       };
+      if (stack.dependsOn) {
+        output.dependsOn = stack.dependsOn;
+      }
       process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
       return 0;
     }
@@ -146,6 +149,7 @@ export class StatusCommand extends Command {
         name,
         branchCount: stack.branches.length,
         trunk: stack.trunk,
+        ...(stack.dependsOn ? { dependsOn: stack.dependsOn } : {}),
         updated: stack.updated,
         restackInProgress: stack.restackState !== null,
       }));

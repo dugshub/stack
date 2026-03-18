@@ -76,7 +76,25 @@ export class SyncCommand extends Command {
     ui.info('Fetching from origin...');
     git.fetch();
 
-    // 2. Check which PRs are merged
+    // 2. Auto-convert dependent stack if trunk branch was deleted from remote (parent merged)
+    if (stack.dependsOn) {
+      if (!git.hasRemoteRef(stack.trunk)) {
+        const defaultBranch = git.defaultBranch();
+        const oldTrunk = stack.trunk;
+        ui.info(
+          `Base branch ${theme.branch(oldTrunk)} no longer exists on remote — converting to standalone stack.`,
+        );
+        stack.trunk = defaultBranch;
+        delete stack.dependsOn;
+        stack.updated = new Date().toISOString();
+        saveState(state);
+        ui.success(`Stack is now standalone (trunk → ${theme.branch(defaultBranch)})`);
+      } else {
+        ui.info(`Syncing dependent stack (base: ${theme.branch(stack.trunk)})`);
+      }
+    }
+
+    // 3. Check which PRs are merged
     const mergedIndices: number[] = [];
     for (let i = 0; i < stack.branches.length; i++) {
       const branch = stack.branches[i];

@@ -1,3 +1,4 @@
+import { parseBranchName } from './branch.js';
 import type { PrStatus, Stack } from './types.js';
 import { statusEmoji, statusText } from './ui.js';
 
@@ -40,7 +41,13 @@ export function generateComment(
   }
 
   // Trunk row
-  lines.push(`| | \`${stack.trunk}\` | |`);
+  if (stack.dependsOn) {
+    const parsed = parseBranchName(stack.dependsOn.branch);
+    const pos = parsed ? ` #${parsed.index}` : '';
+    lines.push(`| | ↳ \`${stack.dependsOn.stack}\`${pos} | |`);
+  } else {
+    lines.push(`| | \`${stack.trunk}\` | |`);
+  }
 
   lines.push('');
   lines.push('<sub>Managed by Claude Code <code>/stack</code></sub>');

@@ -49,6 +49,17 @@ export class DeleteCommand extends Command {
 
     const { stackName, stack } = resolved;
 
+    // Warn if other stacks depend on this one
+    const dependentStacks = Object.entries(state.stacks)
+      .filter(([, s]) => s.dependsOn?.stack === stackName)
+      .map(([name]) => name);
+    if (dependentStacks.length > 0) {
+      ui.warn(
+        `${dependentStacks.length} stack(s) depend on "${stackName}": ${dependentStacks.join(', ')}`,
+      );
+      ui.info('Those stacks will lose their dependency metadata.');
+    }
+
     // Safety: prompt for confirmation if stack has open PRs
     const prNumbers = stack.branches
       .map((b) => b.pr)

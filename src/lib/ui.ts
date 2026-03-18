@@ -1,4 +1,5 @@
 import Table from 'cli-table3';
+import { parseBranchName } from './branch.js';
 import { theme } from './theme.js';
 import type { CheckResult, PrStatus, Stack, StackPosition, StatusEmoji } from './types.js';
 
@@ -82,7 +83,13 @@ export function stackTree(
 	const gap = '  ';
 
 	// Trunk header
-	const trunkLine = ` ${theme.muted('↑'.padEnd(numW))}${gap}${theme.muted(stack.trunk)}`;
+	let trunkLabel = stack.trunk;
+	if (stack.dependsOn) {
+		const parsed = parseBranchName(stack.dependsOn.branch);
+		const pos = parsed ? ` #${parsed.index}` : '';
+		trunkLabel = `${stack.trunk} (→ ${stack.dependsOn.stack}${pos})`;
+	}
+	const trunkLine = ` ${theme.muted('↑'.padEnd(numW))}${gap}${theme.muted(trunkLabel)}`;
 	process.stderr.write(`${trunkLine}\n`);
 
 	// Column headers

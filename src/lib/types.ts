@@ -6,6 +6,7 @@ export interface StackFile {
 
 export interface Stack {
   trunk: string;
+  dependsOn?: { stack: string; branch: string };
   branches: Branch[];
   created: string;
   updated: string;

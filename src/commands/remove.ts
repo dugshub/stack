@@ -83,6 +83,17 @@ export class RemoveCommand extends Command {
 			return 2;
 		}
 
+		// Warn if other stacks depend on this branch
+		const dependentStacks = Object.entries(state.stacks)
+			.filter(([, s]) => s.dependsOn?.branch === target.name)
+			.map(([name]) => name);
+		if (dependentStacks.length > 0) {
+			ui.warn(
+				`${dependentStacks.length} stack(s) depend on branch "${target.name}": ${dependentStacks.join(', ')}`,
+			);
+			ui.info('Those stacks will lose their dependency link to this branch.');
+		}
+
 		// Retarget downstream PR's base
 		const downstream = stack.branches[targetIndex + 1];
 		if (downstream?.pr != null) {

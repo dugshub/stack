@@ -1,5 +1,5 @@
 import Table from 'cli-table3';
-import { parseBranchName } from './branch.js';
+import { buildReport } from './stack-report.js';
 import { theme } from './theme.js';
 import type { CheckResult, PrStatus, Stack, StackPosition, StatusEmoji } from './types.js';
 
@@ -76,50 +76,48 @@ export function stackTree(
 	position: StackPosition,
 	prStatuses: Map<number, PrStatus>,
 ): void {
-	// Compute column widths from visible text so OSC 8 hyperlinks don't break alignment
-	const numW = String(stack.branches.length).length;
-	const branchW = Math.max(6, ...stack.branches.map((b) => b.name.length));
-	const prW = Math.max(2, ...stack.branches.map((b) => b.pr != null ? `#${b.pr}`.length : 0));
-	const gap = '  ';
+	const report = buildReport(stack, position.branch.pr, prStatuses, '');
+
+	const numW = String(report.rows.length).length;
+	const branchW = Math.max(6, ...report.rows.map((r) => r.shortName.length));
+	const prW = Math.max(2, ...report.rows.map((r) => r.pr != null ? `#${r.pr}`.length : 0));
+	const gap = '   ';
 
 	// Trunk header
-	let trunkLabel = stack.trunk;
-	if (stack.dependsOn) {
-		const parsed = parseBranchName(stack.dependsOn.branch);
-		const pos = parsed ? ` #${parsed.index}` : '';
-		trunkLabel = `${stack.trunk} (→ ${stack.dependsOn.stack}${pos})`;
+	let trunkLabel = report.trunk;
+	if (report.dependsOn) {
+		trunkLabel = `${report.trunk} (\u2192 ${report.dependsOn.stack}${report.dependsOn.pos})`;
 	}
-	const trunkLine = ` ${theme.muted('↑'.padEnd(numW))}${gap}${theme.muted(trunkLabel)}`;
+	const trunkLine = ` ${theme.muted('\u2191'.padEnd(numW))}${gap}${theme.muted(trunkLabel)}`;
 	process.stderr.write(`${trunkLine}\n`);
+
+	// Show common prefix once above column headers
+	if (report.prefix) {
+		process.stderr.write(`   ${theme.muted(report.prefix)}\n`);
+		process.stderr.write('\n');
+	}
 
 	// Column headers
 	const headerLine = ` ${theme.muted('#'.padEnd(numW))}${gap}${theme.muted('Branch'.padEnd(branchW))}${gap}${theme.muted('PR'.padEnd(prW))}${gap}${theme.muted('Status')}${gap.padEnd(8)}${theme.muted('Checks')}`;
 	process.stderr.write(`${headerLine}\n`);
 
-	for (let i = 0; i < stack.branches.length; i++) {
-		const branch = stack.branches[i];
-		if (!branch) continue;
-		const pr = branch.pr != null ? (prStatuses.get(branch.pr) ?? null) : null;
-		const isCurrent = i === position.index;
-		const emoji = statusEmoji(pr);
-		const text = statusText(pr);
+	for (const row of report.rows) {
+		const isCurrent = row.index === position.index;
 
 		// PR string: use hyperlink when URL available, pad based on visible text width
-		const prVisible = branch.pr != null ? `#${branch.pr}` : '';
-		const prStr = branch.pr != null && pr?.url
+		const prVisible = row.pr != null ? `#${row.pr}` : '';
+		const pr = row.pr != null ? (prStatuses.get(row.pr) ?? null) : null;
+		const prStr = row.pr != null && pr?.url
 			? hyperlink(prVisible, pr.url) + ' '.repeat(prW - prVisible.length)
 			: prVisible.padEnd(prW);
 
 		const marker = isCurrent ? `${gap}${theme.accent('\u2190 you are here')}` : '';
-		// Pad based on visible width, then apply styling (ANSI codes break padEnd)
-		const namePadded = branch.name.padEnd(branchW);
+		const namePadded = row.shortName.padEnd(branchW);
 		const nameStr = isCurrent ? theme.branch(namePadded) : namePadded;
 
-		const chk = checksText(pr);
-		const chkEmoji = checksEmoji(pr);
-		const checksStr = chk ? `${chkEmoji} ${chk}` : '';
+		const chksStr = row.checksText ? `${row.checksEmoji} ${row.checksText}` : '';
 
-		const line = ` ${String(i + 1).padEnd(numW)}${gap}${nameStr}${gap}${prStr}${gap}${emoji} ${text.padEnd(10)}${gap}${checksStr}${marker}`;
+		const line = ` ${String(row.index + 1).padEnd(numW)}${gap}${nameStr}${gap}${prStr}${gap}${row.status} ${row.statusText.padEnd(10)}${gap}${chksStr}${marker}`;
 		process.stderr.write(`${line}\n`);
 	}
 }

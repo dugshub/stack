@@ -1,6 +1,6 @@
 import { parseBranchName } from './branch.js';
+import { buildReport } from './stack-report.js';
 import type { PrStatus, Stack } from './types.js';
-import { statusEmoji, statusText } from './ui.js';
 
 /** Marker used to identify stack navigation comments posted by the bot. */
 export const COMMENT_MARKER = '### PR Stack';
@@ -11,42 +11,51 @@ export function generateComment(
   prStatuses: Map<number, PrStatus>,
   repoUrl: string,
 ): string {
+  const report = buildReport(stack, currentPrNumber, prStatuses, repoUrl);
+
+  // Extract stack name from prefix or fall back to parsing a branch
+  let stackLabel = '';
+  if (report.prefix) {
+    // e.g. "dugshub/test-mergedown/" -> "test-mergedown"
+    const segments = report.prefix.replace(/\/$/, '').split('/');
+    stackLabel = segments.length >= 2 ? (segments[1] ?? '') : (segments[0] ?? '');
+  }
+  if (!stackLabel && report.rows.length > 0) {
+    const parsed = parseBranchName(report.rows[0]!.fullName);
+    stackLabel = parsed?.stack ?? '';
+  }
+
   const lines: string[] = [];
 
-  lines.push(COMMENT_MARKER);
+  const header = stackLabel
+    ? `${COMMENT_MARKER} \`${stackLabel}\``
+    : COMMENT_MARKER;
+  lines.push(header);
   lines.push('');
   lines.push('| Status | PR | Title |');
   lines.push('|--------|-----|-------|');
 
-  // Render top-of-stack first (last branch in array = top)
-  for (let i = stack.branches.length - 1; i >= 0; i--) {
-    const branch = stack.branches[i];
-    if (!branch) continue;
+  // Render top-of-stack first (reverse order)
+  for (let i = report.rows.length - 1; i >= 0; i--) {
+    const row = report.rows[i]!;
 
-    const pr = branch.pr != null ? (prStatuses.get(branch.pr) ?? null) : null;
-    const isCurrent = branch.pr === currentPrNumber;
-    const emoji = statusEmoji(pr);
-    const text = statusText(pr);
-    const prLink = branch.pr != null
-      ? `[#${branch.pr}](${repoUrl}/pull/${branch.pr})`
+    const prLink = row.pr != null
+      ? `[#${row.pr}](${row.prUrl})`
       : '';
-    const title = pr?.title ?? '';
-    const pointer = isCurrent ? ' 👈' : '';
+    const pointer = row.isCurrent ? ' \u{1F448}' : '';
 
-    const statusCell = `${emoji} ${text}`;
-    const prCell = isCurrent ? `**${prLink}**` : prLink;
-    const titleCell = isCurrent ? `**${title}**${pointer}` : title;
+    const statusCell = `${row.status} ${row.statusText}`;
+    const prCell = row.isCurrent ? `**${prLink}**` : prLink;
+    const titleCell = row.isCurrent ? `**${row.title}**${pointer}` : row.title;
 
     lines.push(`| ${statusCell} | ${prCell} | ${titleCell} |`);
   }
 
   // Trunk row
-  if (stack.dependsOn) {
-    const parsed = parseBranchName(stack.dependsOn.branch);
-    const pos = parsed ? ` #${parsed.index}` : '';
-    lines.push(`| | ↳ \`${stack.dependsOn.stack}\`${pos} | |`);
+  if (report.dependsOn) {
+    lines.push(`| | \u21B3 \`${report.dependsOn.stack}\`${report.dependsOn.pos} | |`);
   } else {
-    lines.push(`| | \`${stack.trunk}\` | |`);
+    lines.push(`| | \`${report.trunk}\` | |`);
   }
 
   lines.push('');

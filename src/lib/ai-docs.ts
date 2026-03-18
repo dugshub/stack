@@ -99,6 +99,22 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'For each branch in the stack: force-pushes with --force-with-lease, creates a PR (if none exists) targeting the parent branch, updates existing PR base branches, and posts a stack navigation comment on each PR. PR titles are derived from branch names: user/stack-name/1-add-schema -> "Add Schema".',
 	},
+	modify: {
+		description: 'Amend staged changes into the current commit and restack',
+		flags: [
+			'--all,-a       Stage all changes before amending',
+			'--message,-m   New commit message for the amended commit',
+			'--no-restack   Skip restacking downstream branches',
+		],
+		examples: [
+			'stack modify                    # amend staged changes, restack',
+			'stack modify -a                 # stage all, amend, restack',
+			'stack modify -m "new message"   # amend with new commit message',
+			'stack modify --no-restack       # amend without restacking',
+		],
+		details:
+			'Amends staged changes into the current commit (like git commit --amend) and automatically restacks downstream branches. This is the most common mid-stack edit workflow: make changes, stage them, run `stack modify`. If nothing is staged and no -m flag is given, the command exits with an error. Use -a to stage all changes automatically. If the current branch is not in a stack, the amend still happens but no restack is performed. If conflicts occur during restack, resolve them and run `stack continue`.',
+	},
 	absorb: {
 		description: 'Route uncommitted changes to the correct stack branches',
 		flags: [

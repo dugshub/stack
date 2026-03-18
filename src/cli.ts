@@ -138,6 +138,10 @@ if (args.length === 0) {
   if (git.tryRun('rev-parse', '--show-toplevel').ok) {
     const dashResult = await showDashboard();
     if (dashResult !== null) {
+      const updateMsg = checkForUpdate();
+      if (updateMsg) {
+        process.stderr.write(`\n${theme.warning(updateMsg)}\n`);
+      }
       process.exit(dashResult);
     }
   }

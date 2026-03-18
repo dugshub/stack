@@ -17,6 +17,7 @@ import { InitCommand } from './commands/init.js';
 import { InsertCommand } from './commands/insert.js';
 import { MoveCommand } from './commands/move.js';
 import { NavCommand } from './commands/nav.js';
+import { PopCommand } from './commands/pop.js';
 import { TrackCommand } from './commands/track.js';
 import { RemoveCommand } from './commands/remove.js';
 import { ReorderCommand } from './commands/reorder.js';
@@ -55,6 +56,7 @@ cli.register(ReorderCommand);
 cli.register(CreateCommand);
 cli.register(DeleteCommand);
 cli.register(TrackCommand);
+cli.register(PopCommand);
 cli.register(RemoveCommand);
 cli.register(SubmitCommand);
 cli.register(ModifyCommand);
@@ -104,6 +106,7 @@ function showHelp(): never {
     ['',                        ''],
     ['track',                   'Add current branch to a stack'],
     ['remove [branch]',         'Remove a branch from the stack'],
+    ['pop',                     'Pop branch from stack, keep changes'],
     ['up',                      'Move up (toward trunk)'],
     ['down',                    'Move down (away from trunk)'],
     ['top',                     'Jump to top of stack'],

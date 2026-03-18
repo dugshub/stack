@@ -29,7 +29,7 @@ Provides stack awareness to Claude and subagents automatically. Read-only — ne
 
 4. If a restack is in progress, warn:
    ```
-   ⚠ Restack in progress — resolve conflicts and run `stack restack --continue`
+   ⚠ Restack in progress — resolve conflicts and run `stack continue`
    ```
 
 5. If `stack` is not installed, suggest:

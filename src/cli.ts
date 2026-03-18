@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 import { Builtins, Cli } from 'clipanion';
+import { AbortCommand } from './commands/abort.js';
 import { AbsorbCommand } from './commands/absorb.js';
 import { BottomCommand } from './commands/bottom.js';
 import { CheckCommand } from './commands/check.js';
+import { ContinueCommand } from './commands/continue.js';
 import { CreateCommand } from './commands/create.js';
 import { DaemonCommand } from './commands/daemon.js';
 import { DefaultCommand } from './commands/default.js';
@@ -56,6 +58,8 @@ cli.register(RemoveCommand);
 cli.register(SubmitCommand);
 cli.register(AbsorbCommand);
 cli.register(CheckCommand);
+cli.register(ContinueCommand);
+cli.register(AbortCommand);
 cli.register(RestackCommand);
 cli.register(SplitCommand);
 cli.register(SyncCommand);
@@ -102,6 +106,8 @@ function showHelp(): never {
     ['down',                    'Move down (away from trunk)'],
     ['top',                     'Jump to top of stack'],
     ['bottom',                  'Jump to bottom of stack'],
+    ['continue',                'Continue after resolving conflicts'],
+    ['abort',                   'Abort an in-progress restack'],
     ['nav',                     'Interactive branch picker'],
     ['move <up|down|N>',        'Move a branch within the stack'],
     ['insert --after N',        'Insert a new branch at position'],

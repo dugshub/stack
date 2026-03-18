@@ -2,6 +2,7 @@ import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import { tryDaemonCache } from '../lib/daemon-client.js';
 import { findActiveStack, findDependentStacks, loadAndRefreshState } from '../lib/state.js';
+import { findCommonPrefix } from '../lib/stack-report.js';
 import type { Branch, PrStatus, Stack, StackFile } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 import type { GraphStackNode } from '../lib/ui.js';
@@ -153,12 +154,19 @@ function buildStackNode(
 		);
 	}
 
+	// Compute common prefix for short branch names
+	const prefix = expanded
+		? findCommonPrefix(stack.branches.map((b) => b.name))
+		: '';
+
 	// Build branch info for expanded view
 	const branches = expanded
 		? stack.branches.map((b: Branch) => {
 			const pr = b.pr != null ? (prStatuses.get(b.pr) ?? null) : null;
+			const shortName = prefix ? b.name.slice(prefix.length) : b.name;
 			return {
 				name: b.name,
+				shortName,
 				pr: b.pr,
 				prStatus: pr,
 				isCurrent: b.name === currentBranchName,
@@ -176,6 +184,7 @@ function buildStackNode(
 
 	return {
 		name: stackName,
+		prefix,
 		branchCount: stack.branches.length,
 		aggregateStatus,
 		isCurrent,

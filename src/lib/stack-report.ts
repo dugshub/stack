@@ -67,7 +67,7 @@ export function buildReport(
 	return { prefix, trunk: stack.trunk, dependsOn, rows };
 }
 
-function findCommonPrefix(names: string[]): string {
+export function findCommonPrefix(names: string[]): string {
 	if (names.length === 0) return '';
 	if (names.length === 1) {
 		const lastSlash = names[0]!.lastIndexOf('/');

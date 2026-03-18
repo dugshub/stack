@@ -73,6 +73,19 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'Appends the current git branch to the top of the stack. The branch must not already be in a stack.',
 	},
+	rename: {
+		description: 'Rename the current branch in the stack',
+		flags: [
+			'<new-name>      New description for the branch',
+			'--no-pr-update   Skip updating the PR title',
+		],
+		examples: [
+			'stack rename new-description',
+			'stack rename new-description --no-pr-update',
+		],
+		details:
+			'Renames the current stack branch locally and on the remote. Preserves the user/stack/N- prefix and replaces only the description portion. Updates the PR title to match the new name (derived via title-case conversion). Use --no-pr-update to skip the PR title update. The old remote branch is deleted and the new one is pushed.',
+	},
 	fold: {
 		description: 'Merge current branch into its parent branch',
 		flags: [],

@@ -165,10 +165,13 @@ export function prCreate(opts: {
   return Number.parseInt(match[1], 10);
 }
 
-export function prEdit(prNumber: number, opts: { base?: string }): void {
+export function prEdit(prNumber: number, opts: { base?: string; title?: string }): void {
   const args = ['pr', 'edit', String(prNumber)];
   if (opts.base) {
     args.push('--base', opts.base);
+  }
+  if (opts.title) {
+    args.push('--title', opts.title);
   }
   run(...args);
 }

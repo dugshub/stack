@@ -193,6 +193,7 @@ export function positionReport(pos: StackPosition): void {
 
 export interface GraphBranchNode {
 	name: string;
+	shortName: string;
 	pr: number | null;
 	prStatus: PrStatus | null;
 	isCurrent: boolean;
@@ -201,6 +202,7 @@ export interface GraphBranchNode {
 
 export interface GraphStackNode {
 	name: string;
+	prefix: string;
 	branchCount: number;
 	aggregateStatus: StatusEmoji;
 	isCurrent: boolean;
@@ -306,29 +308,42 @@ function renderOneStack(node: GraphStackNode, prefix: string, isLast: boolean): 
 }
 
 function renderExpandedBranches(branches: GraphBranchNode[], prefix: string): void {
+	// Compute column widths for alignment
+	const nameW = Math.max(4, ...branches.map((b) => (b.shortName || b.name).length));
+	const prW = Math.max(0, ...branches.map((b) => b.pr != null ? `#${b.pr}`.length : 0));
+
 	for (let i = 0; i < branches.length; i++) {
 		const branch = branches[i]!;
-		const isLast = i === branches.length - 1;
-		const connector = isLast ? FORK_END : FORK_MID;
-		const continueLine = isLast ? '  ' : `${PIPE} `;
+		const isLast = i === branches.length - 1 && branch.dependents.length === 0;
+		const hasMoreAfter = i < branches.length - 1 || branch.dependents.length > 0;
+		const connector = !hasMoreAfter && i === branches.length - 1 ? FORK_END : FORK_MID;
+		const continueLine = !hasMoreAfter && i === branches.length - 1 ? '  ' : `${PIPE} `;
 
 		const dot = branch.isCurrent ? theme.accent(DOT_CURRENT) : DOT_BRANCH;
 		const pr = branch.prStatus;
 		const emoji = statusEmoji(pr);
 		const text = statusText(pr);
-		const prStr = branch.pr != null ? ` ${theme.pr(`#${branch.pr}`)}` : '';
+
+		const displayName = branch.shortName || branch.name;
+		const namePadded = displayName.padEnd(nameW);
+		const branchName = branch.isCurrent ? theme.branch(namePadded) : namePadded;
+
+		const prVisible = branch.pr != null ? `#${branch.pr}` : '';
+		const prPadded = prVisible.padEnd(prW);
+		const prStr = branch.pr != null ? theme.pr(prPadded) : prPadded;
+
 		const marker = branch.isCurrent ? `  ${theme.accent('\u2190 you are here')}` : '';
-		const branchName = branch.isCurrent ? theme.branch(branch.name) : branch.name;
 
 		process.stderr.write(
-			`${prefix}${theme.muted(connector)} ${dot} ${branchName}${prStr}  ${emoji} ${text}${marker}\n`,
+			`${prefix}${theme.muted(connector)} ${dot} ${branchName}  ${prStr}  ${emoji} ${text}${marker}\n`,
 		);
 
 		if (branch.dependents.length > 0) {
 			const depPrefix = `${prefix}${theme.muted(continueLine)}`;
 			for (let d = 0; d < branch.dependents.length; d++) {
 				const dep = branch.dependents[d]!;
-				const depIsLast = d === branch.dependents.length - 1;
+				// Last dependent AND last branch = truly last
+				const depIsLast = d === branch.dependents.length - 1 && i === branches.length - 1;
 				renderOneStack(dep, depPrefix, depIsLast);
 			}
 		}

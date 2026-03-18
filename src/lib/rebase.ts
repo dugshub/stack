@@ -21,9 +21,15 @@ export function rebaseBranch(opts: RebaseBranchOpts): RebaseBranchResult {
 	const worktreePath = worktreeMap?.get(branch.name);
 
 	// Fork point: parentTip (correct) → fallback (legacy) → merge-base (last resort)
+	// Validate parentTip is still reachable from the branch — it can become stale
+	// if the user rebased outside of `stack restack` (e.g. `git rebase origin/main`).
+	const parentTip =
+		branch.parentTip && git.isAncestor(branch.parentTip, branch.name)
+			? branch.parentTip
+			: undefined;
 	const mergeBaseResult = git.tryRun('merge-base', parentRef, branch.name);
 	const oldBase =
-		branch.parentTip ??
+		parentTip ??
 		fallbackOldBase ??
 		(mergeBaseResult.ok ? mergeBaseResult.stdout : null);
 

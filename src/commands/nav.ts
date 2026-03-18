@@ -12,14 +12,10 @@ export class NavCommand extends Command {
 	static override paths = [['nav']];
 
 	static override usage = Command.Usage({
-		description: 'Navigate the stack: up, down, top, bottom, or interactive',
+		description: 'Interactive branch picker or jump to branch N',
 		examples: [
 			['Interactive branch picker', 'stack nav'],
 			['Jump to branch #3', 'stack nav 3'],
-			['Move toward trunk', 'stack nav up'],
-			['Move away from trunk', 'stack nav down'],
-			['Go to top of stack', 'stack nav top'],
-			['Go to bottom of stack', 'stack nav bottom'],
 		],
 	});
 
@@ -34,55 +30,42 @@ export class NavCommand extends Command {
 			return this.interactive();
 		}
 
-		const state = loadAndRefreshState();
-
-		let resolved: Awaited<ReturnType<typeof resolveStack>>;
-		try {
-			resolved = await resolveStack({ state, explicitName: this.stackName });
-		} catch (err) {
-			ui.error(err instanceof Error ? err.message : String(err));
-			return 2;
-		}
-
-		const { stackName: resolvedName, stack, position: rawPosition } = resolved;
-
-		// Synthesize position if resolved via currentStack (not on a stack branch)
-		const positionWasSynthesized = rawPosition === null;
-		const position: StackPosition = rawPosition ?? {
-			stackName: resolvedName,
-			index: 0,
-			total: stack.branches.length,
-			branch: stack.branches[0]!,
-			isTop: stack.branches.length === 1,
-			isBottom: true,
-		};
-
 		// Numeric navigation: `stack nav 3` -> jump to branch #3
 		const num = Number.parseInt(this.direction, 10);
 		if (!Number.isNaN(num)) {
+			const state = loadAndRefreshState();
+
+			let resolved: Awaited<ReturnType<typeof resolveStack>>;
+			try {
+				resolved = await resolveStack({ state, explicitName: this.stackName });
+			} catch (err) {
+				ui.error(err instanceof Error ? err.message : String(err));
+				return 2;
+			}
+
+			const { stackName: resolvedName, stack, position: rawPosition } = resolved;
+			const positionWasSynthesized = rawPosition === null;
+			const position: StackPosition = rawPosition ?? {
+				stackName: resolvedName,
+				index: 0,
+				total: stack.branches.length,
+				branch: stack.branches[0]!,
+				isTop: stack.branches.length === 1,
+				isBottom: true,
+			};
+
 			return this.navTo(stack, position, num, positionWasSynthesized);
 		}
 
-		const validDirections = ['up', 'down', 'top', 'bottom'];
-		if (!validDirections.includes(this.direction)) {
-			ui.error(
-				`Invalid direction "${this.direction}". Use: up, down, top, bottom, or a number`,
-			);
+		// Directional words are now top-level commands
+		const directions = ['up', 'down', 'top', 'bottom'];
+		if (directions.includes(this.direction)) {
+			ui.error(`"stack nav ${this.direction}" is no longer supported. Use "stack ${this.direction}" instead.`);
 			return 2;
 		}
 
-		switch (this.direction) {
-			case 'up':
-				return this.navUp(stack, position);
-			case 'down':
-				return this.navDown(stack, position);
-			case 'top':
-				return this.navTop(stack, position, positionWasSynthesized);
-			case 'bottom':
-				return this.navBottom(stack, position, positionWasSynthesized);
-			default:
-				return 2;
-		}
+		ui.error(`Invalid argument "${this.direction}". Use a number or run "stack nav" for interactive picker.`);
+		return 2;
 	}
 
 	private navTo(stack: Stack, position: StackPosition, num: number, positionWasSynthesized: boolean): number {
@@ -114,112 +97,6 @@ export class NavCommand extends Command {
 			branch: target,
 			isTop: targetIndex === stack.branches.length - 1,
 			isBottom: targetIndex === 0,
-		});
-		return 0;
-	}
-
-	private navUp(stack: Stack, position: StackPosition): number {
-		if (position.isBottom) {
-			if (process.stdout.isTTY) {
-				ui.info(`Already at bottom of stack. Trunk is ${theme.branch(stack.trunk)}.`);
-				ui.info(`Run ${theme.command(`git checkout ${stack.trunk}`)} to switch to trunk.`);
-			}
-			return 0;
-		}
-
-		const targetIndex = position.index - 1;
-		const target = stack.branches[targetIndex];
-		if (!target) {
-			ui.error('Could not find target branch');
-			return 2;
-		}
-
-		git.checkout(target.name);
-		ui.success(`Checked out ${theme.branch(target.name)}`);
-		ui.positionReport({
-			stackName: position.stackName,
-			index: targetIndex,
-			total: position.total,
-			branch: target,
-			isTop: targetIndex === stack.branches.length - 1,
-			isBottom: targetIndex === 0,
-		});
-		return 0;
-	}
-
-	private navDown(stack: Stack, position: StackPosition): number {
-		if (position.isTop) {
-			ui.info('Already at top of stack.');
-			return 0;
-		}
-
-		const targetIndex = position.index + 1;
-		const target = stack.branches[targetIndex];
-		if (!target) {
-			ui.error('Could not find target branch');
-			return 2;
-		}
-
-		git.checkout(target.name);
-		ui.success(`Checked out ${theme.branch(target.name)}`);
-		ui.positionReport({
-			stackName: position.stackName,
-			index: targetIndex,
-			total: position.total,
-			branch: target,
-			isTop: targetIndex === stack.branches.length - 1,
-			isBottom: targetIndex === 0,
-		});
-		return 0;
-	}
-
-	private navTop(stack: Stack, position: StackPosition, positionWasSynthesized: boolean): number {
-		const targetIndex = stack.branches.length - 1;
-		const target = stack.branches[targetIndex];
-		if (!target) {
-			ui.error('Could not find target branch');
-			return 2;
-		}
-
-		if (!positionWasSynthesized && position.isTop) {
-			ui.info('Already at top of stack.');
-			return 0;
-		}
-
-		git.checkout(target.name);
-		ui.success(`Checked out ${theme.branch(target.name)}`);
-		ui.positionReport({
-			stackName: position.stackName,
-			index: targetIndex,
-			total: position.total,
-			branch: target,
-			isTop: true,
-			isBottom: targetIndex === 0,
-		});
-		return 0;
-	}
-
-	private navBottom(stack: Stack, position: StackPosition, positionWasSynthesized: boolean): number {
-		const target = stack.branches[0];
-		if (!target) {
-			ui.error('Could not find target branch');
-			return 2;
-		}
-
-		if (!positionWasSynthesized && position.isBottom) {
-			ui.info('Already at bottom of stack.');
-			return 0;
-		}
-
-		git.checkout(target.name);
-		ui.success(`Checked out ${theme.branch(target.name)}`);
-		ui.positionReport({
-			stackName: position.stackName,
-			index: 0,
-			total: position.total,
-			branch: target,
-			isTop: stack.branches.length === 1,
-			isBottom: true,
 		});
 		return 0;
 	}

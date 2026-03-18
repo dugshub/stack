@@ -5,6 +5,7 @@ import { CheckCommand } from './commands/check.js';
 import { CreateCommand } from './commands/create.js';
 import { DaemonCommand } from './commands/daemon.js';
 import { DefaultCommand } from './commands/default.js';
+import { GraphCommand } from './commands/graph.js';
 import { MergeCommand } from './commands/merge.js';
 import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
@@ -53,6 +54,7 @@ cli.register(SyncCommand);
 cli.register(UndoCommand);
 cli.register(MergeCommand);
 cli.register(DaemonCommand);
+cli.register(GraphCommand);
 cli.register(InitCommand);
 cli.register(UpdateCommand);
 cli.register(DefaultCommand);
@@ -101,6 +103,7 @@ function showHelp(): never {
     ['sync',                    'Clean up after PRs merge'],
     ['undo',                    'Undo last mutating command'],
     ['merge --all',             'Merge entire stack bottom-up'],
+    ['graph',                   'Show dependency graph across stacks'],
     ['daemon <action>',         'Manage background daemon'],
     ['',                        ''],
     ['init',                    'Install Claude Code skills'],

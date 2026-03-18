@@ -188,3 +188,109 @@ export function positionReport(pos: StackPosition): void {
 		`Branch ${pos.index + 1} of ${pos.total} in stack ${theme.stack(pos.stackName)}`,
 	);
 }
+
+// ── Stack Graph ─────────────────────────────────────────
+
+export interface GraphNode {
+	name: string;
+	trunk: string;
+	branchCount: number;
+	aggregateStatus: StatusEmoji;
+	isCurrent: boolean;
+	children: GraphNode[];
+}
+
+export function statusRank(emoji: StatusEmoji): number {
+	switch (emoji) {
+		case '\u2B1C': return 0;       // No PR (worst)
+		case '\uD83D\uDD28': return 1; // Draft
+		case '\u274C': return 2;       // Closed
+		case '\uD83D\uDD04': return 2; // Changes Requested
+		case '\uD83D\uDC40': return 3; // Review
+		case '\u2705': return 4;       // Approved / Merged (best)
+		default: return 0;
+	}
+}
+
+export function aggregateStatusEmoji(emojis: StatusEmoji[]): StatusEmoji {
+	if (emojis.length === 0) return '\u2B1C';
+	let worst: StatusEmoji = emojis[0]!;
+	let worstRank = statusRank(worst);
+	for (let i = 1; i < emojis.length; i++) {
+		const e = emojis[i]!;
+		const r = statusRank(e);
+		if (r < worstRank) {
+			worst = e;
+			worstRank = r;
+		}
+	}
+	return worst;
+}
+
+export function stackGraph(
+	roots: Array<{ trunk: string; children: GraphNode[] }>,
+	_currentStackName: string | null,
+): void {
+	for (let r = 0; r < roots.length; r++) {
+		const root = roots[r]!;
+		if (r > 0) process.stderr.write('\n');
+		process.stderr.write(`  ${theme.muted(root.trunk)}\n`);
+		renderGraphChildren(root.children, '  ');
+	}
+}
+
+function renderGraphChildren(nodes: GraphNode[], prefix: string): void {
+	const allNodes = flattenNodes(nodes);
+	const nameW = Math.max(6, ...allNodes.map((n) => n.name.length));
+	const countW = Math.max(1, ...allNodes.map((n) => branchCountLabel(n.branchCount).length));
+
+	for (let i = 0; i < nodes.length; i++) {
+		const node = nodes[i]!;
+		const isLast = i === nodes.length - 1;
+		const connector = isLast ? '\u2514\u2500' : '\u251C\u2500';
+		const childPrefix = isLast ? '   ' : '\u2502  ';
+
+		const nameStr = node.isCurrent
+			? theme.stack(node.name.padEnd(nameW))
+			: node.name.padEnd(nameW);
+		const countStr = branchCountLabel(node.branchCount).padEnd(countW);
+		const emojiStatus = node.aggregateStatus;
+		const textStatus = statusText(statusFromEmoji(emojiStatus));
+		const marker = node.isCurrent ? `  ${theme.accent('\u2190 you are here')}` : '';
+
+		process.stderr.write(
+			`${prefix}${connector} ${nameStr}   ${theme.muted(countStr)}   ${emojiStatus} ${textStatus}${marker}\n`,
+		);
+
+		if (node.children.length > 0) {
+			renderGraphChildren(node.children, `${prefix}${childPrefix}`);
+		}
+	}
+}
+
+function flattenNodes(nodes: GraphNode[]): GraphNode[] {
+	const result: GraphNode[] = [];
+	for (const node of nodes) {
+		result.push(node);
+		if (node.children.length > 0) {
+			result.push(...flattenNodes(node.children));
+		}
+	}
+	return result;
+}
+
+function branchCountLabel(count: number): string {
+	return count === 1 ? '1 branch' : `${count} branches`;
+}
+
+function statusFromEmoji(emoji: StatusEmoji): PrStatus | null {
+	switch (emoji) {
+		case '\u2B1C': return null;
+		case '\u2705': return { number: 0, title: '', state: 'OPEN', isDraft: false, url: '', reviewDecision: 'APPROVED', checksStatus: null };
+		case '\u274C': return { number: 0, title: '', state: 'CLOSED', isDraft: false, url: '', reviewDecision: '', checksStatus: null };
+		case '\uD83D\uDD28': return { number: 0, title: '', state: 'OPEN', isDraft: true, url: '', reviewDecision: '', checksStatus: null };
+		case '\uD83D\uDD04': return { number: 0, title: '', state: 'OPEN', isDraft: false, url: '', reviewDecision: 'CHANGES_REQUESTED', checksStatus: null };
+		case '\uD83D\uDC40': return { number: 0, title: '', state: 'OPEN', isDraft: false, url: '', reviewDecision: 'REVIEW_REQUIRED', checksStatus: null };
+		default: return null;
+	}
+}

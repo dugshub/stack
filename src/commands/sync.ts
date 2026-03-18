@@ -271,7 +271,7 @@ export class SyncCommand extends Command {
             }
           }
           ui.info(
-            `Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
+            `Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`,
           );
           return 1;
         }

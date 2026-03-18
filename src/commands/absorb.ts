@@ -103,7 +103,7 @@ export class AbsorbCommand extends Command {
 
     if (stack.restackState) {
       ui.error(
-        `A restack is already in progress. Use ${theme.command('stack restack --continue')} or ${theme.command('stack restack --abort')}.`,
+        `A restack is already in progress. Use ${theme.command('stack continue')} or ${theme.command('stack abort')}.`,
       );
       return 2;
     }
@@ -323,7 +323,7 @@ export class AbsorbCommand extends Command {
             }
           }
           ui.info(
-            `Resolve conflicts, then run ${theme.command('stack restack --continue')}.`,
+            `Resolve conflicts, then run ${theme.command('stack continue')}.`,
           );
           return 1;
         }

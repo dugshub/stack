@@ -55,7 +55,7 @@ export class SplitCommand extends Command {
 		for (const stack of Object.values(state.stacks)) {
 			if (stack.restackState) {
 				ui.error(
-					`A restack is in progress. Use ${theme.command('stack restack --continue')} or ${theme.command('stack restack --abort')} first.`,
+					`A restack is in progress. Use ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
 				);
 				return 2;
 			}

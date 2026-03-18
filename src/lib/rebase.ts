@@ -112,7 +112,7 @@ export function cascadeRebase(opts: CascadeOpts): CascadeResult {
 				}
 			}
 			ui.info(
-				`Resolve conflicts, stage files, then run ${theme.command('stack restack --continue')}.`,
+				`Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`,
 			);
 			return {
 				ok: false,

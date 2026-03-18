@@ -44,8 +44,8 @@ stack submit                      # Push all branches, create/update PRs
 stack submit -s <stack>           # Submit a specific stack
 stack submit --dry-run            # Preview what submit would do
 stack restack                     # Cascade rebase after mid-stack edit
-stack restack --continue          # Resume after resolving conflicts
-stack restack --abort             # Abort in-progress restack
+stack continue                    # Resume after resolving conflicts
+stack abort                       # Abort in-progress restack
 stack absorb                      # Route uncommitted fixes to correct stack branches
 stack absorb --dry-run            # Preview file routing plan
 stack absorb -m "message"         # Commit message for absorbed changes

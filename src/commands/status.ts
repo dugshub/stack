@@ -68,7 +68,7 @@ export class StatusCommand extends Command {
     if (stack.restackState) {
       ui.warn(
         `Restack in progress (paused at branch ${stack.restackState.currentIndex + 1}). ` +
-          'Resolve conflicts and run `stack restack --continue`, or `stack restack --abort`.',
+          'Resolve conflicts and run `stack continue`, or `stack abort`.',
       );
     }
 

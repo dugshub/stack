@@ -57,7 +57,7 @@ export class RemoveCommand extends Command {
 		if (stack.restackState) {
 			ui.error(
 				'Cannot remove branches while a restack is in progress. ' +
-					`Run ${theme.command('stack restack --continue')} or ${theme.command('stack restack --abort')} first.`,
+					`Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
 			);
 			return 2;
 		}

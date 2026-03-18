@@ -8,9 +8,12 @@ import { DefaultCommand } from './commands/default.js';
 import { MergeCommand } from './commands/merge.js';
 import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
+import { InsertCommand } from './commands/insert.js';
+import { MoveCommand } from './commands/move.js';
 import { NavCommand } from './commands/nav.js';
 import { PushCommand } from './commands/push.js';
 import { RemoveCommand } from './commands/remove.js';
+import { ReorderCommand } from './commands/reorder.js';
 import { RestackCommand } from './commands/restack.js';
 import { StatusCommand } from './commands/status.js';
 import { SubmitCommand } from './commands/submit.js';
@@ -34,6 +37,9 @@ cli.register(Builtins.HelpCommand);
 cli.register(Builtins.VersionCommand);
 cli.register(StatusCommand);
 cli.register(NavCommand);
+cli.register(MoveCommand);
+cli.register(InsertCommand);
+cli.register(ReorderCommand);
 cli.register(CreateCommand);
 cli.register(DeleteCommand);
 cli.register(PushCommand);
@@ -83,6 +89,9 @@ function showHelp(): never {
     ['push',                    'Add current branch to the stack'],
     ['remove [branch]',         'Remove a branch from the stack'],
     ['nav [up|down|top|bottom]','Navigate between branches'],
+    ['move <up|down|N>',        'Move a branch within the stack'],
+    ['insert --after N',        'Insert a new branch at position'],
+    ['reorder [positions]',     'Reorder branches in the stack'],
     ['',                        ''],
     ['submit',                  'Push branches, create/update PRs'],
     ['absorb',                  'Route fixes to correct stack branches'],

@@ -32,6 +32,8 @@ export class ModifyCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
+		const originalBranch = git.currentBranch();
+
 		// Stage all if -a flag
 		if (this.all) {
 			git.run('add', '-A');
@@ -109,6 +111,8 @@ export class ModifyCommand extends Command {
 		});
 
 		if (cascadeResult.ok) {
+			// Return to the original branch
+			git.checkout(originalBranch);
 			ui.success(`Restacked ${cascadeResult.rebased} downstream branch(es)`);
 		} else {
 			ui.error('Restack encountered conflicts.');

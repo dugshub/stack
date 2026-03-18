@@ -4,6 +4,7 @@ import { AbortCommand } from './commands/abort.js';
 import { AbsorbCommand } from './commands/absorb.js';
 import { BottomCommand } from './commands/bottom.js';
 import { CheckCommand } from './commands/check.js';
+import { CompletionsCommand } from './commands/completions.js';
 import { ContinueCommand } from './commands/continue.js';
 import { CreateCommand } from './commands/create.js';
 import { DaemonCommand } from './commands/daemon.js';
@@ -75,12 +76,13 @@ cli.register(FoldCommand);
 cli.register(RenameCommand);
 cli.register(DaemonCommand);
 cli.register(GraphCommand);
+cli.register(CompletionsCommand);
 cli.register(InitCommand);
 cli.register(UpdateCommand);
 cli.register(DefaultCommand);
 
 // Commands that don't require a git repo
-const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon'];
+const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon', 'completions'];
 const rawArgs = process.argv.slice(2);
 
 // `stack 3` → `stack nav 3`
@@ -136,6 +138,7 @@ function showHelp(): never {
     ['graph',                   'Show dependency graph across stacks'],
     ['daemon <action>',         'Manage background daemon'],
     ['',                        ''],
+    ['completions [shell]',     'Shell tab completions'],
     ['init',                    'Install Claude Code skills'],
     ['update',                  'Self-update to latest version'],
   ];
@@ -182,7 +185,7 @@ if (args.length === 0) {
 }
 
 // Auto-start daemon unless running a command that doesn't need it
-const noDaemonCommands = ['daemon', 'update', '--help', '-h', '--version', '-v', '--ai'];
+const noDaemonCommands = ['daemon', 'update', 'completions', '--help', '-h', '--version', '-v', '--ai'];
 const skipDaemon = args.length === 0 || args.some((a) => noDaemonCommands.includes(a));
 if (!skipDaemon) {
   try {

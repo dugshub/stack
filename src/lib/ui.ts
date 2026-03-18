@@ -267,24 +267,34 @@ export function renderStackGraph(
 }
 
 function renderStackNodes(nodes: GraphStackNode[], prefix: string): void {
+	// Compute column widths for alignment across siblings
+	const nameW = Math.max(4, ...nodes.map(n => n.name.length));
+	const countW = Math.max(4, ...nodes.map(n => {
+		const label = n.branchCount === 1 ? '1 branch' : `${n.branchCount} branches`;
+		return label.length;
+	}));
+
 	for (let i = 0; i < nodes.length; i++) {
 		const node = nodes[i]!;
 		const isLast = i === nodes.length - 1;
-		renderOneStack(node, prefix, isLast);
+		renderOneStack(node, prefix, isLast, nameW, countW);
 	}
 }
 
-function renderOneStack(node: GraphStackNode, prefix: string, isLast: boolean): void {
+function renderOneStack(node: GraphStackNode, prefix: string, isLast: boolean, nameW?: number, countW?: number): void {
 	const connector = isLast ? `${FORK_END}${DASH}` : `${FORK_MID}${DASH}`;
 	const continueLine = isLast ? '  ' : `${PIPE} `;
 
 	const dot = theme.stack(DOT_STACK);
-	const nameStr = node.isCurrent ? theme.stack(node.name) : node.name;
+	// Pad plain text BEFORE applying theme (ANSI codes break padEnd)
+	const namePadded = !node.expanded && nameW ? node.name.padEnd(nameW) : node.name;
+	const nameStr = node.isCurrent ? theme.stack(namePadded) : namePadded;
 	let suffix = '';
 	if (!node.expanded) {
 		const countLabel = node.branchCount === 1 ? '1 branch' : `${node.branchCount} branches`;
 		const sText = statusText(statusFromEmoji(node.aggregateStatus));
-		suffix = `   ${theme.muted(countLabel)}   ${node.aggregateStatus} ${sText}`;
+		const countPad = countW ? countLabel.padEnd(countW) : countLabel;
+		suffix = `   ${theme.muted(countPad)}   ${node.aggregateStatus} ${sText}`;
 	}
 	const marker = node.isCurrent && !node.expanded
 		? `  ${theme.accent('\u2190 you are here')}`
@@ -311,6 +321,7 @@ function renderExpandedBranches(branches: GraphBranchNode[], prefix: string): vo
 	// Compute column widths for alignment
 	const nameW = Math.max(4, ...branches.map((b) => (b.shortName || b.name).length));
 	const prW = Math.max(0, ...branches.map((b) => b.pr != null ? `#${b.pr}`.length : 0));
+	const statusW = Math.max(4, ...branches.map((b) => statusText(b.prStatus).length));
 
 	for (let i = 0; i < branches.length; i++) {
 		const branch = branches[i]!;
@@ -323,6 +334,7 @@ function renderExpandedBranches(branches: GraphBranchNode[], prefix: string): vo
 		const pr = branch.prStatus;
 		const emoji = statusEmoji(pr);
 		const text = statusText(pr);
+		const textPadded = text.padEnd(statusW);
 
 		const displayName = branch.shortName || branch.name;
 		const namePadded = displayName.padEnd(nameW);
@@ -335,7 +347,7 @@ function renderExpandedBranches(branches: GraphBranchNode[], prefix: string): vo
 		const marker = branch.isCurrent ? `  ${theme.accent('\u2190 you are here')}` : '';
 
 		process.stderr.write(
-			`${prefix}${theme.muted(connector)} ${dot} ${branchName}  ${prStr}  ${emoji} ${text}${marker}\n`,
+			`${prefix}${theme.muted(connector)} ${dot} ${branchName}  ${prStr}  ${emoji} ${textPadded}${marker}\n`,
 		);
 
 		if (branch.dependents.length > 0) {

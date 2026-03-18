@@ -47,6 +47,12 @@ export class BottomCommand extends Command {
 			return 2;
 		}
 
+		const verifyResult = git.tryRun('rev-parse', '--verify', target.name);
+		if (!verifyResult.ok) {
+			ui.error(`Branch "${target.name}" no longer exists. Run ${theme.command('stack remove ' + target.name)} to clean up.`);
+			return 2;
+		}
+
 		git.checkout(target.name);
 		ui.success(`Checked out ${theme.branch(target.name)}`);
 		ui.positionReport({

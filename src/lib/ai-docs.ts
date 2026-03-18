@@ -121,16 +121,30 @@ const commands: Record<string, CommandDoc> = {
 		description: 'Rebase downstream branches after amending a stack branch',
 		flags: [
 			'--stack,-s   Target stack by name',
-			'--continue   Continue after resolving conflicts',
-			'--abort      Abort in-progress restack',
 		],
 		examples: [
 			'stack restack',
-			'stack restack --continue',
-			'stack restack --abort',
 		],
 		details:
-			'When you amend a commit on a mid-stack branch, downstream branches become stale. Restack rebases each downstream branch onto its updated parent, preserving the stack chain. If a rebase conflict occurs, resolve it and run --continue.',
+			'When you amend a commit on a mid-stack branch, downstream branches become stale. Restack rebases each downstream branch onto its updated parent, preserving the stack chain. If a rebase conflict occurs, resolve it and run `stack continue`.',
+	},
+	continue: {
+		description: 'Continue a paused restack after resolving conflicts',
+		flags: [],
+		examples: [
+			'stack continue',
+		],
+		details:
+			'After a restack hits a conflict, resolve the conflicts, stage the files, then run `stack continue` to resume rebasing the remaining branches.',
+	},
+	abort: {
+		description: 'Abort an in-progress restack',
+		flags: [],
+		examples: [
+			'stack abort',
+		],
+		details:
+			'Aborts a restack that is paused due to conflicts. The current rebase is aborted and branches after the conflict point remain in their pre-restack state.',
 	},
 	sync: {
 		description: 'Clean up after PRs are merged on GitHub',

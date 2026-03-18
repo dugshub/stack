@@ -52,9 +52,11 @@ export function toKebabCase(input: string): string {
 }
 
 const RESERVED_NAMES = new Set([
-  'absorb', 'create', 'delete', 'help', 'init', 'merge', 'nav', 'track',
-  'remove', 'restack', 'split', 'status', 'submit', 'sync', 'undo',
-  'update', 'version',
+  'abort', 'absorb', 'bottom', 'check', 'continue', 'create', 'daemon',
+  'delete', 'down', 'fold', 'graph', 'help', 'init', 'insert', 'merge',
+  'modify', 'move', 'nav', 'pop', 'remove', 'rename', 'reorder',
+  'restack', 'split', 'status', 'submit', 'sync', 'top', 'track',
+  'undo', 'up', 'update', 'version',
 ]);
 
 export function validateStackName(name: string): {
@@ -78,6 +80,12 @@ export function validateStackName(name: string): {
     return {
       valid: false,
       error: `"${name}" is reserved (conflicts with a command)`,
+    };
+  }
+  if (/^\d+$/.test(name)) {
+    return {
+      valid: false,
+      error: `"${name}" is a reserved name (conflicts with branch jump syntax)`,
     };
   }
   return { valid: true };

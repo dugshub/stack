@@ -52,7 +52,7 @@ export function toKebabCase(input: string): string {
 }
 
 const RESERVED_NAMES = new Set([
-  'absorb', 'create', 'delete', 'help', 'init', 'merge', 'nav', 'push',
+  'absorb', 'create', 'delete', 'help', 'init', 'merge', 'nav', 'track',
   'remove', 'restack', 'split', 'status', 'submit', 'sync', 'undo',
   'update', 'version',
 ]);

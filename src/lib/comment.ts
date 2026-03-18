@@ -34,8 +34,8 @@ export function generateComment(
     const pointer = isCurrent ? ' 👈' : '';
 
     const statusCell = `${emoji} ${text}`;
-    const prCell = isCurrent ? `**${prLink}**${pointer}` : prLink;
-    const titleCell = isCurrent ? `**${title}**` : title;
+    const prCell = isCurrent ? `**${prLink}**` : prLink;
+    const titleCell = isCurrent ? `**${title}**${pointer}` : title;
 
     lines.push(`| ${statusCell} | ${prCell} | ${titleCell} |`);
   }

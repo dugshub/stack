@@ -191,23 +191,32 @@ export function positionReport(pos: StackPosition): void {
 
 // ── Stack Graph ─────────────────────────────────────────
 
-export interface GraphNode {
+export interface GraphBranchNode {
 	name: string;
-	trunk: string;
+	pr: number | null;
+	prStatus: PrStatus | null;
+	isCurrent: boolean;
+	dependents: GraphStackNode[];
+}
+
+export interface GraphStackNode {
+	name: string;
 	branchCount: number;
 	aggregateStatus: StatusEmoji;
 	isCurrent: boolean;
-	children: GraphNode[];
+	expanded: boolean;
+	branches?: GraphBranchNode[];
+	children?: GraphStackNode[];
 }
 
 export function statusRank(emoji: StatusEmoji): number {
 	switch (emoji) {
-		case '\u2B1C': return 0;       // No PR (worst)
-		case '\uD83D\uDD28': return 1; // Draft
-		case '\u274C': return 2;       // Closed
-		case '\uD83D\uDD04': return 2; // Changes Requested
-		case '\uD83D\uDC40': return 3; // Review
-		case '\u2705': return 4;       // Approved / Merged (best)
+		case '\u2B1C': return 0;
+		case '\uD83D\uDD28': return 1;
+		case '\u274C': return 2;
+		case '\uD83D\uDD04': return 2;
+		case '\uD83D\uDC40': return 3;
+		case '\u2705': return 4;
 		default: return 0;
 	}
 }
@@ -227,60 +236,103 @@ export function aggregateStatusEmoji(emojis: StatusEmoji[]): StatusEmoji {
 	return worst;
 }
 
-export function stackGraph(
-	roots: Array<{ trunk: string; children: GraphNode[] }>,
-	_currentStackName: string | null,
+// ── Graph rendering ─────────────────────────────────────
+
+const DOT_TRUNK = '\u25C7';    // ◇
+const DOT_STACK = '\u25CF';    // ●
+const DOT_BRANCH = '\u25CB';   // ○
+const DOT_CURRENT = '\u25C9';  // ◉
+const PIPE = '\u2502';         // │
+const FORK_MID = '\u251C';     // ├
+const FORK_END = '\u2570';     // ╰
+const DASH = '\u2500';         // ─
+
+export function renderStackGraph(
+	roots: Array<{ trunk: string; stacks: GraphStackNode[] }>,
 ): void {
+	process.stderr.write(
+		`  ${theme.muted(`${DOT_STACK} stacks  ${DOT_BRANCH} branches  ${DOT_CURRENT} current  ${DOT_TRUNK} trunk`)}\n`,
+	);
+	process.stderr.write('\n');
+
 	for (let r = 0; r < roots.length; r++) {
 		const root = roots[r]!;
 		if (r > 0) process.stderr.write('\n');
-		process.stderr.write(`  ${theme.muted(root.trunk)}\n`);
-		renderGraphChildren(root.children, '  ');
+		process.stderr.write(`  ${theme.muted(`${DOT_TRUNK} ${root.trunk}`)}\n`);
+		process.stderr.write(`  ${theme.muted(PIPE)}\n`);
+		renderStackNodes(root.stacks, '  ');
 	}
 }
 
-function renderGraphChildren(nodes: GraphNode[], prefix: string): void {
-	const allNodes = flattenNodes(nodes);
-	const nameW = Math.max(6, ...allNodes.map((n) => n.name.length));
-	const countW = Math.max(1, ...allNodes.map((n) => branchCountLabel(n.branchCount).length));
-
+function renderStackNodes(nodes: GraphStackNode[], prefix: string): void {
 	for (let i = 0; i < nodes.length; i++) {
 		const node = nodes[i]!;
 		const isLast = i === nodes.length - 1;
-		const connector = isLast ? '\u2514\u2500' : '\u251C\u2500';
-		const childPrefix = isLast ? '   ' : '\u2502  ';
+		renderOneStack(node, prefix, isLast);
+	}
+}
 
-		const nameStr = node.isCurrent
-			? theme.stack(node.name.padEnd(nameW))
-			: node.name.padEnd(nameW);
-		const countStr = branchCountLabel(node.branchCount).padEnd(countW);
-		const emojiStatus = node.aggregateStatus;
-		const textStatus = statusText(statusFromEmoji(emojiStatus));
-		const marker = node.isCurrent ? `  ${theme.accent('\u2190 you are here')}` : '';
+function renderOneStack(node: GraphStackNode, prefix: string, isLast: boolean): void {
+	const connector = isLast ? `${FORK_END}${DASH}` : `${FORK_MID}${DASH}`;
+	const continueLine = isLast ? '  ' : `${PIPE} `;
+
+	const dot = theme.stack(DOT_STACK);
+	const nameStr = node.isCurrent ? theme.stack(node.name) : node.name;
+	let suffix = '';
+	if (!node.expanded) {
+		const countLabel = node.branchCount === 1 ? '1 branch' : `${node.branchCount} branches`;
+		const sText = statusText(statusFromEmoji(node.aggregateStatus));
+		suffix = `   ${theme.muted(countLabel)}   ${node.aggregateStatus} ${sText}`;
+	}
+	const marker = node.isCurrent && !node.expanded
+		? `  ${theme.accent('\u2190 you are here')}`
+		: '';
+
+	process.stderr.write(
+		`${prefix}${theme.muted(connector)}${dot} ${nameStr}${suffix}${marker}\n`,
+	);
+
+	const childPrefix = `${prefix}${theme.muted(continueLine)}`;
+
+	if (node.expanded && node.branches) {
+		renderExpandedBranches(node.branches, childPrefix);
+	} else if (node.children && node.children.length > 0) {
+		renderStackNodes(node.children, childPrefix);
+	}
+
+	if (!isLast) {
+		process.stderr.write(`${prefix}${theme.muted(PIPE)}\n`);
+	}
+}
+
+function renderExpandedBranches(branches: GraphBranchNode[], prefix: string): void {
+	for (let i = 0; i < branches.length; i++) {
+		const branch = branches[i]!;
+		const isLast = i === branches.length - 1;
+		const connector = isLast ? FORK_END : FORK_MID;
+		const continueLine = isLast ? '  ' : `${PIPE} `;
+
+		const dot = branch.isCurrent ? theme.accent(DOT_CURRENT) : DOT_BRANCH;
+		const pr = branch.prStatus;
+		const emoji = statusEmoji(pr);
+		const text = statusText(pr);
+		const prStr = branch.pr != null ? ` ${theme.pr(`#${branch.pr}`)}` : '';
+		const marker = branch.isCurrent ? `  ${theme.accent('\u2190 you are here')}` : '';
+		const branchName = branch.isCurrent ? theme.branch(branch.name) : branch.name;
 
 		process.stderr.write(
-			`${prefix}${connector} ${nameStr}   ${theme.muted(countStr)}   ${emojiStatus} ${textStatus}${marker}\n`,
+			`${prefix}${theme.muted(connector)} ${dot} ${branchName}${prStr}  ${emoji} ${text}${marker}\n`,
 		);
 
-		if (node.children.length > 0) {
-			renderGraphChildren(node.children, `${prefix}${childPrefix}`);
+		if (branch.dependents.length > 0) {
+			const depPrefix = `${prefix}${theme.muted(continueLine)}`;
+			for (let d = 0; d < branch.dependents.length; d++) {
+				const dep = branch.dependents[d]!;
+				const depIsLast = d === branch.dependents.length - 1;
+				renderOneStack(dep, depPrefix, depIsLast);
+			}
 		}
 	}
-}
-
-function flattenNodes(nodes: GraphNode[]): GraphNode[] {
-	const result: GraphNode[] = [];
-	for (const node of nodes) {
-		result.push(node);
-		if (node.children.length > 0) {
-			result.push(...flattenNodes(node.children));
-		}
-	}
-	return result;
-}
-
-function branchCountLabel(count: number): string {
-	return count === 1 ? '1 branch' : `${count} branches`;
 }
 
 function statusFromEmoji(emoji: StatusEmoji): PrStatus | null {

@@ -126,7 +126,7 @@ async function handleWebhook(
 		repoUrl(result.job.repo),
 		repoName(result.job.repo),
 	);
-	const actionResults = await executeActions(result.actions, { clonePath });
+	const actionResults = await executeActions(result.actions, { clonePath, repo: result.job.repo });
 
 	// Check for action failures
 	const failed = actionResults.find((r) => !r.ok);
@@ -215,7 +215,7 @@ async function handleCreateJob(req: Request): Promise<Response> {
 					strategy: body.strategy,
 				},
 			],
-			{ clonePath },
+			{ clonePath, repo: body.repo },
 		);
 
 		const failed = results.find((r) => !r.ok);

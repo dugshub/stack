@@ -22,7 +22,7 @@ function strategyFlag(strategy: MergeStrategy): string {
 
 async function executeOne(
 	action: EngineAction,
-	config: { clonePath: string },
+	config: { clonePath: string; repo?: string },
 ): Promise<ActionResult> {
 	switch (action.type) {
 		case 'enable-auto-merge': {
@@ -72,6 +72,18 @@ async function executeOne(
 			if (!pushResult.ok) {
 				return { action, ok: false, error: pushResult.error };
 			}
+
+			// Post rebase-status directly — don't rely on webhook roundtrip
+			if (config.repo) {
+				const newSha = await clone.getBranchSha(config.clonePath, action.branch);
+				await ghAsync(
+					'api', `repos/${config.repo}/statuses/${newSha}`,
+					'-f', 'state=success',
+					'-f', 'context=stack/rebase-status',
+					'-f', `description=Rebased on ${action.onto}`,
+				);
+			}
+
 			return { action, ok: true };
 		}
 
@@ -121,7 +133,7 @@ async function executeOne(
 
 export async function executeActions(
 	actions: EngineAction[],
-	config: { clonePath: string },
+	config: { clonePath: string; repo?: string },
 ): Promise<ActionResult[]> {
 	const results: ActionResult[] = [];
 	for (const action of actions) {

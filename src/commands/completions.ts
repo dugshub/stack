@@ -58,12 +58,16 @@ export class CompletionsCommand extends Command {
 			mkdirSync(zfuncDir, { recursive: true });
 			writeFileSync(join(zfuncDir, '_stack'), this.zshCompletions(), 'utf-8');
 
-			// Ensure fpath + compinit in .zshrc
+			// Ensure fpath + compinit in .zshrc (migrate from old eval pattern)
 			const rcPath = join(homedir(), '.zshrc');
-			const rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
-			if (!rc.includes(marker)) {
-				const snippet = `\n${marker}\nfpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit\n`;
-				writeFileSync(rcPath, rc + snippet, 'utf-8');
+			let rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
+			const fpathSnippet = `${marker}\nfpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit`;
+			const oldEval = `${marker}\neval "$(stack completions zsh)"`;
+			if (rc.includes(oldEval)) {
+				rc = rc.replace(oldEval, fpathSnippet);
+				writeFileSync(rcPath, rc, 'utf-8');
+			} else if (!rc.includes('~/.zfunc')) {
+				writeFileSync(rcPath, `${rc}\n${fpathSnippet}\n`, 'utf-8');
 			}
 			ui.success('Installed completions to ~/.zfunc/_stack');
 			ui.info('Open a new terminal to activate.');

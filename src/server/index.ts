@@ -95,12 +95,17 @@ async function handleWebhook(
 		return new Response('ok');
 	}
 
+	// Always re-evaluate merge-ready statuses when a PR merges,
+	// even if there's an active merge job — the job's cascade may
+	// fail and leave stale "failure" statuses on remaining PRs.
+	if (event.type === 'pr_merged') {
+		handlePRMergedEvent(event).catch((err) => {
+			console.error('Merge-ready update failed:', err);
+		});
+	}
+
 	const job = findJobForPR(event.repo, event.prNumber);
 	if (!job) {
-		if (event.type === 'pr_merged') {
-			// No merge job — this was a manual/auto merge. Re-evaluate stack checks.
-			await handlePRMergedEvent(event);
-		}
 		return new Response('ok');
 	}
 

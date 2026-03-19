@@ -252,6 +252,21 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'Every mutating command (absorb, restack, sync, submit, push, remove, split, merge) saves a snapshot. Undo restores git branch refs and stack state to a previous snapshot. Does not undo pushed changes on the remote.',
 	},
+	completions: {
+		description: 'Print shell completion script for tab completions',
+		flags: [
+			'<shell>      Shell type: zsh or bash (auto-detected if omitted)',
+			'--install    Print installation instructions',
+		],
+		examples: [
+			'stack completions zsh',
+			'stack completions bash',
+			'stack completions --install',
+			'eval "$(stack completions zsh)"   # add to ~/.zshrc',
+		],
+		details:
+			'Outputs a shell completion script for the specified shell. Supports zsh and bash. If no shell argument is given, detects the current shell from $SHELL. Use --install to see instructions for permanent installation. Completions include all commands and dynamic stack name completion for commands that accept --stack/-s.',
+	},
 	init: {
 		description: 'Install Claude Code skills for stack management',
 		examples: ['stack init'],

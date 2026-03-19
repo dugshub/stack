@@ -9,6 +9,7 @@ import { CreateCommand } from './commands/create.js';
 import { DaemonCommand } from './commands/daemon.js';
 import { DefaultCommand } from './commands/default.js';
 import { DownCommand } from './commands/down.js';
+import { FoldCommand } from './commands/fold.js';
 import { GraphCommand } from './commands/graph.js';
 import { MergeCommand } from './commands/merge.js';
 import { ModifyCommand } from './commands/modify.js';
@@ -67,6 +68,7 @@ cli.register(SplitCommand);
 cli.register(SyncCommand);
 cli.register(UndoCommand);
 cli.register(MergeCommand);
+cli.register(FoldCommand);
 cli.register(DaemonCommand);
 cli.register(GraphCommand);
 cli.register(InitCommand);
@@ -104,6 +106,8 @@ function showHelp(): never {
     ['',                        ''],
     ['track',                   'Add current branch to a stack'],
     ['remove [branch]',         'Remove a branch from the stack'],
+    ['pop',                     'Pop branch from stack, keep changes'],
+    ['fold',                    'Fold branch into parent'],
     ['up',                      'Move up (toward trunk)'],
     ['down',                    'Move down (away from trunk)'],
     ['top',                     'Jump to top of stack'],

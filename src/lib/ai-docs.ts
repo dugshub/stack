@@ -73,6 +73,15 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'Appends the current git branch to the top of the stack. The branch must not already be in a stack.',
 	},
+	fold: {
+		description: 'Merge current branch into its parent branch',
+		flags: [],
+		examples: [
+			'stack fold',
+		],
+		details:
+			'Folds the current branch into its parent: checks out the parent, merges (fast-forward preferred), closes the PR if one exists, deletes the branch (local + remote), and removes it from the stack. Downstream branches are restacked onto the parent. Cannot fold the bottom branch (no parent in the stack to fold into). Requires a clean working tree. If downstream restack hits conflicts, resolve them and run `stack continue`.',
+	},
 	pop: {
 		description: 'Remove current branch from stack, keeping changes in working tree',
 		flags: [

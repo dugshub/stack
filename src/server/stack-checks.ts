@@ -108,6 +108,12 @@ export async function handlePushEvent(
 ): Promise<void> {
 	const repoName = event.repo.replace('/', '-');
 
+	// Skip branch deletion events (SHA is all zeros)
+	if (/^0+$/.test(event.headSha)) {
+		console.log(`Rebase check: ${event.branch} deleted, skipping`);
+		return;
+	}
+
 	const state = loadStackStateForRepo(event.repo);
 	if (!state) {
 		console.log(`Rebase check: no state for ${event.repo}`);

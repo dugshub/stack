@@ -154,6 +154,19 @@ function showHelp(): never {
   process.exit(0);
 }
 
+// Show concise first-run guide for new users (no stacks exist yet)
+function showFirstRun(): never {
+  const v = currentVersion();
+  process.stderr.write(`\n  ${theme.label('stack')} ${theme.muted(`v${v}`)}\n`);
+  process.stderr.write(`  ${theme.muted('Stacked PRs for GitHub')}\n\n`);
+  process.stderr.write(`  ${theme.command('Get started:')}\n`);
+  process.stderr.write(`    ${theme.command('stack create my-feature')}    ${theme.muted('Create your first stack')}\n`);
+  process.stderr.write(`    ${theme.command('stack --help')}               ${theme.muted('See all commands')}\n\n`);
+  process.stderr.write(`  ${theme.command('Already have branches?')}\n`);
+  process.stderr.write(`    ${theme.command('stack create name --from branch1 branch2')}    ${theme.muted('Adopt existing branches')}\n\n`);
+  process.exit(0);
+}
+
 // `stack --ai [command]` — plain-text docs for LLMs
 if (args.includes('--ai')) {
   const { printAiDocs } = await import('./lib/ai-docs.js');
@@ -167,7 +180,7 @@ if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
   showHelp();
 }
 
-// Bare `stack` with no args — show dashboard if stacks exist, otherwise help
+// Bare `stack` with no args — show dashboard if stacks exist, otherwise first-run guide
 if (args.length === 0) {
   if (git.tryRun('rev-parse', '--show-toplevel').ok) {
     const dashResult = await showDashboard();
@@ -179,7 +192,8 @@ if (args.length === 0) {
       process.exit(dashResult);
     }
   }
-  showHelp();
+  // No stacks exist — show first-run guide
+  showFirstRun();
 }
 
 // Auto-start daemon unless running a command that doesn't need it

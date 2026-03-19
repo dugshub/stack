@@ -11,11 +11,16 @@ export class GraphCommand extends Command {
 	static override paths = [['graph']];
 
 	static override usage = Command.Usage({
-		description: 'Show dependency graph across all stacks',
+		description: 'Show stack dependency graph',
 		examples: [
-			['Show stack graph (expand current stack)', 'stack graph'],
-			['Expand all stacks', 'stack graph --expand'],
+			['Show current stack chain', 'stack graph'],
+			['Show all stacks', 'stack graph --all'],
+			['Expand all branches', 'stack graph --expand'],
 		],
+	});
+
+	all = Option.Boolean('--all,-a', false, {
+		description: 'Show all stacks (default: current stack chain only)',
 	});
 
 	expand = Option.Boolean('--expand,-e', false, {
@@ -37,13 +42,21 @@ export class GraphCommand extends Command {
 
 		const prStatuses = await this.fetchAllPrStatuses(state);
 
-		const roots = buildGraph(
+		let roots = buildGraph(
 			state,
 			currentStackName,
 			currentBranchName,
 			prStatuses,
 			this.expand,
 		);
+
+		if (!this.all && currentStackName) {
+			const chain = collectChain(state, currentStackName);
+			for (const root of roots) {
+				root.stacks = filterNodes(root.stacks, chain);
+			}
+			roots = roots.filter(r => r.stacks.length > 0);
+		}
 
 		process.stderr.write('\n');
 		ui.renderStackGraph(roots);
@@ -192,4 +205,65 @@ function buildStackNode(
 		branches,
 		children,
 	};
+}
+
+function collectChain(state: StackFile, startStack: string): Set<string> {
+	const chain = new Set<string>();
+
+	// Walk up ancestors
+	let current: string | undefined = startStack;
+	while (current) {
+		chain.add(current);
+		const stack: Stack | undefined = state.stacks[current];
+		current = stack?.dependsOn?.stack;
+	}
+
+	// Walk down descendants recursively
+	function walkDown(name: string) {
+		const dependents = findDependentStacks(state, name);
+		for (const { name: depName } of dependents) {
+			if (!chain.has(depName)) {
+				chain.add(depName);
+				walkDown(depName);
+			}
+		}
+	}
+	walkDown(startStack);
+
+	return chain;
+}
+
+function filterNodes(nodes: GraphStackNode[], chain: Set<string>): GraphStackNode[] {
+	return nodes.filter(node => {
+		if (chain.has(node.name)) {
+			if (node.children) {
+				node.children = filterNodes(node.children, chain);
+			}
+			if (node.branches) {
+				for (const branch of node.branches) {
+					branch.dependents = filterNodes(branch.dependents, chain);
+				}
+			}
+			return true;
+		}
+		// Check if any descendants are in the chain
+		const hasDescendant = (n: GraphStackNode): boolean => {
+			if (chain.has(n.name)) return true;
+			if (n.children) return n.children.some(hasDescendant);
+			if (n.branches) return n.branches.some(b => b.dependents.some(hasDescendant));
+			return false;
+		};
+		if (hasDescendant(node)) {
+			if (node.children) {
+				node.children = filterNodes(node.children, chain);
+			}
+			if (node.branches) {
+				for (const branch of node.branches) {
+					branch.dependents = filterNodes(branch.dependents, chain);
+				}
+			}
+			return true;
+		}
+		return false;
+	});
 }

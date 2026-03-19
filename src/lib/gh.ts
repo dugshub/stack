@@ -245,6 +245,61 @@ export function prReady(prNumber: number): void {
   run('pr', 'ready', String(prNumber));
 }
 
+/**
+ * Post merge-ready commit statuses for all open PRs in a stack.
+ * The bottom-most open PR gets "success"; others get "failure".
+ */
+export function updateMergeReadyStatuses(
+  repo: string,
+  branches: Array<{ name: string; pr: number | null; tip: string | null }>,
+): void {
+  const withPRs = branches.filter((b) => b.pr != null && b.tip);
+  if (withPRs.length === 0) return;
+
+  // Batch-check which PRs are still open
+  const prNumbers = withPRs.map((b) => b.pr as number);
+  const [owner, name] = repo.split('/');
+  const result = exec(
+    'api', 'graphql',
+    '-f', `query=query {
+      repository(owner: "${owner}", name: "${name}") {
+        ${prNumbers.map((n, i) => `pr${i}: pullRequest(number: ${n}) { number state }`).join('\n')}
+      }
+    }`,
+  );
+  if (!result.ok) return;
+
+  const data = JSON.parse(result.stdout) as {
+    data: { repository: Record<string, { number: number; state: string }> };
+  };
+  const openPRs = new Set<number>();
+  for (const pr of Object.values(data.data.repository)) {
+    if (pr && pr.state === 'OPEN') openPRs.add(pr.number);
+  }
+
+  // Find first open PR — that's the merge-ready one
+  let firstOpenPR: number | null = null;
+  for (const branch of branches) {
+    if (branch.pr != null && openPRs.has(branch.pr)) {
+      firstOpenPR = branch.pr;
+      break;
+    }
+  }
+
+  // Post statuses
+  for (const branch of withPRs) {
+    if (!openPRs.has(branch.pr as number)) continue;
+    const sha = branch.tip as string;
+    const isReady = branch.pr === firstOpenPR;
+    exec(
+      'api', `repos/${repo}/statuses/${sha}`,
+      '-f', `state=${isReady ? 'success' : 'failure'}`,
+      '-f', 'context=stack/merge-ready',
+      '-f', `description=${isReady ? 'Ready to merge (next in stack)' : `Waiting for PR #${firstOpenPR} to merge first`}`,
+    );
+  }
+}
+
 export function repoSettings(): { deleteBranchOnMerge: boolean; allowAutoMerge: boolean; visibility: string } {
   const result = exec(
     'api',

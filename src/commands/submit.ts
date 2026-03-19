@@ -388,6 +388,9 @@ export class SubmitCommand extends Command {
 			}
 		}
 
+		// Update merge-ready statuses
+		gh.updateMergeReadyStatuses(state.repo, stack.branches);
+
 		return 0;
 	}
 

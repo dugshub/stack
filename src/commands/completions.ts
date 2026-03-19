@@ -1,4 +1,8 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Command, Option } from 'clipanion';
+import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
 export class CompletionsCommand extends Command {
@@ -21,8 +25,7 @@ export class CompletionsCommand extends Command {
 
 	async execute(): Promise<number> {
 		if (this.install) {
-			this.showInstallInstructions();
-			return 0;
+			return this.autoInstall();
 		}
 
 		const shell = this.shell ?? this.detectShell();
@@ -44,29 +47,51 @@ export class CompletionsCommand extends Command {
 		}
 	}
 
+	private autoInstall(): number {
+		const shell = this.detectShell();
+		if (!shell) {
+			ui.error('Could not detect shell. Only zsh and bash are supported.');
+			return 2;
+		}
+
+		const marker = '# stack completions';
+
+		if (shell === 'zsh') {
+			const rcPath = join(homedir(), '.zshrc');
+			const rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
+			if (rc.includes(marker)) {
+				ui.info('Completions already installed in ~/.zshrc');
+				return 0;
+			}
+			const snippet = `\n${marker}\neval "$(stack completions zsh)"\n`;
+			writeFileSync(rcPath, rc + snippet, 'utf-8');
+			ui.success('Installed completions in ~/.zshrc');
+			ui.info(`Run ${theme.command('source ~/.zshrc')} or open a new terminal.`);
+			return 0;
+		}
+
+		if (shell === 'bash') {
+			const rcPath = join(homedir(), '.bashrc');
+			const rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
+			if (rc.includes(marker)) {
+				ui.info('Completions already installed in ~/.bashrc');
+				return 0;
+			}
+			const snippet = `\n${marker}\neval "$(stack completions bash)"\n`;
+			writeFileSync(rcPath, rc + snippet, 'utf-8');
+			ui.success('Installed completions in ~/.bashrc');
+			ui.info(`Run ${theme.command('source ~/.bashrc')} or open a new terminal.`);
+			return 0;
+		}
+
+		return 2;
+	}
+
 	private detectShell(): string | null {
 		const shell = process.env.SHELL ?? '';
 		if (shell.endsWith('/zsh')) return 'zsh';
 		if (shell.endsWith('/bash')) return 'bash';
 		return null;
-	}
-
-	private showInstallInstructions(): void {
-		process.stderr.write(`
-  Zsh:
-    # Add to ~/.zshrc:
-    eval "$(stack completions zsh)"
-
-    # Or write to a file in your fpath:
-    stack completions zsh > ~/.zsh/completions/_stack
-
-  Bash:
-    # Add to ~/.bashrc:
-    eval "$(stack completions bash)"
-
-    # Or write to a file:
-    stack completions bash > /etc/bash_completion.d/stack
-`);
 	}
 
 	private commands(): string[] {

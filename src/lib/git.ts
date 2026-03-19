@@ -96,7 +96,8 @@ export function rebaseOnto(
   branch: string,
   opts?: { cwd?: string },
 ): RebaseResult {
-  const args = ['rebase', '--onto', newBase, oldBase, branch];
+  // --empty=drop: explicitly drop commits that become empty after squash-merge rebase
+  const args = ['rebase', '--onto', newBase, '--empty=drop', oldBase, branch];
   if (opts?.cwd) {
     const result = Bun.spawnSync(['git', ...args], {
       stdout: 'pipe',

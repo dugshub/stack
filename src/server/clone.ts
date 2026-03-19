@@ -70,7 +70,8 @@ export async function rebaseInWorktree(
 
 		// Run rebase in the worktree
 		const rebaseResult = await execAsync(
-			['git', 'rebase', '--onto', opts.onto, opts.oldBase, opts.branch],
+			// --empty=drop: explicitly drop commits that become empty after squash-merge rebase
+		['git', 'rebase', '--onto', opts.onto, '--empty=drop', opts.oldBase, opts.branch],
 			{ cwd: worktreePath },
 		);
 		if (!rebaseResult.ok) {

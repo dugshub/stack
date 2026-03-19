@@ -10,6 +10,7 @@ import {
 	renderMergeDisplay,
 } from '../lib/merge-display.js';
 import { fetchCheckStatus } from '../lib/merge-poller.js';
+import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
 import { loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { link, theme } from '../lib/theme.js';
@@ -194,6 +195,18 @@ export class MergeCommand extends Command {
 		stack: ReturnType<typeof loadState>['stacks'][string] & object,
 		stackName: string,
 	): Promise<number> {
+		// Guard: dirty working tree
+		if (git.isDirty()) {
+			ui.error('Working tree is dirty. Commit or stash changes before merging.');
+			return 2;
+		}
+
+		// Guard: restack in progress
+		if (stack.restackState) {
+			ui.error('A restack is in progress. Finish it first with `stack continue` or `stack abort`.');
+			return 2;
+		}
+
 		// Guard: dependent stacks must have their base branch merged first
 		if (stack.dependsOn) {
 			const parentStack = state.stacks[stack.dependsOn.stack];
@@ -317,6 +330,79 @@ export class MergeCommand extends Command {
 				return 2;
 			}
 		}
+
+		// Pre-restack: ensure branches are rebased onto current trunk before merge.
+		// This prevents spurious conflicts when the squash commit lands on main.
+		git.fetch();
+		const currentBranch = git.currentBranch();
+		git.checkout(stack.trunk);
+		const ffResult = git.tryRun('merge', '--ff-only', `origin/${stack.trunk}`);
+		if (!ffResult.ok) {
+			ui.warn(`Could not fast-forward ${stack.trunk} — using local trunk state.`);
+		}
+
+		const firstBranch = stack.branches[0];
+		if (firstBranch) {
+			const mergeBase = git.tryRun('merge-base', stack.trunk, firstBranch.name);
+			const trunkTip = git.revParse(stack.trunk);
+			if (mergeBase.ok && mergeBase.stdout !== trunkTip) {
+				ui.info('Restacking branches onto current trunk before merge...');
+				const worktreeMap = git.worktreeList();
+				const oldTips: Record<string, string> = {};
+				for (const branch of stack.branches) {
+					oldTips[branch.name] = branch.tip ?? git.revParse(branch.name);
+				}
+
+				// Rebase first branch onto trunk
+				const firstResult = rebaseBranch({
+					branch: firstBranch,
+					parentRef: stack.trunk,
+					fallbackOldBase: oldTips[firstBranch.name],
+					worktreeMap,
+				});
+				if (!firstResult.ok) {
+					// Abort the failed rebase so we leave a clean state
+					git.tryRun('rebase', '--abort');
+					git.checkout(currentBranch);
+					ui.error('Pre-merge restack failed. Resolve conflicts with `stack restack` first.');
+					return 2;
+				}
+				if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
+
+				// Cascade remaining branches
+				if (stack.branches.length > 1) {
+					const cascadeResult = cascadeRebase({
+						state, stack, fromIndex: -1, startIndex: 1,
+						worktreeMap, oldTips,
+					});
+					if (!cascadeResult.ok) {
+						git.tryRun('rebase', '--abort');
+						git.checkout(currentBranch);
+						ui.error('Pre-merge restack failed. Resolve conflicts with `stack restack` first.');
+						return 2;
+					}
+				}
+
+				// Push all restacked branches
+				const pushPlans = stack.branches
+					.filter(b => git.needsPush(b.name))
+					.map(b => ({ branch: b.name, mode: 'force-with-lease' as const }));
+				if (pushPlans.length > 0) {
+					ui.info(`Pushing ${pushPlans.length} restacked branches...`);
+					const pushResults = await git.pushParallel('origin', pushPlans);
+					const failed = pushResults.filter(r => !r.ok);
+					if (failed.length > 0) {
+						git.checkout(currentBranch);
+						ui.error(`Push failed: ${failed.map(r => r.error).join(', ')}`);
+						return 2;
+					}
+				}
+				saveState(state);
+				ui.success('Pre-merge restack complete.');
+			}
+		}
+
+		git.checkout(currentBranch);
 
 		// Check if auto-merge is available
 		const settings = gh.repoSettings();

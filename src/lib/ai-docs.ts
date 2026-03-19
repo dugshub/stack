@@ -73,6 +73,18 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'Appends the current git branch to the top of the stack. The branch must not already be in a stack.',
 	},
+	pop: {
+		description: 'Remove current branch from stack, keeping changes in working tree',
+		flags: [
+			'--close     Also close the PR if one exists',
+		],
+		examples: [
+			'stack pop',
+			'stack pop --close',
+		],
+		details:
+			'Pops the current branch from the stack: computes the diff of the branch vs its parent, checks out the parent branch, applies the diff to the working tree (staged but not committed), deletes the local branch, and removes it from the stack. The remote branch is NOT deleted (use `stack remove --branch` for that). Downstream branches are re-parented to the popped branch\'s parent. If --close is given, the PR is closed via GitHub CLI. If the patch cannot be applied cleanly, the branch is removed from the stack but NOT deleted from git.',
+	},
 	remove: {
 		description: 'Remove a branch from the active stack',
 		flags: [

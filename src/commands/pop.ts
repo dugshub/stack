@@ -59,7 +59,8 @@ export class PopCommand extends Command {
 		saveSnapshot('pop');
 
 		// Create a patch of this branch's changes relative to parent
-		const patchResult = git.tryRun('diff', parentRef, 'HEAD');
+		// Include uncommitted changes by diffing against working tree (no HEAD)
+		const patchResult = git.tryRun('diff', parentRef);
 
 		// Handle PR: warn or close
 		if (currentBranch.pr != null) {
@@ -96,6 +97,12 @@ export class PopCommand extends Command {
 			}
 		}
 
+		// Stash any dirty state so checkout succeeds
+		const wasDirty = git.isDirty();
+		if (wasDirty) {
+			git.run('stash', '--include-untracked');
+		}
+
 		// Check out parent
 		git.checkout(parentRef);
 
@@ -114,6 +121,10 @@ export class PopCommand extends Command {
 					stderr: 'pipe',
 				});
 				if (applyWt.exitCode !== 0) {
+					// Restore stashed changes if possible
+					if (wasDirty) {
+						git.tryRun('stash', 'pop');
+					}
 					ui.warn(
 						'Could not cleanly apply changes to working tree. Changes may need manual recovery.',
 					);
@@ -133,6 +144,11 @@ export class PopCommand extends Command {
 					return 1;
 				}
 			}
+		}
+
+		// Drop the stash — changes are now in the applied patch
+		if (wasDirty) {
+			git.tryRun('stash', 'drop');
 		}
 
 		// Delete the local branch (not remote — user may have a PR)

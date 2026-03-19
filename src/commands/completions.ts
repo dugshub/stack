@@ -24,27 +24,23 @@ export class CompletionsCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
-		if (this.install) {
-			return this.autoInstall();
+		// If a shell arg is given, print raw script (for piping / eval)
+		if (this.shell) {
+			switch (this.shell) {
+				case 'zsh':
+					process.stdout.write(this.zshCompletions());
+					return 0;
+				case 'bash':
+					process.stdout.write(this.bashCompletions());
+					return 0;
+				default:
+					ui.error(`Unsupported shell: ${this.shell}. Supported: zsh, bash`);
+					return 2;
+			}
 		}
 
-		const shell = this.shell ?? this.detectShell();
-		if (!shell) {
-			ui.error('Could not detect shell. Pass "zsh" or "bash" as an argument.');
-			return 2;
-		}
-
-		switch (shell) {
-			case 'zsh':
-				process.stdout.write(this.zshCompletions());
-				return 0;
-			case 'bash':
-				process.stdout.write(this.bashCompletions());
-				return 0;
-			default:
-				ui.error(`Unsupported shell: ${shell}. Supported: zsh, bash`);
-				return 2;
-		}
+		// Bare `stack completions` or `--install` → auto-install
+		return this.autoInstall();
 	}
 
 	private autoInstall(): number {

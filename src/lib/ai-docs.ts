@@ -66,10 +66,10 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'Bare `stack nav` opens an interactive picker. Numeric args are 1-based branch positions. `up` goes toward trunk (lower index), `down` goes toward tip (higher index).',
 	},
-	push: {
-		description: 'Add the current branch to the active stack',
+	track: {
+		description: 'Add the current branch to a stack',
 		flags: ['--stack,-s   Stack name (if not on a stack branch)'],
-		examples: ['stack push', 'stack push --stack frozen-column'],
+		examples: ['stack track', 'stack track --stack frozen-column'],
 		details:
 			'Appends the current git branch to the top of the stack. The branch must not already be in a stack.',
 	},

@@ -1,7 +1,7 @@
 ---
 name: stack
-description: Manage PR stacks — create, push, submit, restack, sync, merge, split, navigate, undo, and more. Use when user mentions stacks, stacked PRs, restack, stack submit, merge, split, or branch dependencies.
-argument-hint: [create|push|submit|restack|sync|merge|split|nav|status|absorb|undo|delete|remove|init|update]
+description: Manage PR stacks — create, track, submit, restack, sync, merge, split, navigate, undo, and more. Use when user mentions stacks, stacked PRs, restack, stack submit, merge, split, or branch dependencies.
+argument-hint: [create|track|submit|restack|sync|merge|split|nav|status|absorb|undo|delete|remove|init|update]
 allowed-tools: Bash, Read
 ---
 
@@ -25,8 +25,8 @@ stack update                      # Self-update to latest version from GitHub
 
 ### Branch management
 ```
-stack push                        # Add current branch to active stack
-stack push -s <stack>             # Add to a specific stack
+stack track                       # Add current branch to active stack
+stack track -s <stack>            # Add to a specific stack
 stack remove [branch]             # Remove branch from stack (defaults to current)
 stack remove [branch] --branch    # Also delete the git branch
 stack remove [branch] --pr        # Also close the PR
@@ -129,7 +129,7 @@ After one or more PRs in a stack are merged on GitHub:
 
 ## When to use proactively
 
-- When implementing features across multiple PRs, use `stack create` + `stack push` to organize branches
+- When implementing features across multiple PRs, use `stack create` + `stack track` to organize branches
 - After amending commits mid-stack, run `stack restack` to cascade changes
 - Before asking for review, run `stack submit` to push and create/update all PRs
 - After a large implementation task, use `stack split` to break changes into reviewable PRs

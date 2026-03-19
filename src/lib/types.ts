@@ -1,7 +1,13 @@
+export interface StackConfig {
+  ai?: boolean;           // default to AI-generated PR descriptions on submit
+  aiHintDismissed?: boolean;  // user dismissed the --ai tip
+}
+
 export interface StackFile {
   repo: string;
   stacks: Record<string, Stack>;
   currentStack: string | null;
+  config?: StackConfig;
 }
 
 export interface Stack {

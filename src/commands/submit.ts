@@ -1,4 +1,5 @@
 import { Command, Option } from "clipanion";
+import { generatePrDescription } from "../lib/ai-pr-description.js";
 import { descriptionToTitle, parseBranchName } from "../lib/branch.js";
 import { generateComment } from "../lib/comment.js";
 import * as gh from "../lib/gh.js";
@@ -38,6 +39,14 @@ export class SubmitCommand extends Command {
 		description: "Mark all PRs as ready for review (not draft)",
 	});
 
+	ai = Option.Boolean("--ai", {
+		description: "Generate PR descriptions with AI (default: from config)",
+	});
+
+	noAi = Option.Boolean("--no-ai", {
+		description: "Skip AI-generated PR descriptions",
+	});
+
 	async execute(): Promise<number> {
 		const state = loadAndRefreshState();
 
@@ -55,7 +64,32 @@ export class SubmitCommand extends Command {
 			return this.showDryRun(stack, resolvedName);
 		}
 
-		return this.fullSubmit(state, stack, resolvedName, position);
+		// AI requires explicit opt-in via config
+		let useAi = false;
+		if (this.noAi) {
+			useAi = false;
+		} else if (this.ai) {
+			// First time --ai: prompt to enable
+			if (!state.config?.ai) {
+				const { confirm } = await import("@clack/prompts");
+				const ok = await confirm({
+					message: "AI descriptions use your Claude Code account. Enable for future submits?",
+				});
+				if (ok === true) {
+					if (!state.config) state.config = {};
+					state.config.ai = true;
+					saveState(state);
+					ui.success("AI enabled. Use `stack config --no-ai` to disable.");
+				} else {
+					ui.info("Running with AI this time only.");
+				}
+			}
+			useAi = true;
+		} else {
+			useAi = state.config?.ai ?? false;
+		}
+
+		return this.fullSubmit(state, stack, resolvedName, position, useAi);
 	}
 
 	private showDryRun(
@@ -102,6 +136,7 @@ export class SubmitCommand extends Command {
 		stack: ReturnType<typeof loadAndRefreshState>["stacks"][string] & object,
 		stackName: string,
 		position: import("../lib/types.js").StackPosition | null,
+		useAi: boolean,
 	): Promise<number> {
 		saveSnapshot('submit');
 		const originalBranch = position ? git.currentBranch() : null;
@@ -180,7 +215,19 @@ export class SubmitCommand extends Command {
 			const base =
 				i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
 			const title = this.deriveTitle(branch.name);
-			const body = this.generatePrBody(i, stack.branches.length, stackName);
+			let body: string;
+			if (useAi) {
+				ui.info(`  Generating PR description for ${theme.branch(branch.name)}...`);
+				body = await generatePrDescription({
+					baseBranch: base,
+					headBranch: branch.name,
+					stackName,
+					branchIndex: i,
+					totalBranches: stack.branches.length,
+				});
+			} else {
+				body = this.generatePrBody(i, stack.branches.length, stackName);
+			}
 			const alias = `create_${i}`;
 			createBatch.createPR(alias, {
 				base,
@@ -386,6 +433,14 @@ export class SubmitCommand extends Command {
 			if (hasDrafts) {
 				ui.info(`\nTip: Use ${theme.command('stack submit --ready')} to mark draft PRs as ready for review.`);
 			}
+		}
+
+		// One-time AI hint — show if user hasn't configured or dismissed
+		if (!useAi && state.config?.ai == null && !state.config?.aiHintDismissed) {
+			ui.info(`Tip: Use ${theme.command('stack submit --ai')} to generate PR descriptions with AI (requires Claude Code)`);
+			if (!state.config) state.config = {};
+			state.config.aiHintDismissed = true;
+			saveState(state);
 		}
 
 		// Update merge-ready statuses

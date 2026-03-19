@@ -77,6 +77,7 @@ export class SyncCommand extends Command {
     git.fetch();
 
     // 2. Auto-convert dependent stack if trunk branch was deleted from remote (parent merged)
+    let trunkChanged = false;
     if (stack.dependsOn) {
       if (!git.hasRemoteRef(stack.trunk)) {
         const defaultBranch = git.defaultBranch();
@@ -87,6 +88,7 @@ export class SyncCommand extends Command {
         stack.trunk = defaultBranch;
         delete stack.dependsOn;
         stack.updated = new Date().toISOString();
+        trunkChanged = true;
         saveState(state);
         ui.success(`Stack is now standalone (trunk → ${theme.branch(defaultBranch)})`);
       } else {
@@ -105,7 +107,7 @@ export class SyncCommand extends Command {
       }
     }
 
-    if (mergedIndices.length === 0) {
+    if (mergedIndices.length === 0 && !trunkChanged) {
       ui.info('Nothing to sync — no merged PRs.');
       return 0;
     }

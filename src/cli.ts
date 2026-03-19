@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
 import { Builtins, Cli } from 'clipanion';
 import { AbsorbCommand } from './commands/absorb.js';
+import { BottomCommand } from './commands/bottom.js';
 import { CheckCommand } from './commands/check.js';
 import { CreateCommand } from './commands/create.js';
 import { DaemonCommand } from './commands/daemon.js';
 import { DefaultCommand } from './commands/default.js';
+import { DownCommand } from './commands/down.js';
 import { GraphCommand } from './commands/graph.js';
 import { MergeCommand } from './commands/merge.js';
 import { DeleteCommand } from './commands/delete.js';
@@ -20,7 +22,9 @@ import { StatusCommand } from './commands/status.js';
 import { SubmitCommand } from './commands/submit.js';
 import { SplitCommand } from './commands/split.js';
 import { SyncCommand } from './commands/sync.js';
+import { TopCommand } from './commands/top.js';
 import { UndoCommand } from './commands/undo.js';
+import { UpCommand } from './commands/up.js';
 import { UpdateCommand } from './commands/update.js';
 import { showDashboard } from './lib/dashboard.js';
 import * as git from './lib/git.js';
@@ -38,6 +42,10 @@ cli.register(Builtins.HelpCommand);
 cli.register(Builtins.VersionCommand);
 cli.register(StatusCommand);
 cli.register(NavCommand);
+cli.register(UpCommand);
+cli.register(DownCommand);
+cli.register(TopCommand);
+cli.register(BottomCommand);
 cli.register(MoveCommand);
 cli.register(InsertCommand);
 cli.register(ReorderCommand);
@@ -90,7 +98,11 @@ function showHelp(): never {
     ['',                        ''],
     ['push',                    'Add current branch to the stack'],
     ['remove [branch]',         'Remove a branch from the stack'],
-    ['nav [up|down|top|bottom]','Navigate between branches'],
+    ['up',                      'Move up (toward trunk)'],
+    ['down',                    'Move down (away from trunk)'],
+    ['top',                     'Jump to top of stack'],
+    ['bottom',                  'Jump to bottom of stack'],
+    ['nav',                     'Interactive branch picker'],
     ['move <up|down|N>',        'Move a branch within the stack'],
     ['insert --after N',        'Insert a new branch at position'],
     ['reorder [positions]',     'Reorder branches in the stack'],

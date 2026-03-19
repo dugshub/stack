@@ -67,7 +67,7 @@ export class InsertCommand extends Command {
 
 		if (stack.restackState) {
 			ui.error(
-				`Restack in progress. Run ${theme.command('stack restack --continue')} or ${theme.command('stack restack --abort')} first.`,
+				`Restack in progress. Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
 			);
 			return 2;
 		}

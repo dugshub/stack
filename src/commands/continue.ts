@@ -1,135 +1,127 @@
 import { isatty } from 'node:tty';
 import * as p from '@clack/prompts';
-import { Command, Option } from 'clipanion';
+import { Command } from 'clipanion';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
-import { resolveStack } from '../lib/resolve.js';
 import { findActiveStack, findDependentStacks, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { RestackState, StackFile } from '../lib/types.js';
+import type { StackFile } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
-export class RestackCommand extends Command {
-	static override paths = [['restack']];
+export class ContinueCommand extends Command {
+	static override paths = [['continue']];
 
 	static override usage = Command.Usage({
-		description: 'Rebase downstream branches after amending a stack branch',
+		description: 'Continue a paused restack after resolving conflicts',
 		examples: [
-			['Restack downstream branches', 'stack restack'],
+			['Continue after resolving conflicts', 'stack continue'],
 		],
 	});
 
-	stackName = Option.String('--stack,-s', {
-		description: 'Target stack by name',
-	});
-
-	cascade = Option.Boolean('--cascade', true, {
-		description: 'Cascade restack to dependent stacks',
-	});
-
 	async execute(): Promise<number> {
-		// Verify clean working tree
-		if (git.isDirty()) {
-			ui.error(
-				'Working tree is dirty. Commit or stash changes before restacking.',
-			);
-			return 2;
-		}
-
 		const state = loadAndRefreshState();
+		const position = findActiveStack(state);
 
-		let resolved: Awaited<ReturnType<typeof resolveStack>>;
-		try {
-			resolved = await resolveStack({ state, explicitName: this.stackName });
-		} catch (err) {
-			ui.error(err instanceof Error ? err.message : String(err));
-			return 2;
-		}
+		// Find stack with restackState -- may not be on a stack branch if in conflict
+		let stackName: string | undefined;
+		let stack:
+			| NonNullable<ReturnType<typeof loadState>['stacks'][string]>
+			| undefined;
 
-		const { stackName: resolvedName, stack, position } = resolved;
-
-		if (stack.restackState) {
-			ui.error('A restack is already in progress. Use `stack continue` or `stack abort`.');
-			return 2;
-		}
-
-		// Determine fromIndex: position.index if on a branch, -1 to restack all from bottom
-		const fromIndex = position?.index ?? -1;
-
-		// Nothing to restack if we're at the top
-		if (position && position.isTop) {
-			ui.info('Already at top of stack -- nothing to restack.');
-			return 0;
-		}
-
-		saveSnapshot('restack');
-
-		// Snapshot old tips for all branches from fromIndex onward
-		const startIndex = fromIndex === -1 ? 0 : fromIndex;
-		const oldTips: Record<string, string> = {};
-		for (let i = startIndex; i < stack.branches.length; i++) {
-			const branch = stack.branches[i];
-			if (!branch) continue;
-			const tip = branch.tip ?? git.revParse(branch.name);
-			oldTips[branch.name] = tip;
-		}
-
-		// Build worktree map
-		const worktreeMap = git.worktreeList();
-
-		// If restacking from bottom (fromIndex === -1), rebase first branch onto trunk
-		if (fromIndex === -1 && stack.branches.length > 0) {
-			const firstBranch = stack.branches[0];
-			if (firstBranch) {
-				ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}...`);
-				const result = rebaseBranch({
-					branch: firstBranch,
-					parentRef: stack.trunk,
-					fallbackOldBase: oldTips[firstBranch.name],
-					worktreeMap,
-				});
-				if (result.ok) {
-					if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
-					ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
-				} else {
-					const restackState: RestackState = {
-						fromIndex,
-						currentIndex: 0,
-						oldTips,
-					};
-					stack.restackState = restackState;
-					saveState(state);
-					ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}`);
-					if (result.conflicts.length > 0) {
-						ui.info('Conflicting files:');
-						for (const file of result.conflicts) {
-							ui.info(`  ${file}`);
-						}
-					}
-					ui.info(
-						`Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`,
-					);
-					return 1;
+		if (position) {
+			stackName = position.stackName;
+			stack = state.stacks[stackName];
+		} else {
+			// Search for a stack with restackState
+			for (const [name, s] of Object.entries(state.stacks)) {
+				if (s.restackState) {
+					stackName = name;
+					stack = s;
+					break;
 				}
 			}
 		}
 
-		// Cascade rebase for each downstream branch
+		if (!stackName || !stack) {
+			ui.error('No stack found with an in-progress restack');
+			return 2;
+		}
+
+		if (!stack.restackState) {
+			ui.error('No restack in progress');
+			return 2;
+		}
+
+		const restackState = stack.restackState;
+		const currentBranch = stack.branches[restackState.currentIndex];
+		if (!currentBranch) {
+			ui.error('Could not determine current restack branch');
+			return 2;
+		}
+
+		// Determine execution directory
+		const worktreeMap = git.worktreeList();
+		const worktreePath = worktreeMap.get(currentBranch.name);
+
+		// Run git rebase --continue
+		let continueResult: { ok: boolean; exitCode: number };
+		if (worktreePath) {
+			const result = Bun.spawnSync(['git', 'rebase', '--continue'], {
+				stdout: 'pipe',
+				stderr: 'pipe',
+				cwd: worktreePath,
+				env: { ...process.env, GIT_EDITOR: 'true' },
+			});
+			continueResult = { ok: result.exitCode === 0, exitCode: result.exitCode };
+		} else {
+			const result = git.tryRun('rebase', '--continue');
+			continueResult = { ok: result.ok, exitCode: result.exitCode };
+		}
+
+		if (!continueResult.ok) {
+			// Check if a rebase is actually in progress -- if not, it was already
+			// completed externally (e.g. user ran `git rebase --continue` directly)
+			if (git.isRebaseInProgress(worktreePath ?? undefined)) {
+				ui.error(
+					'Rebase continue failed. There may still be unresolved conflicts.',
+				);
+				return 1;
+			}
+
+			// No rebase in progress -- it was completed outside of stack
+			ui.info('Rebase already completed externally, updating stack state...');
+		}
+
+		// Update tip and parentTip -- use worktree cwd if branch is in a worktree
+		currentBranch.tip = git.revParse(currentBranch.name, {
+			cwd: worktreePath ?? undefined,
+		});
+		// Parent ref: previous branch, or trunk if first branch
+		const parentBranch = stack.branches[restackState.currentIndex - 1];
+		currentBranch.parentTip = parentBranch
+			? git.revParse(parentBranch.name)
+			: git.revParse(stack.trunk);
+		restackState.oldTips[currentBranch.name] = currentBranch.tip;
+		restackState.currentIndex += 1;
+		saveState(state);
+		ui.success(`Rebased ${theme.branch(currentBranch.name)}`);
+
+		// Continue cascade
 		const cascadeResult = cascadeRebase({
 			state,
 			stack,
-			fromIndex,
-			startIndex: fromIndex === -1 ? 1 : fromIndex + 1,
+			fromIndex: restackState.fromIndex,
+			startIndex: restackState.currentIndex,
 			worktreeMap,
-			oldTips,
+			oldTips: restackState.oldTips,
 		});
 
 		if (cascadeResult.ok) {
 			ui.success(
-				`Restacked ${cascadeResult.rebased + (fromIndex === -1 && stack.branches.length > 0 ? 1 : 0)} branches in "${resolvedName}"`,
+				`Restacked remaining branches in "${stackName}"`,
 			);
-			await this.cascadeDependentStacks(state, resolvedName, this.cascade, new Set());
+			await this.cascadeDependentStacks(state, stackName, true, new Set());
 		}
 
 		return cascadeResult.ok ? 0 : 1;

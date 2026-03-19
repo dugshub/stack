@@ -180,7 +180,7 @@ export function log(range: string, format?: string): string[] {
 }
 
 export function fetch(remote?: string): void {
-  run('fetch', remote ?? 'origin');
+  run('fetch', '--prune', remote ?? 'origin');
 }
 
 export function checkout(branch: string): void {

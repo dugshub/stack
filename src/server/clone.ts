@@ -95,12 +95,30 @@ export async function rebaseInWorktree(
 	}
 }
 
+export async function getBranchSha(
+	clonePath: string,
+	branch: string,
+): Promise<string> {
+	const result = await execAsync(
+		['git', 'rev-parse', `refs/heads/${branch}`],
+		{ cwd: clonePath },
+	);
+	if (!result.ok) {
+		throw new Error(`Failed to resolve ${branch}: ${result.stderr}`);
+	}
+	return result.stdout.trim();
+}
+
 export async function pushBranch(
 	clonePath: string,
 	branch: string,
+	expectedSha?: string,
 ): Promise<{ ok: boolean; error?: string }> {
+	const leaseFlag = expectedSha
+		? `--force-with-lease=${branch}:${expectedSha}`
+		: '--force-with-lease';
 	const result = await execAsync(
-		['git', 'push', '--force-with-lease', 'origin', branch],
+		['git', 'push', leaseFlag, 'origin', branch],
 		{ cwd: clonePath },
 	);
 	if (!result.ok) {

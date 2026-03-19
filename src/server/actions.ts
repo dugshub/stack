@@ -49,6 +49,13 @@ async function executeOne(
 
 		case 'rebase-and-push': {
 			await clone.fetchClone(config.clonePath);
+			// Capture the remote SHA before rebase — bare clones have no
+			// separate remote-tracking refs, so --force-with-lease without
+			// an explicit expected value fails with "stale info".
+			const preSha = await clone.getBranchSha(
+				config.clonePath,
+				action.branch,
+			);
 			const rebaseResult = await clone.rebaseInWorktree(config.clonePath, {
 				branch: action.branch,
 				onto: action.onto,
@@ -60,6 +67,7 @@ async function executeOne(
 			const pushResult = await clone.pushBranch(
 				config.clonePath,
 				action.branch,
+				preSha,
 			);
 			if (!pushResult.ok) {
 				return { action, ok: false, error: pushResult.error };
@@ -91,7 +99,7 @@ async function executeOne(
 						'--delete',
 						branch.name,
 					]);
-					if (!result.ok) {
+					if (!result.ok && !result.stderr.includes('remote ref does not exist')) {
 						errors.push(
 							`Failed to delete remote ${branch.name}: ${result.stderr}`,
 						);

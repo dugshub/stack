@@ -20,6 +20,7 @@ import { MoveCommand } from './commands/move.js';
 import { NavCommand } from './commands/nav.js';
 import { TrackCommand } from './commands/track.js';
 import { RemoveCommand } from './commands/remove.js';
+import { RenameCommand } from './commands/rename.js';
 import { ReorderCommand } from './commands/reorder.js';
 import { RestackCommand } from './commands/restack.js';
 import { StatusCommand } from './commands/status.js';
@@ -69,6 +70,7 @@ cli.register(SyncCommand);
 cli.register(UndoCommand);
 cli.register(MergeCommand);
 cli.register(FoldCommand);
+cli.register(RenameCommand);
 cli.register(DaemonCommand);
 cli.register(GraphCommand);
 cli.register(InitCommand);
@@ -108,6 +110,7 @@ function showHelp(): never {
     ['remove [branch]',         'Remove a branch from the stack'],
     ['pop',                     'Pop branch from stack, keep changes'],
     ['fold',                    'Fold branch into parent'],
+    ['rename <new-name>',       'Rename current branch'],
     ['up',                      'Move up (toward trunk)'],
     ['down',                    'Move down (away from trunk)'],
     ['top',                     'Jump to top of stack'],

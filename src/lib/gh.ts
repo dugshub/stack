@@ -246,12 +246,14 @@ export function prReady(prNumber: number): void {
 }
 
 /**
- * Post merge-ready commit statuses for all open PRs in a stack.
- * The bottom-most open PR gets "success"; others get "failure".
+ * Post merge-ready and rebase-status commit statuses for all open PRs in a stack.
+ * merge-ready: bottom-most open PR gets "success"; others get "failure".
+ * rebase-status: checks if parent tip is ancestor of branch tip.
  */
 export function updateMergeReadyStatuses(
   repo: string,
   branches: Array<{ name: string; pr: number | null; tip: string | null }>,
+  trunk?: string,
 ): void {
   const withPRs = branches.filter((b) => b.pr != null && b.tip);
   if (withPRs.length === 0) return;
@@ -287,9 +289,13 @@ export function updateMergeReadyStatuses(
   }
 
   // Post statuses
-  for (const branch of withPRs) {
-    if (!openPRs.has(branch.pr as number)) continue;
-    const sha = branch.tip as string;
+  for (let i = 0; i < branches.length; i++) {
+    const branch = branches[i];
+    if (!branch || branch.pr == null || !branch.tip) continue;
+    if (!openPRs.has(branch.pr)) continue;
+    const sha = branch.tip;
+
+    // merge-ready
     const isReady = branch.pr === firstOpenPR;
     exec(
       'api', `repos/${repo}/statuses/${sha}`,
@@ -297,6 +303,21 @@ export function updateMergeReadyStatuses(
       '-f', 'context=stack/merge-ready',
       '-f', `description=${isReady ? 'Ready to merge (next in stack)' : `Waiting for PR #${firstOpenPR} to merge first`}`,
     );
+
+    // rebase-status
+    if (trunk) {
+      const parentRef = i === 0 ? trunk : (branches[i - 1]?.name ?? trunk);
+      const isRebased = Bun.spawnSync(
+        ['git', 'merge-base', '--is-ancestor', parentRef, branch.name],
+        { stdout: 'pipe', stderr: 'pipe' },
+      ).exitCode === 0;
+      exec(
+        'api', `repos/${repo}/statuses/${sha}`,
+        '-f', `state=${isRebased ? 'success' : 'failure'}`,
+        '-f', 'context=stack/rebase-status',
+        '-f', `description=${isRebased ? `Rebased on ${parentRef}` : `Needs restack — not rebased on ${parentRef}`}`,
+      );
+    }
   }
 }
 

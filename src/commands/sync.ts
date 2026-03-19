@@ -325,7 +325,7 @@ export class SyncCommand extends Command {
     }
 
     // Update merge-ready statuses
-    gh.updateMergeReadyStatuses(state.repo, stack.branches);
+    gh.updateMergeReadyStatuses(state.repo, stack.branches, stack.trunk);
 
     ui.success(
       `Synced stack ${theme.stack(resolvedName)}: removed ${mergedIndices.length} merged, ${stack.branches.length} remaining`,

@@ -1,6 +1,7 @@
 import { isatty } from 'node:tty';
 import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
+import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
@@ -130,6 +131,8 @@ export class RestackCommand extends Command {
 		if (cascadeResult.ok) {
 			// Return to the original branch
 			git.checkout(originalBranch);
+			// Refresh commit statuses
+			gh.updateMergeReadyStatuses(state.repo, stack.branches, stack.trunk);
 			ui.success(
 				`Restacked ${cascadeResult.rebased + (fromIndex === -1 && stack.branches.length > 0 ? 1 : 0)} branches in "${resolvedName}"`,
 			);

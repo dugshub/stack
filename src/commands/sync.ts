@@ -108,6 +108,8 @@ export class SyncCommand extends Command {
     }
 
     if (mergedIndices.length === 0 && !trunkChanged) {
+      // Still refresh statuses even if nothing to sync
+      gh.updateMergeReadyStatuses(state.repo, stack.branches, stack.trunk);
       ui.info('Nothing to sync — no merged PRs.');
       return 0;
     }

@@ -99,7 +99,7 @@ async function executeOne(
 						'--delete',
 						branch.name,
 					]);
-					if (!result.ok) {
+					if (!result.ok && !result.stderr.includes('remote ref does not exist')) {
 						errors.push(
 							`Failed to delete remote ${branch.name}: ${result.stderr}`,
 						);

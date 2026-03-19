@@ -11,6 +11,7 @@ import { DefaultCommand } from './commands/default.js';
 import { DownCommand } from './commands/down.js';
 import { GraphCommand } from './commands/graph.js';
 import { MergeCommand } from './commands/merge.js';
+import { ModifyCommand } from './commands/modify.js';
 import { DeleteCommand } from './commands/delete.js';
 import { InitCommand } from './commands/init.js';
 import { InsertCommand } from './commands/insert.js';
@@ -56,6 +57,7 @@ cli.register(DeleteCommand);
 cli.register(TrackCommand);
 cli.register(RemoveCommand);
 cli.register(SubmitCommand);
+cli.register(ModifyCommand);
 cli.register(AbsorbCommand);
 cli.register(CheckCommand);
 cli.register(ContinueCommand);
@@ -114,6 +116,7 @@ function showHelp(): never {
     ['reorder [positions]',     'Reorder branches in the stack'],
     ['',                        ''],
     ['submit',                  'Push branches, create/update PRs'],
+    ['modify',                  'Amend and restack'],
     ['absorb',                  'Route fixes to correct stack branches'],
     ['split [specs...]',        'Split uncommitted changes into a stack'],
     ['restack',                 'Rebase downstream after mid-stack edits'],

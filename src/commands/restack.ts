@@ -29,6 +29,8 @@ export class RestackCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
+		const originalBranch = git.currentBranch();
+
 		// Verify clean working tree
 		if (git.isDirty()) {
 			ui.error(
@@ -126,6 +128,8 @@ export class RestackCommand extends Command {
 		});
 
 		if (cascadeResult.ok) {
+			// Return to the original branch
+			git.checkout(originalBranch);
 			ui.success(
 				`Restacked ${cascadeResult.rebased + (fromIndex === -1 && stack.branches.length > 0 ? 1 : 0)} branches in "${resolvedName}"`,
 			);

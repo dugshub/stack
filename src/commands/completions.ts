@@ -53,16 +53,20 @@ export class CompletionsCommand extends Command {
 		const marker = '# stack completions';
 
 		if (shell === 'zsh') {
+			// Write completion function to ~/.zfunc/_stack
+			const zfuncDir = join(homedir(), '.zfunc');
+			mkdirSync(zfuncDir, { recursive: true });
+			writeFileSync(join(zfuncDir, '_stack'), this.zshCompletions(), 'utf-8');
+
+			// Ensure fpath + compinit in .zshrc
 			const rcPath = join(homedir(), '.zshrc');
 			const rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
-			if (rc.includes(marker)) {
-				ui.info('Completions already installed in ~/.zshrc');
-				return 0;
+			if (!rc.includes(marker)) {
+				const snippet = `\n${marker}\nfpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit\n`;
+				writeFileSync(rcPath, rc + snippet, 'utf-8');
 			}
-			const snippet = `\n${marker}\neval "$(stack completions zsh)"\n`;
-			writeFileSync(rcPath, rc + snippet, 'utf-8');
-			ui.success('Installed completions in ~/.zshrc');
-			ui.info(`Run ${theme.command('source ~/.zshrc')} or open a new terminal.`);
+			ui.success('Installed completions to ~/.zfunc/_stack');
+			ui.info('Open a new terminal to activate.');
 			return 0;
 		}
 

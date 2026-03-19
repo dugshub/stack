@@ -1,37 +1,7 @@
 #!/usr/bin/env bun
-import { Builtins, Cli } from 'clipanion';
-import { AbortCommand } from './commands/abort.js';
-import { AbsorbCommand } from './commands/absorb.js';
-import { BottomCommand } from './commands/bottom.js';
-import { CheckCommand } from './commands/check.js';
-import { CompletionsCommand } from './commands/completions.js';
-import { ContinueCommand } from './commands/continue.js';
-import { CreateCommand } from './commands/create.js';
-import { DaemonCommand } from './commands/daemon.js';
-import { DefaultCommand } from './commands/default.js';
-import { DownCommand } from './commands/down.js';
-import { FoldCommand } from './commands/fold.js';
-import { GraphCommand } from './commands/graph.js';
-import { MergeCommand } from './commands/merge.js';
-import { ModifyCommand } from './commands/modify.js';
-import { DeleteCommand } from './commands/delete.js';
-import { InitCommand } from './commands/init.js';
-import { InsertCommand } from './commands/insert.js';
-import { MoveCommand } from './commands/move.js';
-import { NavCommand } from './commands/nav.js';
-import { TrackCommand } from './commands/track.js';
-import { RemoveCommand } from './commands/remove.js';
-import { RenameCommand } from './commands/rename.js';
-import { ReorderCommand } from './commands/reorder.js';
-import { RestackCommand } from './commands/restack.js';
-import { StatusCommand } from './commands/status.js';
-import { SubmitCommand } from './commands/submit.js';
-import { SplitCommand } from './commands/split.js';
-import { SyncCommand } from './commands/sync.js';
-import { TopCommand } from './commands/top.js';
-import { UndoCommand } from './commands/undo.js';
-import { UpCommand } from './commands/up.js';
-import { UpdateCommand } from './commands/update.js';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { Builtins, Cli, Command } from 'clipanion';
 import { showDashboard } from './lib/dashboard.js';
 import * as git from './lib/git.js';
 import { theme } from './lib/theme.js';
@@ -46,38 +16,20 @@ const cli = new Cli({
 
 cli.register(Builtins.HelpCommand);
 cli.register(Builtins.VersionCommand);
-cli.register(StatusCommand);
-cli.register(NavCommand);
-cli.register(UpCommand);
-cli.register(DownCommand);
-cli.register(TopCommand);
-cli.register(BottomCommand);
-cli.register(MoveCommand);
-cli.register(InsertCommand);
-cli.register(ReorderCommand);
-cli.register(CreateCommand);
-cli.register(DeleteCommand);
-cli.register(TrackCommand);
-cli.register(RemoveCommand);
-cli.register(SubmitCommand);
-cli.register(ModifyCommand);
-cli.register(AbsorbCommand);
-cli.register(CheckCommand);
-cli.register(ContinueCommand);
-cli.register(AbortCommand);
-cli.register(RestackCommand);
-cli.register(SplitCommand);
-cli.register(SyncCommand);
-cli.register(UndoCommand);
-cli.register(MergeCommand);
-cli.register(FoldCommand);
-cli.register(RenameCommand);
-cli.register(DaemonCommand);
-cli.register(GraphCommand);
-cli.register(CompletionsCommand);
-cli.register(InitCommand);
-cli.register(UpdateCommand);
-cli.register(DefaultCommand);
+
+// Auto-discover and register all commands from src/commands/
+const commandsDir = join(import.meta.dir, 'commands');
+const commandFiles = readdirSync(commandsDir).filter(f =>
+  (f.endsWith('.ts') || f.endsWith('.js')) && !f.includes('.test.'),
+);
+for (const file of commandFiles) {
+  const mod = await import(join(commandsDir, file));
+  for (const exp of Object.values(mod)) {
+    if (typeof exp === 'function' && exp.prototype instanceof Command) {
+      cli.register(exp as typeof Command);
+    }
+  }
+}
 
 // Commands that don't require a git repo
 const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon', 'completions'];

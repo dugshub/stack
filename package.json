@@ -8,6 +8,7 @@
     "stack": "./src/cli.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0",
     "clipanion": "^4.0.0-rc.1",
     "@clack/prompts": "^1",
     "picocolors": "^1",

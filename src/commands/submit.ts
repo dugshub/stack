@@ -38,6 +38,10 @@ export class SubmitCommand extends Command {
 		description: "Mark all PRs as ready for review (not draft)",
 	});
 
+	describe = Option.Boolean("--describe", {
+		description: "Generate PR descriptions with AI via Anthropic API (default: from config)",
+	});
+
 	async execute(): Promise<number> {
 		const state = loadAndRefreshState();
 
@@ -55,7 +59,19 @@ export class SubmitCommand extends Command {
 			return this.showDryRun(stack, resolvedName);
 		}
 
-		return this.fullSubmit(state, stack, resolvedName, position);
+		let useDescribe = this.describe ?? state.config?.describe ?? false;
+		let apiKey: string | null = null;
+
+		if (useDescribe) {
+			const { ensureAuth } = await import("../lib/ai/pr-description.js");
+			apiKey = await ensureAuth();
+			if (!apiKey) {
+				ui.warn("No API key available. Using default PR descriptions.");
+				useDescribe = false;
+			}
+		}
+
+		return this.fullSubmit(state, stack, resolvedName, position, useDescribe, apiKey);
 	}
 
 	private showDryRun(
@@ -102,6 +118,8 @@ export class SubmitCommand extends Command {
 		stack: ReturnType<typeof loadAndRefreshState>["stacks"][string] & object,
 		stackName: string,
 		position: import("../lib/types.js").StackPosition | null,
+		useDescribe: boolean,
+		apiKey: string | null,
 	): Promise<number> {
 		saveSnapshot('submit');
 		const originalBranch = position ? git.currentBranch() : null;
@@ -180,7 +198,33 @@ export class SubmitCommand extends Command {
 			const base =
 				i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
 			const title = this.deriveTitle(branch.name);
-			const body = this.generatePrBody(i, stack.branches.length, stackName);
+
+			let body: string;
+			if (useDescribe && apiKey) {
+				try {
+					const { generatePrDescription } = await import(
+						"../lib/ai/pr-description.js"
+					);
+					ui.info(
+						`  Generating PR description for ${theme.branch(branch.name)}...`,
+					);
+					body = await generatePrDescription({
+						baseBranch: base,
+						headBranch: branch.name,
+						stackName,
+						branchIndex: i,
+						totalBranches: stack.branches.length,
+						apiKey,
+					});
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					ui.warn(`  AI description failed: ${msg}. Using default.`);
+					body = this.generatePrBody(i, stack.branches.length, stackName);
+				}
+			} else {
+				body = this.generatePrBody(i, stack.branches.length, stackName);
+			}
+
 			const alias = `create_${i}`;
 			createBatch.createPR(alias, {
 				base,
@@ -386,6 +430,20 @@ export class SubmitCommand extends Command {
 			if (hasDrafts) {
 				ui.info(`\nTip: Use ${theme.command('stack submit --ready')} to mark draft PRs as ready for review.`);
 			}
+		}
+
+		// One-time hint about AI descriptions
+		if (
+			!useDescribe &&
+			state.config?.describe == null &&
+			!state.config?.describeHintDismissed
+		) {
+			ui.info(
+				`Tip: Use ${theme.command("stack submit --describe")} to generate PR descriptions with AI`,
+			);
+			if (!state.config) state.config = {};
+			state.config.describeHintDismissed = true;
+			saveState(state);
 		}
 
 		// Update merge-ready statuses

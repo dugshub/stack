@@ -88,6 +88,7 @@ function showHelp(): never {
     ['graph',                   'Show dependency graph across stacks'],
     ['daemon <action>',         'Manage background daemon'],
     ['',                        ''],
+    ['config',                  'View or update settings'],
     ['completions [shell]',     'Shell tab completions'],
     ['init',                    'Install Claude Code skills'],
     ['update',                  'Self-update to latest version'],

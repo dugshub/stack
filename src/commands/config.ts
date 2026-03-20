@@ -9,13 +9,13 @@ export class ConfigCommand extends Command {
 	static override usage = Command.Usage({
 		description: "View or update stack configuration",
 		examples: [
-			["Enable AI PR descriptions", "stack config --describe"],
-			["Disable AI PR descriptions", "stack config --no-describe"],
+			["Enable AI PR descriptions", "st config --describe"],
+			["Disable AI PR descriptions", "st config --no-describe"],
 			[
 				"Set API key non-interactively",
-				"stack config --describe --key sk-ant-...",
+				"st config --describe --key sk-ant-...",
 			],
-			["View current config", "stack config"],
+			["View current config", "st config"],
 		],
 	});
 

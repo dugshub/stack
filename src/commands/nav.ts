@@ -9,13 +9,13 @@ import type { Stack, StackPosition } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class NavCommand extends Command {
-	static override paths = [['nav']];
+	static override paths = [['branch', 'nav'], ['nav']];
 
 	static override usage = Command.Usage({
 		description: 'Interactive branch picker or jump to branch N',
 		examples: [
-			['Interactive branch picker', 'stack nav'],
-			['Jump to branch #3', 'stack nav 3'],
+			['Interactive branch picker', 'st nav'],
+			['Jump to branch #3', 'st nav 3'],
 		],
 	});
 
@@ -30,7 +30,7 @@ export class NavCommand extends Command {
 			return this.interactive();
 		}
 
-		// Numeric navigation: `stack nav 3` -> jump to branch #3
+		// Numeric navigation: `st nav 3` -> jump to branch #3
 		const num = Number.parseInt(this.direction, 10);
 		if (!Number.isNaN(num)) {
 			const state = loadAndRefreshState();
@@ -60,11 +60,11 @@ export class NavCommand extends Command {
 		// Directional words are now top-level commands
 		const directions = ['up', 'down', 'top', 'bottom'];
 		if (directions.includes(this.direction)) {
-			ui.error(`"stack nav ${this.direction}" is no longer supported. Use "stack ${this.direction}" instead.`);
+			ui.error(`"st nav ${this.direction}" is no longer supported. Use "st ${this.direction}" instead.`);
 			return 2;
 		}
 
-		ui.error(`Invalid argument "${this.direction}". Use a number or run "stack nav" for interactive picker.`);
+		ui.error(`Invalid argument "${this.direction}". Use a number or run "st nav" for interactive picker.`);
 		return 2;
 	}
 

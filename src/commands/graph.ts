@@ -8,14 +8,14 @@ import * as ui from '../lib/ui.js';
 import type { GraphStackNode } from '../lib/ui.js';
 
 export class GraphCommand extends Command {
-	static override paths = [['graph']];
+	static override paths = [['stack', 'graph'], ['graph']];
 
 	static override usage = Command.Usage({
 		description: 'Show stack dependency graph',
 		examples: [
-			['Show current stack chain', 'stack graph'],
-			['Show all stacks', 'stack graph --all'],
-			['Expand all branches', 'stack graph --expand'],
+			['Show current stack chain', 'st graph'],
+			['Show all stacks', 'st graph --all'],
+			['Expand all branches', 'st graph --expand'],
 		],
 	});
 

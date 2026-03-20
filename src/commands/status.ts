@@ -9,13 +9,13 @@ import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
 export class StatusCommand extends Command {
-  static override paths = [['status']];
+  static override paths = [['stack', 'status'], ['status']];
 
   static override usage = Command.Usage({
     description: 'Show current stack status',
     examples: [
-      ['Show status of current stack', 'stack status'],
-      ['Output as JSON', 'stack status --json'],
+      ['Show status of current stack', 'st status'],
+      ['Output as JSON', 'st status --json'],
     ],
   });
 
@@ -68,7 +68,7 @@ export class StatusCommand extends Command {
     if (stack.restackState) {
       ui.warn(
         `Restack in progress (paused at branch ${stack.restackState.currentIndex + 1}). ` +
-          'Resolve conflicts and run `stack continue`, or `stack abort`.',
+          'Resolve conflicts and run `st continue`, or `st abort`.',
       );
     }
 
@@ -140,7 +140,7 @@ export class StatusCommand extends Command {
     const stackNames = Object.keys(state.stacks);
 
     if (stackNames.length === 0) {
-      ui.info(`No tracked stacks. Use ${theme.command('stack create <name>')} to start one.`);
+      ui.info(`No tracked stacks. Use ${theme.command('st create <name>')} to start one.`);
       return 0;
     }
 

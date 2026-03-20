@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
+    "st": "./src/cli.ts",
     "stack": "./src/cli.ts"
   },
   "dependencies": {

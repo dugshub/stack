@@ -11,18 +11,18 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class InsertCommand extends Command {
-	static override paths = [['insert']];
+	static override paths = [['branch', 'insert'], ['insert']];
 
 	static override usage = Command.Usage({
 		description: 'Insert a new branch at a position in the stack',
 		examples: [
-			['Insert after position 2', 'stack insert --after 2'],
+			['Insert after position 2', 'st insert --after 2'],
 			[
 				'Insert with description',
-				'stack insert --after 2 -d add-types',
+				'st insert --after 2 -d add-types',
 			],
-			['Insert before position 3', 'stack insert --before 3'],
-			['Preview the insert', 'stack insert --dry-run --after 2'],
+			['Insert before position 3', 'st insert --before 3'],
+			['Preview the insert', 'st insert --dry-run --after 2'],
 		],
 	});
 
@@ -67,7 +67,7 @@ export class InsertCommand extends Command {
 
 		if (stack.restackState) {
 			ui.error(
-				`Restack in progress. Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
+				`Restack in progress. Run ${theme.command('st continue')} or ${theme.command('st abort')} first.`,
 			);
 			return 2;
 		}

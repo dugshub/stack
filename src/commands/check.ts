@@ -7,14 +7,14 @@ import * as ui from '../lib/ui.js';
 import type { Branch, CheckResult } from '../lib/types.js';
 
 export class CheckCommand extends Command {
-	static override paths = [['check']];
+	static override paths = [['stack', 'check'], ['check']];
 
 	static override usage = Command.Usage({
 		description: 'Run a command on every branch in the stack',
 		examples: [
-			['Type-check all branches', 'stack check bun tsc --noEmit'],
-			['Stop on first failure', 'stack check --bail npm test'],
-			['Start from branch 5', 'stack check --from 5 make build'],
+			['Type-check all branches', 'st check bun tsc --noEmit'],
+			['Stop on first failure', 'st check --bail npm test'],
+			['Start from branch 5', 'st check --from 5 make build'],
 		],
 	});
 

@@ -15,7 +15,7 @@ export class DefaultCommand extends Command {
 			const result = await showDashboard();
 			if (result !== null) return result;
 			// No stacks — show basic info
-			ui.info('No stacks found. Use `stack create <name>` to start one.');
+			ui.info('No stacks found. Use `st create <name>` to start one.');
 			return 0;
 		}
 

@@ -59,7 +59,7 @@ export function generateComment(
   }
 
   lines.push('');
-  lines.push('<sub>Managed by Claude Code <code>/stack</code></sub>');
+  lines.push('<sub>Managed by Claude Code <code>/st</code></sub>');
 
   return lines.join('\n');
 }

@@ -16,13 +16,13 @@ import { saveSnapshot } from "../lib/undo.js";
 import * as ui from "../lib/ui.js";
 
 export class SubmitCommand extends Command {
-	static override paths = [["submit"]];
+	static override paths = [["stack", "submit"], ["submit"]];
 
 	static override usage = Command.Usage({
 		description: "Push branches and create/update PRs for the stack",
 		examples: [
-			["Show what would happen", "stack submit --dry-run"],
-			["Push and create/update PRs", "stack submit"],
+			["Show what would happen", "st submit --dry-run"],
+			["Push and create/update PRs", "st submit"],
 		],
 	});
 
@@ -108,7 +108,7 @@ export class SubmitCommand extends Command {
 		}
 
 		process.stderr.write(
-			`\nRun ${theme.command("stack submit")} to proceed.\n`,
+			`\nRun ${theme.command("st submit")} to proceed.\n`,
 		);
 		return 0;
 	}
@@ -428,7 +428,7 @@ export class SubmitCommand extends Command {
 				return details?.isDraft;
 			});
 			if (hasDrafts) {
-				ui.info(`\nTip: Use ${theme.command('stack submit --ready')} to mark draft PRs as ready for review.`);
+				ui.info(`\nTip: Use ${theme.command('st submit --ready')} to mark draft PRs as ready for review.`);
 			}
 		}
 
@@ -439,7 +439,7 @@ export class SubmitCommand extends Command {
 			!state.config?.describeHintDismissed
 		) {
 			ui.info(
-				`Tip: Use ${theme.command("stack submit --describe")} to generate PR descriptions with AI`,
+				`Tip: Use ${theme.command("st submit --describe")} to generate PR descriptions with AI`,
 			);
 			if (!state.config) state.config = {};
 			state.config.describeHintDismissed = true;

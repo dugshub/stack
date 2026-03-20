@@ -12,22 +12,22 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class SplitCommand extends Command {
-	static override paths = [['split']];
+	static override paths = [['branch', 'split'], ['split']];
 
 	static override usage = Command.Usage({
 		description: 'Split uncommitted changes into a stacked set of branches',
 		examples: [
 			[
 				'Split by file patterns',
-				'stack split "api:src/lib/gh.ts" "server:src/server/**"',
+				'st split "api:src/lib/gh.ts" "server:src/server/**"',
 			],
 			[
 				'Preview the plan',
-				'stack split --dry-run "api:src/lib/gh.ts" "server:src/server/**"',
+				'st split --dry-run "api:src/lib/gh.ts" "server:src/server/**"',
 			],
 			[
 				'With negation patterns',
-				'stack split "server:src/server/**:!src/server/test.ts"',
+				'st split "server:src/server/**:!src/server/test.ts"',
 			],
 		],
 	});
@@ -55,7 +55,7 @@ export class SplitCommand extends Command {
 		for (const stack of Object.values(state.stacks)) {
 			if (stack.restackState) {
 				ui.error(
-					`A restack is in progress. Use ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
+					`A restack is in progress. Use ${theme.command('st continue')} or ${theme.command('st abort')} first.`,
 				);
 				return 2;
 			}

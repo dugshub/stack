@@ -90,5 +90,5 @@ export async function resolveStack(opts: ResolveOptions): Promise<ResolvedStack>
 	}
 
 	// 6. Error
-	throw new Error('No stack selected. Run `stack <name>` to select one.');
+	throw new Error('No stack selected. Run `st <name>` to select one.');
 }

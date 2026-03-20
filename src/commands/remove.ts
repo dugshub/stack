@@ -8,15 +8,15 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class RemoveCommand extends Command {
-	static override paths = [['remove']];
+	static override paths = [['branch', 'remove'], ['remove']];
 
 	static override usage = Command.Usage({
 		description: 'Remove a branch from the active stack',
 		examples: [
-			['Remove current branch', 'stack remove'],
-			['Remove a specific branch', 'stack remove user/stack/2-feature'],
-			['Also delete the git branch', 'stack remove --branch'],
-			['Also close the PR', 'stack remove --pr'],
+			['Remove current branch', 'st remove'],
+			['Remove a specific branch', 'st remove user/stack/2-feature'],
+			['Also delete the git branch', 'st remove --branch'],
+			['Also close the PR', 'st remove --pr'],
 		],
 	});
 
@@ -57,7 +57,7 @@ export class RemoveCommand extends Command {
 		if (stack.restackState) {
 			ui.error(
 				'Cannot remove branches while a restack is in progress. ' +
-					`Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
+					`Run ${theme.command('st continue')} or ${theme.command('st abort')} first.`,
 			);
 			return 2;
 		}

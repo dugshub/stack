@@ -20,19 +20,19 @@ export function getHint(
 	// 2. Any PR merged → sync
 	const hasMerged = prs.some((pr) => pr?.state === 'MERGED');
 	if (hasMerged) {
-		return `A PR was merged — run ${theme.command('stack sync')} to clean up`;
+		return `A PR was merged — run ${theme.command('st sync')} to clean up`;
 	}
 
 	// 3. No PRs at all → submit
 	const hasAnyPr = branches.some((b) => b.pr != null);
 	if (!hasAnyPr) {
-		return `No PRs yet — run ${theme.command('stack submit')} to create them`;
+		return `No PRs yet — run ${theme.command('st submit')} to create them`;
 	}
 
 	// 4. Some branches missing PRs → submit
 	const missingPrs = branches.filter((b) => b.pr == null);
 	if (missingPrs.length > 0) {
-		return `${missingPrs.length} branch${missingPrs.length > 1 ? 'es' : ''} without PRs — run ${theme.command('stack submit')}`;
+		return `${missingPrs.length} branch${missingPrs.length > 1 ? 'es' : ''} without PRs — run ${theme.command('st submit')}`;
 	}
 
 	// 5. Checks failing
@@ -43,7 +43,7 @@ export function getHint(
 	);
 	if (failing.length > 0) {
 		const nums = failing.map((pr) => `#${pr.number}`).join(', ');
-		return `Checks failing on ${nums} — push fixes or run ${theme.command('stack absorb')}`;
+		return `Checks failing on ${nums} — push fixes or run ${theme.command('st absorb')}`;
 	}
 
 	// 6. Changes requested
@@ -68,13 +68,13 @@ export function getHint(
 		(pr) => pr.checksStatus === 'SUCCESS' || pr.checksStatus == null,
 	);
 	if (allApproved && hasChecks && allChecksPass) {
-		return `All PRs approved — run ${theme.command('stack merge --all')} to land the stack`;
+		return `All PRs approved — run ${theme.command('st merge --all')} to land the stack`;
 	}
 	if (allApproved && hasChecks) {
 		return `All PRs approved — waiting for checks to pass`;
 	}
 	if (allApproved) {
-		return `All PRs approved — run ${theme.command('stack merge --all')} to land the stack`;
+		return `All PRs approved — run ${theme.command('st merge --all')} to land the stack`;
 	}
 
 	// 8. All drafts → suggest marking ready

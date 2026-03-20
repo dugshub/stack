@@ -8,11 +8,11 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class FoldCommand extends Command {
-	static override paths = [['fold']];
+	static override paths = [['branch', 'fold'], ['fold']];
 
 	static override usage = Command.Usage({
 		description: 'Merge current branch into its parent branch',
-		examples: [['Fold current branch into parent', 'stack fold']],
+		examples: [['Fold current branch into parent', 'st fold']],
 	});
 
 	async execute(): Promise<number> {
@@ -42,7 +42,7 @@ export class FoldCommand extends Command {
 		if (stack.restackState) {
 			ui.error(
 				'Cannot fold branches while a restack is in progress. ' +
-					`Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
+					`Run ${theme.command('st continue')} or ${theme.command('st abort')} first.`,
 			);
 			return 2;
 		}
@@ -152,7 +152,7 @@ export class FoldCommand extends Command {
 			} else {
 				ui.warn('Downstream restack had conflicts.');
 				ui.info(
-					`Resolve conflicts, then run ${theme.command('stack continue')}.`,
+					`Resolve conflicts, then run ${theme.command('st continue')}.`,
 				);
 				return 1;
 			}

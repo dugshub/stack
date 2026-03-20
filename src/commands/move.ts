@@ -9,15 +9,15 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class MoveCommand extends Command {
-	static override paths = [['move']];
+	static override paths = [['branch', 'move'], ['move']];
 
 	static override usage = Command.Usage({
 		description: 'Move a branch within the stack',
 		examples: [
-			['Move toward trunk', 'stack move up'],
-			['Move away from trunk', 'stack move down'],
-			['Move to position 3', 'stack move 3'],
-			['Preview the move', 'stack move --dry-run up'],
+			['Move toward trunk', 'st move up'],
+			['Move away from trunk', 'st move down'],
+			['Move to position 3', 'st move 3'],
+			['Preview the move', 'st move --dry-run up'],
 		],
 	});
 
@@ -57,7 +57,7 @@ export class MoveCommand extends Command {
 
 		if (stack.restackState) {
 			ui.error(
-				`Restack in progress. Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
+				`Restack in progress. Run ${theme.command('st continue')} or ${theme.command('st abort')} first.`,
 			);
 			return 2;
 		}

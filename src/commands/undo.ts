@@ -9,10 +9,10 @@ export class UndoCommand extends Command {
 	static override usage = Command.Usage({
 		description: 'Restore stack state to before the last mutating command',
 		examples: [
-			['Undo the last operation', 'stack undo'],
-			['Go back 3 operations', 'stack undo --steps 3'],
-			['List available restore points', 'stack undo --list'],
-			['Preview without applying', 'stack undo --dry-run'],
+			['Undo the last operation', 'st undo'],
+			['Go back 3 operations', 'st undo --steps 3'],
+			['List available restore points', 'st undo --list'],
+			['Preview without applying', 'st undo --dry-run'],
 		],
 	});
 
@@ -66,7 +66,7 @@ export class UndoCommand extends Command {
 		}
 
 		process.stderr.write(
-			`\nRun ${theme.command('stack undo')} to restore the most recent snapshot.\n`,
+			`\nRun ${theme.command('st undo')} to restore the most recent snapshot.\n`,
 		);
 		return 0;
 	}
@@ -125,7 +125,7 @@ export class UndoCommand extends Command {
 			}
 
 			process.stderr.write(
-				`\nRun ${theme.command('stack submit')} to sync with remote.\n`,
+				`\nRun ${theme.command('st submit')} to sync with remote.\n`,
 			);
 			return 0;
 		} catch (err) {

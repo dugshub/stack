@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A CLI tool (`stack`) for managing stacked PRs — a Graphite replacement powered by `git`, `gh`, and good defaults. State is stored in `~/.claude/stacks/<repo>.json`.
+A CLI tool (`st`) for managing stacked PRs — a Graphite replacement powered by `git`, `gh`, and good defaults. State is stored in `~/.claude/stacks/<repo>.json`.
 
 ## Development
 
@@ -13,16 +13,16 @@ This is a Bun + TypeScript project. The binary runs directly via `bun` (no build
 ```bash
 bun install                    # install deps
 bun run src/cli.ts <command>   # run locally
-stack submit --dry-run         # verify plan before submitting
+st submit --dry-run            # verify plan before submitting
 ```
 
-No test suite exists yet. Verify changes with `stack submit --dry-run`.
+No test suite exists yet. Verify changes with `st submit --dry-run`.
 
 ## Architecture
 
 **Entry point:** `src/cli.ts` — registers all commands with [clipanion](https://github.com/arcanis/clipanion).
 
-**Commands** (`src/commands/`): One file per command. Each command loads state, performs git/gh operations, saves state, and reports results. To add a command: create the file, export a class extending `Command`, register it in `cli.ts`.
+**Commands** (`src/commands/`): One file per command. Commands use noun-group paths with flat aliases: e.g., `static override paths = [['stack', 'submit'], ['submit']]`. Stack-level commands live under `st stack`, branch-level under `st branch`, with convenience aliases at the top level. To add a command: create the file, export a class extending `Command`, register it in `cli.ts`.
 
 **Lib modules** (`src/lib/`):
 - `git.ts` — Git operations via `Bun.spawnSync`. Provides `run()` (throws on failure) and `tryRun()` (returns result object).

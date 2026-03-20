@@ -27,15 +27,15 @@ function generateCommitMessage(
 }
 
 export class AbsorbCommand extends Command {
-  static override paths = [['absorb']];
+  static override paths = [['branch', 'absorb'], ['absorb']];
 
   static override usage = Command.Usage({
     description: 'Route uncommitted fixes to the correct stack branches',
     examples: [
-      ['Absorb changes into their owning branches', 'stack absorb'],
-      ['Preview without making changes', 'stack absorb --dry-run'],
-      ['Route files to branch 5 manually', 'stack absorb --branch 5 GroupedTable.tsx'],
-      ['Absorb with a custom commit message', 'stack absorb -m "fix typos"'],
+      ['Absorb changes into their owning branches', 'st absorb'],
+      ['Preview without making changes', 'st absorb --dry-run'],
+      ['Route files to branch 5 manually', 'st absorb --branch 5 GroupedTable.tsx'],
+      ['Absorb with a custom commit message', 'st absorb -m "fix typos"'],
     ],
   });
 
@@ -103,7 +103,7 @@ export class AbsorbCommand extends Command {
 
     if (stack.restackState) {
       ui.error(
-        `A restack is already in progress. Use ${theme.command('stack continue')} or ${theme.command('stack abort')}.`,
+        `A restack is already in progress. Use ${theme.command('st continue')} or ${theme.command('st abort')}.`,
       );
       return 2;
     }
@@ -323,7 +323,7 @@ export class AbsorbCommand extends Command {
             }
           }
           ui.info(
-            `Resolve conflicts, then run ${theme.command('stack continue')}.`,
+            `Resolve conflicts, then run ${theme.command('st continue')}.`,
           );
           return 1;
         }

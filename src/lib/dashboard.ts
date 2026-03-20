@@ -29,7 +29,7 @@ export async function showDashboard(): Promise<number | null> {
 	const currentStackName = position?.stackName ?? state.currentStack;
 
 	const v = currentVersion();
-	process.stderr.write(`\n  ${theme.label('stack')} ${theme.muted(`v${v}`)}\n`);
+	process.stderr.write(`\n  ${theme.label('st')} ${theme.muted(`v${v}`)}\n`);
 	process.stderr.write(`  ${theme.muted('Stacked PRs for GitHub')}\n\n`);
 
 	for (const name of stackNames) {
@@ -78,6 +78,6 @@ export async function showDashboard(): Promise<number | null> {
 		}
 	}
 
-	process.stderr.write(`\n  ${theme.muted('stack <name> to switch   stack create <name> to start')}\n\n`);
+	process.stderr.write(`\n  ${theme.muted('st <name> to switch   st create <name> to start')}\n\n`);
 	return 0;
 }

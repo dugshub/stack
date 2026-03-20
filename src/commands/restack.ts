@@ -12,12 +12,12 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class RestackCommand extends Command {
-	static override paths = [['restack']];
+	static override paths = [['stack', 'restack'], ['restack']];
 
 	static override usage = Command.Usage({
 		description: 'Rebase downstream branches after amending a stack branch',
 		examples: [
-			['Restack downstream branches', 'stack restack'],
+			['Restack downstream branches', 'st restack'],
 		],
 	});
 
@@ -53,7 +53,7 @@ export class RestackCommand extends Command {
 		const { stackName: resolvedName, stack, position } = resolved;
 
 		if (stack.restackState) {
-			ui.error('A restack is already in progress. Use `stack continue` or `stack abort`.');
+			ui.error('A restack is already in progress. Use `st continue` or `st abort`.');
 			return 2;
 		}
 
@@ -111,7 +111,7 @@ export class RestackCommand extends Command {
 						}
 					}
 					ui.info(
-						`Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`,
+						`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`,
 					);
 					return 1;
 				}
@@ -168,7 +168,7 @@ export class RestackCommand extends Command {
 			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
 
 			if (!cascade) {
-				ui.info(`Tip: Run ${theme.command(`stack restack -s ${depName}`)} to update it.`);
+				ui.info(`Tip: Run ${theme.command(`st restack -s ${depName}`)} to update it.`);
 				continue;
 			}
 
@@ -215,7 +215,7 @@ export class RestackCommand extends Command {
 								ui.info(`  ${file}`);
 							}
 						}
-						ui.info(`Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`);
+						ui.info(`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`);
 						return;
 					}
 				}

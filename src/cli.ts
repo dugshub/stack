@@ -9,8 +9,8 @@ import * as ui from './lib/ui.js';
 import { checkForUpdate, currentVersion } from './lib/version.js';
 
 const cli = new Cli({
-  binaryLabel: 'stack',
-  binaryName: 'stack',
+  binaryLabel: 'st',
+  binaryName: 'st',
   binaryVersion: currentVersion(),
 });
 
@@ -35,12 +35,14 @@ for (const file of commandFiles) {
 const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon', 'completions'];
 const rawArgs = process.argv.slice(2);
 
-// `stack 3` → `stack nav 3`
+// `st 3` → `st nav 3`
 const args = rawArgs.length === 1 && /^\d+$/.test(rawArgs[0] ?? '')
   ? ['nav', rawArgs[0]!]
   : rawArgs;
 
-const needsRepo = args.length > 0 && !args.some((a) => noRepoRequired.includes(a));
+// Bare `st stack` and `st branch` show help (no repo needed)
+const isBareGroupHelp = args.length === 1 && (args[0] === 'stack' || args[0] === 'branch');
+const needsRepo = args.length > 0 && !isBareGroupHelp && !args.some((a) => noRepoRequired.includes(a));
 
 if (needsRepo && !git.tryRun('rev-parse', '--show-toplevel').ok) {
   ui.error('Not in a git repository.');
@@ -50,48 +52,25 @@ if (needsRepo && !git.tryRun('rev-parse', '--show-toplevel').ok) {
 // Show help text
 function showHelp(): never {
   const v = currentVersion();
-  process.stderr.write(`\n  ${theme.label(`stack`)} ${theme.muted(`v${v}`)}\n`);
+  process.stderr.write(`\n  ${theme.label(`st`)} ${theme.muted(`v${v}`)}\n`);
   process.stderr.write(`  ${theme.muted('Stacked PRs for GitHub')}\n\n`);
 
   const cmds = [
-    ['<name>',                    'Switch to a stack'],
-    ['<number>',                  'Jump to branch N in current stack'],
-    ['create [name]',           'Start a new stack'],
-    ['delete [name]',           'Remove a stack from tracking'],
-    ['status',                  'Show stack and PR status'],
-    ['',                        ''],
-    ['track',                   'Add current branch to a stack'],
-    ['remove [branch]',         'Remove a branch from the stack'],
-    ['pop',                     'Pop branch from stack, keep changes'],
-    ['fold',                    'Fold branch into parent'],
-    ['rename <new-name>',       'Rename current branch'],
-    ['up',                      'Move up (toward trunk)'],
-    ['down',                    'Move down (away from trunk)'],
-    ['top',                     'Jump to top of stack'],
-    ['bottom',                  'Jump to bottom of stack'],
-    ['continue',                'Continue after resolving conflicts'],
-    ['abort',                   'Abort an in-progress restack'],
-    ['nav',                     'Interactive branch picker'],
-    ['move <up|down|N>',        'Move a branch within the stack'],
-    ['insert --after N',        'Insert a new branch at position'],
-    ['reorder [positions]',     'Reorder branches in the stack'],
-    ['',                        ''],
-    ['submit',                  'Push branches, create/update PRs'],
-    ['modify',                  'Amend and restack'],
-    ['absorb',                  'Route fixes to correct stack branches'],
-    ['split [specs...]',        'Split uncommitted changes into a stack'],
-    ['restack',                 'Rebase downstream after mid-stack edits'],
-    ['check <cmd...>',           'Run a command on every branch'],
-    ['sync',                    'Clean up after PRs merge'],
-    ['undo',                    'Undo last mutating command'],
-    ['merge --all',             'Merge entire stack bottom-up'],
-    ['graph',                   'Show dependency graph across stacks'],
-    ['daemon <action>',         'Manage background daemon'],
-    ['',                        ''],
-    ['config',                  'View or update settings'],
-    ['completions [shell]',     'Shell tab completions'],
-    ['init',                    'Install Claude Code skills'],
-    ['update',                  'Self-update to latest version'],
+    ['<name>',               'Switch to a stack'],
+    ['<number>',             'Jump to branch N'],
+    ['create <name>',        'Start a new stack'],
+    ['status',               'Show stack status'],
+    ['submit',               'Push branches, create PRs'],
+    ['up / down',            'Navigate branches'],
+    ['modify',               'Amend and restack'],
+    ['sync',                 'Clean up after merges'],
+    ['',                     ''],
+    ['stack ...',             'Stack operations (create, delete, submit, merge, ...)'],
+    ['branch ...',            'Branch operations (up, down, fold, move, insert, ...)'],
+    ['',                     ''],
+    ['continue / abort',     'Conflict resolution'],
+    ['undo',                 'Undo last command'],
+    ['config',               'View/update settings'],
   ];
 
   for (const [cmd, desc] of cmds) {
@@ -99,10 +78,10 @@ function showHelp(): never {
       process.stderr.write('\n');
       continue;
     }
-    process.stderr.write(`  ${theme.command(`stack ${cmd}`.padEnd(34))} ${theme.muted(desc ?? '')}\n`);
+    process.stderr.write(`    ${theme.command(`st ${cmd}`.padEnd(32))} ${theme.muted(desc ?? '')}\n`);
   }
 
-  process.stderr.write(`\n  ${theme.muted('Run any command with -h for details')}\n`);
+  process.stderr.write(`\n  ${theme.muted('Run st stack -h or st branch -h for full command lists')}\n`);
   process.stderr.write(`  ${theme.muted('Run --ai or <command> --ai for LLM-friendly docs')}\n\n`);
   process.exit(0);
 }
@@ -110,20 +89,26 @@ function showHelp(): never {
 // Show concise first-run guide for new users (no stacks exist yet)
 function showFirstRun(): never {
   const v = currentVersion();
-  process.stderr.write(`\n  ${theme.label('stack')} ${theme.muted(`v${v}`)}\n`);
+  process.stderr.write(`\n  ${theme.label('st')} ${theme.muted(`v${v}`)}\n`);
   process.stderr.write(`  ${theme.muted('Stacked PRs for GitHub')}\n\n`);
   process.stderr.write(`  ${theme.command('Get started:')}\n`);
-  process.stderr.write(`    ${theme.command('stack create my-feature')}    ${theme.muted('Create your first stack')}\n`);
-  process.stderr.write(`    ${theme.command('stack --help')}               ${theme.muted('See all commands')}\n\n`);
+  process.stderr.write(`    ${theme.command('st create my-feature')}    ${theme.muted('Create your first stack')}\n`);
+  process.stderr.write(`    ${theme.command('st --help')}               ${theme.muted('See all commands')}\n\n`);
   process.stderr.write(`  ${theme.command('Already have branches?')}\n`);
-  process.stderr.write(`    ${theme.command('stack create name --from branch1 branch2')}    ${theme.muted('Adopt existing branches')}\n\n`);
+  process.stderr.write(`    ${theme.command('st create name --from branch1 branch2')}    ${theme.muted('Adopt existing branches')}\n\n`);
   process.exit(0);
 }
 
-// `stack --ai [command]` — plain-text docs for LLMs
+// `st --ai [command]` — plain-text docs for LLMs
 if (args.includes('--ai')) {
   const { printAiDocs } = await import('./lib/ai-docs.js');
-  const cmdArg = args.filter((a) => a !== '--ai')[0];
+  const nonAiArgs = args.filter((a) => a !== '--ai');
+  // Handle grouped commands: `st stack submit --ai` → cmdArg = 'submit'
+  // Handle flat commands: `st submit --ai` → cmdArg = 'submit'
+  const groups = ['stack', 'branch'];
+  const cmdArg = groups.includes(nonAiArgs[0] ?? '')
+    ? nonAiArgs[1] ?? nonAiArgs[0]
+    : nonAiArgs[0];
   printAiDocs(cmdArg);
   process.exit(0);
 }

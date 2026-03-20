@@ -92,5 +92,5 @@ export function checkForUpdate(): string | null {
 }
 
 function updateMessage(remoteVersion: string): string {
-  return `Update available: ${VERSION} → ${remoteVersion} (run \`stack update\`)`;
+  return `Update available: ${VERSION} → ${remoteVersion} (run \`st update\`)`;
 }

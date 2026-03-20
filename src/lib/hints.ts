@@ -43,7 +43,7 @@ export function getHint(
 	);
 	if (failing.length > 0) {
 		const nums = failing.map((pr) => `#${pr.number}`).join(', ');
-		return `Checks failing on ${nums} — push fixes or run ${theme.command('st absorb')}`;
+		return `Checks failing on ${nums} — push fixes with ${theme.command('st submit')}`;
 	}
 
 	// 6. Changes requested

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 export interface Background {
 	[section: string]: string | string[] | Record<string, string>;
 }
@@ -63,9 +65,19 @@ export async function invoke(
 	try {
 		sdk = await import("@anthropic-ai/claude-agent-sdk");
 	} catch {
-		throw new Error(
-			"AI features require @anthropic-ai/claude-agent-sdk.\nInstall it: bun add @anthropic-ai/claude-agent-sdk",
-		);
+		// Auto-install on first use
+		const pkgRoot = join(import.meta.dir, "..", "..", "..");
+		const result = Bun.spawnSync(["bun", "add", "@anthropic-ai/claude-agent-sdk"], {
+			cwd: pkgRoot,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (result.exitCode !== 0) {
+			throw new Error(
+				"AI features require @anthropic-ai/claude-agent-sdk.\nAuto-install failed — run manually: bun add @anthropic-ai/claude-agent-sdk",
+			);
+		}
+		sdk = await import("@anthropic-ai/claude-agent-sdk");
 	}
 
 	// Forward API key via env (SDK reads ANTHROPIC_API_KEY from process.env)

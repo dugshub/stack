@@ -1,7 +1,13 @@
+export interface StackConfig {
+	describe?: boolean;
+	describeHintDismissed?: boolean;
+}
+
 export interface StackFile {
   repo: string;
   stacks: Record<string, Stack>;
   currentStack: string | null;
+  config?: StackConfig;
 }
 
 export interface Stack {

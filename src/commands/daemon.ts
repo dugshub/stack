@@ -79,8 +79,8 @@ export class DaemonCommand extends Command {
 		}
 	}
 
-	private runStop(): number {
-		if (stopDaemon()) {
+	private async runStop(): Promise<number> {
+		if (await stopDaemon()) {
 			ui.success('Daemon stopped.');
 		} else {
 			ui.info('Daemon is not running.');

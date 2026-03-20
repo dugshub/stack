@@ -67,6 +67,24 @@ function rotateLogIfNeeded(): void {
 	} catch { /* ignore */ }
 }
 
+async function getDaemonPidFromServer(port: number): Promise<number | null> {
+	try {
+		const { loadDaemonToken } = await import('../lib/daemon-client.js');
+		const token = loadDaemonToken();
+		const headers: Record<string, string> = {};
+		if (token) headers.Authorization = `Bearer ${token}`;
+		const resp = await fetch(`http://localhost:${port}/api/status`, {
+			headers,
+			signal: AbortSignal.timeout(2000),
+		});
+		if (!resp.ok) return null;
+		const data = (await resp.json()) as { pid?: number };
+		return data.pid ?? null;
+	} catch {
+		return null;
+	}
+}
+
 export async function startDaemon(): Promise<{ pid: number; port: number }> {
 	const port = getDaemonPort();
 
@@ -88,11 +106,17 @@ export async function startDaemon(): Promise<{ pid: number; port: number }> {
 	const pid = proc.pid!;
 	writeFileSync(PID_FILE, String(pid), 'utf-8');
 
-	// Wait up to 5s for health check
+	// Wait up to 5s for health check, then resolve the real PID from the server
 	for (let i = 0; i < 10; i++) {
 		await new Promise((resolve) => setTimeout(resolve, 500));
 		const healthy = await isDaemonHealthy();
 		if (healthy) {
+			// Get the real PID from the running server (bun run may re-exec)
+			const realPid = await getDaemonPidFromServer(port);
+			if (realPid && realPid !== pid) {
+				writeFileSync(PID_FILE, String(realPid), 'utf-8');
+				return { pid: realPid, port };
+			}
 			return { pid, port };
 		}
 	}
@@ -107,27 +131,38 @@ export async function startDaemon(): Promise<{ pid: number; port: number }> {
 	throw new Error(`Port ${port} in use by another process`);
 }
 
-export function stopDaemon(): boolean {
-	if (!existsSync(PID_FILE)) return false;
-
-	try {
-		const pid = Number.parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
-		if (Number.isNaN(pid)) {
-			cleanupPidFile();
-			return false;
-		}
-		process.kill(pid, 'SIGTERM');
+export async function stopDaemon(): Promise<boolean> {
+	// Try PID file first
+	if (existsSync(PID_FILE)) {
+		try {
+			const pid = Number.parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+			if (!Number.isNaN(pid)) {
+				process.kill(pid, 'SIGTERM');
+				cleanupPidFile();
+				return true;
+			}
+		} catch { /* PID file stale, fall through */ }
 		cleanupPidFile();
-		return true;
-	} catch {
-		cleanupPidFile();
-		return false;
 	}
+
+	// Fallback: ask the running server for its real PID
+	const realPid = await getDaemonPidFromServer(getDaemonPort());
+	if (realPid) {
+		try {
+			process.kill(realPid, 'SIGTERM');
+			return true;
+		} catch { /* ignore */ }
+	}
+
+	return false;
 }
 
 export async function ensureDaemon(): Promise<{ port: number }> {
-	if (isDaemonRunning()) {
-		return { port: getDaemonPort() };
+	const port = getDaemonPort();
+
+	// Check health first — PID file may be stale but daemon could still be running
+	if (isDaemonRunning() || await isDaemonHealthy()) {
+		return { port };
 	}
 
 	// Clean up stale old server.pid if present

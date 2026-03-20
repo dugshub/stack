@@ -65,17 +65,23 @@ export async function invoke(
 	try {
 		sdk = await import("@anthropic-ai/claude-agent-sdk");
 	} catch {
-		// Auto-install on first use
-		const pkgRoot = join(import.meta.dir, "..", "..", "..");
-		const result = Bun.spawnSync(["bun", "add", "@anthropic-ai/claude-agent-sdk"], {
-			cwd: pkgRoot,
+		// Auto-install on first use — try global first (for global installs), then local
+		const globalResult = Bun.spawnSync(["bun", "add", "-g", "@anthropic-ai/claude-agent-sdk"], {
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		if (result.exitCode !== 0) {
-			throw new Error(
-				"AI features require @anthropic-ai/claude-agent-sdk.\nAuto-install failed — run manually: bun add @anthropic-ai/claude-agent-sdk",
-			);
+		if (globalResult.exitCode !== 0) {
+			const pkgRoot = join(import.meta.dir, "..", "..", "..");
+			const localResult = Bun.spawnSync(["bun", "add", "@anthropic-ai/claude-agent-sdk"], {
+				cwd: pkgRoot,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			if (localResult.exitCode !== 0) {
+				throw new Error(
+					"AI features require @anthropic-ai/claude-agent-sdk.\nAuto-install failed — run manually: bun add -g @anthropic-ai/claude-agent-sdk",
+				);
+			}
 		}
 		sdk = await import("@anthropic-ai/claude-agent-sdk");
 	}

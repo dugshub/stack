@@ -7,10 +7,10 @@ import type { StackPosition } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class DownCommand extends Command {
-	static override paths = [['down']];
+	static override paths = [['branch', 'down'], ['down']];
 	static override usage = Command.Usage({
 		description: 'Move down one branch (away from trunk)',
-		examples: [['Move away from trunk', 'stack down']],
+		examples: [['Move away from trunk', 'st down']],
 	});
 
 	stackName = Option.String('--stack,-s', { description: 'Target stack by name' });
@@ -49,7 +49,7 @@ export class DownCommand extends Command {
 
 		const verifyResult = git.tryRun('rev-parse', '--verify', target.name);
 		if (!verifyResult.ok) {
-			ui.error(`Branch "${target.name}" no longer exists. Run ${theme.command('stack remove ' + target.name)} to clean up.`);
+			ui.error(`Branch "${target.name}" no longer exists. Run ${theme.command('st remove ' + target.name)} to clean up.`);
 			return 2;
 		}
 

@@ -11,9 +11,9 @@ export class CompletionsCommand extends Command {
 	static override usage = Command.Usage({
 		description: 'Print shell completion script',
 		examples: [
-			['Print zsh completions', 'stack completions zsh'],
-			['Print bash completions', 'stack completions bash'],
-			['Install zsh completions', 'stack completions --install'],
+			['Print zsh completions', 'st completions zsh'],
+			['Print bash completions', 'st completions bash'],
+			['Install zsh completions', 'st completions --install'],
 		],
 	});
 
@@ -39,7 +39,7 @@ export class CompletionsCommand extends Command {
 			}
 		}
 
-		// Bare `stack completions` or `--install` → auto-install
+		// Bare `st completions` or `--install` → auto-install
 		return this.autoInstall();
 	}
 
@@ -50,38 +50,75 @@ export class CompletionsCommand extends Command {
 			return 2;
 		}
 
-		const marker = '# stack completions';
+		const marker = '# st completions';
+		const oldMarker = '# stack completions';
 
 		if (shell === 'zsh') {
-			// Write completion function to ~/.zfunc/_stack
+			// Write completion function to ~/.zfunc/_st
 			const zfuncDir = join(homedir(), '.zfunc');
 			mkdirSync(zfuncDir, { recursive: true });
-			writeFileSync(join(zfuncDir, '_stack'), this.zshCompletions(), 'utf-8');
+			writeFileSync(join(zfuncDir, '_st'), this.zshCompletions(), 'utf-8');
 
-			// Ensure fpath + compinit in .zshrc (migrate from old eval pattern)
+			// Ensure fpath + compinit in .zshrc (migrate from old patterns)
 			const rcPath = join(homedir(), '.zshrc');
 			let rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
 			const fpathSnippet = `${marker}\nfpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit`;
-			const oldEval = `${marker}\neval "$(stack completions zsh)"`;
-			if (rc.includes(oldEval)) {
-				rc = rc.replace(oldEval, fpathSnippet);
-				writeFileSync(rcPath, rc, 'utf-8');
-			} else if (!rc.includes('~/.zfunc')) {
+
+			// Remove old stack completions if present
+			if (rc.includes(oldMarker)) {
+				const lines = rc.split('\n');
+				const filtered: string[] = [];
+				let skip = false;
+				for (const line of lines) {
+					if (line.trim() === oldMarker) {
+						skip = true;
+						continue;
+					}
+					if (skip && (line.startsWith('fpath=') || line.startsWith('autoload') || line.startsWith('eval "$(stack'))) {
+						continue;
+					}
+					skip = false;
+					filtered.push(line);
+				}
+				rc = filtered.join('\n');
+			}
+
+			if (!rc.includes(marker)) {
 				writeFileSync(rcPath, `${rc}\n${fpathSnippet}\n`, 'utf-8');
 			}
-			ui.success('Installed completions to ~/.zfunc/_stack');
+			ui.success('Installed completions to ~/.zfunc/_st');
 			ui.info('Open a new terminal to activate.');
 			return 0;
 		}
 
 		if (shell === 'bash') {
 			const rcPath = join(homedir(), '.bashrc');
-			const rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
+			let rc = existsSync(rcPath) ? readFileSync(rcPath, 'utf-8') : '';
+
+			// Remove old stack completions if present
+			if (rc.includes(oldMarker)) {
+				const lines = rc.split('\n');
+				const filtered: string[] = [];
+				let skip = false;
+				for (const line of lines) {
+					if (line.trim() === oldMarker) {
+						skip = true;
+						continue;
+					}
+					if (skip && line.startsWith('eval "$(stack')) {
+						continue;
+					}
+					skip = false;
+					filtered.push(line);
+				}
+				rc = filtered.join('\n');
+			}
+
 			if (rc.includes(marker)) {
 				ui.info('Completions already installed in ~/.bashrc');
 				return 0;
 			}
-			const snippet = `\n${marker}\neval "$(stack completions bash)"\n`;
+			const snippet = `\n${marker}\neval "$(st completions bash)"\n`;
 			writeFileSync(rcPath, rc + snippet, 'utf-8');
 			ui.success('Installed completions in ~/.bashrc');
 			ui.info(`Run ${theme.command('source ~/.bashrc')} or open a new terminal.`);
@@ -98,9 +135,10 @@ export class CompletionsCommand extends Command {
 		return null;
 	}
 
-	private commands(): string[] {
+	private topLevelCommands(): string[] {
 		return [
-			'abort', 'absorb', 'bottom', 'check', 'completions', 'continue',
+			'stack', 'branch',
+			'abort', 'absorb', 'bottom', 'check', 'completions', 'config', 'continue',
 			'create', 'daemon', 'delete', 'down', 'fold', 'graph', 'init',
 			'insert', 'merge', 'modify', 'move', 'nav', 'pop', 'remove',
 			'rename', 'reorder', 'restack', 'split', 'status', 'submit',
@@ -108,11 +146,24 @@ export class CompletionsCommand extends Command {
 		];
 	}
 
-	private zshCompletions(): string {
-		const cmds = this.commands();
-		return `#compdef stack
+	private stackSubcommands(): string[] {
+		return ['create', 'delete', 'status', 'submit', 'sync', 'merge', 'restack', 'check', 'graph'];
+	}
 
-_stack() {
+	private branchSubcommands(): string[] {
+		return [
+			'up', 'down', 'top', 'bottom', 'nav', 'track', 'remove', 'pop',
+			'fold', 'rename', 'move', 'insert', 'reorder', 'modify', 'absorb', 'split',
+		];
+	}
+
+	private zshCompletions(): string {
+		const cmds = this.topLevelCommands();
+		const stackSubs = this.stackSubcommands();
+		const branchSubs = this.branchSubcommands();
+		return `#compdef st
+
+_st() {
   local -a commands
   commands=(
 ${cmds.map(c => `    '${c}:${this.commandDescription(c)}'`).join('\n')}
@@ -127,13 +178,27 @@ ${cmds.map(c => `    '${c}:${this.commandDescription(c)}'`).join('\n')}
       _describe 'command' commands
       # Also complete stack names
       local -a stacks
-      stacks=(\${(f)"$(stack status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"})
+      stacks=(\${(f)"$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"})
       if [[ \${#stacks[@]} -gt 0 ]]; then
         _describe 'stack' stacks
       fi
       ;;
     args)
       case $words[1] in
+        stack)
+          local -a stack_cmds
+          stack_cmds=(
+${stackSubs.map(c => `            '${c}:${this.commandDescription(c)}'`).join('\n')}
+          )
+          _describe 'stack command' stack_cmds
+          ;;
+        branch)
+          local -a branch_cmds
+          branch_cmds=(
+${branchSubs.map(c => `            '${c}:${this.commandDescription(c)}'`).join('\n')}
+          )
+          _describe 'branch command' branch_cmds
+          ;;
         create|delete|submit|status|check|restack|sync|merge|graph)
           # Complete --stack flag values
           _arguments \\
@@ -142,7 +207,7 @@ ${cmds.map(c => `    '${c}:${this.commandDescription(c)}'`).join('\n')}
             '*::'
           if [[ $state == stackname ]]; then
             local -a stacks
-            stacks=(\${(f)"$(stack status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"})
+            stacks=(\${(f)"$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"})
             _describe 'stack' stacks
           fi
           ;;
@@ -154,13 +219,15 @@ ${cmds.map(c => `    '${c}:${this.commandDescription(c)}'`).join('\n')}
   esac
 }
 
-_stack "$@"
+_st "$@"
 `;
 	}
 
 	private bashCompletions(): string {
-		const cmds = this.commands();
-		return `_stack() {
+		const cmds = this.topLevelCommands();
+		const stackSubs = this.stackSubcommands();
+		const branchSubs = this.branchSubcommands();
+		return `_st() {
   local cur prev commands
   COMPREPLY=()
   cur="\${COMP_WORDS[COMP_CWORD]}"
@@ -170,19 +237,25 @@ _stack "$@"
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     # Complete commands and stack names
     local stacks
-    stacks="$(stack status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"
+    stacks="$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"
     COMPREPLY=( $(compgen -W "\${commands} \${stacks}" -- "\${cur}") )
     return 0
   fi
 
   case "\${COMP_WORDS[1]}" in
+    stack)
+      COMPREPLY=( $(compgen -W "${stackSubs.join(' ')}" -- "\${cur}") )
+      ;;
+    branch)
+      COMPREPLY=( $(compgen -W "${branchSubs.join(' ')}" -- "\${cur}") )
+      ;;
     completions)
       COMPREPLY=( $(compgen -W "zsh bash" -- "\${cur}") )
       ;;
     create|delete|submit|status|check|restack|sync|merge|graph)
       if [[ "\${prev}" == "--stack" || "\${prev}" == "-s" ]]; then
         local stacks
-        stacks="$(stack status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"
+        stacks="$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"
         COMPREPLY=( $(compgen -W "\${stacks}" -- "\${cur}") )
       else
         COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
@@ -194,17 +267,21 @@ _stack "$@"
   esac
 }
 
-complete -F _stack stack
+complete -F _st st
+complete -F _st stack
 `;
 	}
 
 	private commandDescription(cmd: string): string {
 		const descriptions: Record<string, string> = {
+			stack: 'Stack operations',
+			branch: 'Branch operations',
 			abort: 'Abort an in-progress restack',
 			absorb: 'Route fixes to correct stack branches',
 			bottom: 'Jump to bottom of stack',
 			check: 'Run a command on every branch',
 			completions: 'Print shell completion script',
+			config: 'View or update settings',
 			continue: 'Continue after resolving conflicts',
 			create: 'Create a new stack',
 			daemon: 'Manage background daemon',

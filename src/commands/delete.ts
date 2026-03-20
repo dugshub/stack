@@ -10,15 +10,15 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class DeleteCommand extends Command {
-  static override paths = [['delete']];
+  static override paths = [['stack', 'delete'], ['delete']];
 
   static override usage = Command.Usage({
     description: 'Remove a stack from tracking',
     examples: [
-      ['Remove tracking only', 'stack delete my-stack'],
-      ['Also delete git branches', 'stack delete my-stack --branches'],
-      ['Also close open PRs', 'stack delete my-stack --prs'],
-      ['Delete everything', 'stack delete my-stack --branches --prs'],
+      ['Remove tracking only', 'st delete my-stack'],
+      ['Also delete git branches', 'st delete my-stack --branches'],
+      ['Also close open PRs', 'st delete my-stack --prs'],
+      ['Delete everything', 'st delete my-stack --branches --prs'],
     ],
   });
 

@@ -7,13 +7,13 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class PopCommand extends Command {
-	static override paths = [['pop']];
+	static override paths = [['branch', 'pop'], ['pop']];
 
 	static override usage = Command.Usage({
 		description: 'Remove current branch from stack, keeping changes in working tree',
 		examples: [
-			['Pop current branch', 'stack pop'],
-			['Pop and close PR', 'stack pop --close'],
+			['Pop current branch', 'st pop'],
+			['Pop and close PR', 'st pop --close'],
 		],
 	});
 
@@ -46,7 +46,7 @@ export class PopCommand extends Command {
 		if (stack.restackState) {
 			ui.error(
 				'Cannot pop branches while a restack is in progress. ' +
-					`Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
+					`Run ${theme.command('st continue')} or ${theme.command('st abort')} first.`,
 			);
 			return 2;
 		}

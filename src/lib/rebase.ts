@@ -22,7 +22,7 @@ export function rebaseBranch(opts: RebaseBranchOpts): RebaseBranchResult {
 
 	// Fork point: parentTip (correct) → fallback (legacy) → merge-base (last resort)
 	// Validate parentTip is still reachable from the branch — it can become stale
-	// if the user rebased outside of `stack restack` (e.g. `git rebase origin/main`).
+	// if the user rebased outside of `st restack` (e.g. `git rebase origin/main`).
 	const parentTip =
 		branch.parentTip && git.isAncestor(branch.parentTip, branch.name)
 			? branch.parentTip
@@ -112,7 +112,7 @@ export function cascadeRebase(opts: CascadeOpts): CascadeResult {
 				}
 			}
 			ui.info(
-				`Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`,
+				`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`,
 			);
 			return {
 				ok: false,

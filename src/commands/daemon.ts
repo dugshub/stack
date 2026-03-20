@@ -23,11 +23,11 @@ export class DaemonCommand extends Command {
 	static override usage = Command.Usage({
 		description: 'Manage the background daemon',
 		examples: [
-			['Start the daemon', 'stack daemon start'],
-			['Stop the daemon', 'stack daemon stop'],
-			['Show daemon status', 'stack daemon status'],
-			['View daemon logs', 'stack daemon logs'],
-			['Configure daemon', 'stack daemon setup'],
+			['Start the daemon', 'st daemon start'],
+			['Stop the daemon', 'st daemon stop'],
+			['Show daemon status', 'st daemon status'],
+			['View daemon logs', 'st daemon logs'],
+			['Configure daemon', 'st daemon setup'],
 		],
 	});
 

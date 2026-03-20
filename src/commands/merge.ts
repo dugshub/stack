@@ -20,14 +20,14 @@ import { getDaemonPort } from '../server/lifecycle.js';
 import type { MergeJob, MergeStep } from '../server/types.js';
 
 export class MergeCommand extends Command {
-	static override paths = [['merge']];
+	static override paths = [['stack', 'merge'], ['merge']];
 
 	static override usage = Command.Usage({
 		description: 'Merge stack PRs bottom-up via webhook-driven orchestration',
 		examples: [
-			['Merge entire stack', 'stack merge --all'],
-			['Show merge plan', 'stack merge --dry-run'],
-			['Check active merge status', 'stack merge --status'],
+			['Merge entire stack', 'st merge --all'],
+			['Show merge plan', 'st merge --dry-run'],
+			['Check active merge status', 'st merge --status'],
 		],
 	});
 
@@ -78,7 +78,7 @@ export class MergeCommand extends Command {
 
 		if (!this.all) {
 			ui.error(
-				`Use ${theme.command('stack merge --all')} to merge the entire stack.`,
+				`Use ${theme.command('st merge --all')} to merge the entire stack.`,
 			);
 			return 2;
 		}
@@ -136,7 +136,7 @@ export class MergeCommand extends Command {
 		}
 
 		process.stderr.write(
-			`\nRun ${theme.command('stack merge --all')} to start.\n`,
+			`\nRun ${theme.command('st merge --all')} to start.\n`,
 		);
 		return 0;
 	}
@@ -183,7 +183,7 @@ export class MergeCommand extends Command {
 		if (activeJob.status === 'running' && ageMs > STALE_THRESHOLD_MS) {
 			process.stderr.write('\n');
 			ui.warn(`This job hasn't been updated in ${Math.round(ageMs / 60000)} minutes.`);
-			ui.info(`If it's stuck, run ${theme.command('stack merge --abort')} to cancel it.`);
+			ui.info(`If it's stuck, run ${theme.command('st merge --abort')} to cancel it.`);
 		}
 
 		process.stderr.write('\n');
@@ -203,7 +203,7 @@ export class MergeCommand extends Command {
 
 		// Guard: restack in progress
 		if (stack.restackState) {
-			ui.error('A restack is in progress. Finish it first with `stack continue` or `stack abort`.');
+			ui.error('A restack is in progress. Finish it first with `st continue` or `st abort`.');
 			return 2;
 		}
 
@@ -241,7 +241,7 @@ export class MergeCommand extends Command {
 						message: 'Abort the stale job and start a new merge?',
 					});
 					if (p.isCancel(abortStale) || !abortStale) {
-						ui.info(`Use ${theme.command('stack merge --status')} to check progress.`);
+						ui.info(`Use ${theme.command('st merge --status')} to check progress.`);
 						return 2;
 					}
 					existing.status = 'failed';
@@ -254,12 +254,12 @@ export class MergeCommand extends Command {
 					saveJob(existing);
 					ui.success('Stale job aborted.');
 				} else {
-					ui.error(`A stale merge job exists. Run ${theme.command('stack merge --abort')} to cancel it.`);
+					ui.error(`A stale merge job exists. Run ${theme.command('st merge --abort')} to cancel it.`);
 					return 2;
 				}
 			} else {
 				ui.error(
-					`A merge job is already active for this stack. Use ${theme.command('stack merge --status')} to check progress.`,
+					`A merge job is already active for this stack. Use ${theme.command('st merge --status')} to check progress.`,
 				);
 				return 2;
 			}
@@ -364,7 +364,7 @@ export class MergeCommand extends Command {
 					// Abort the failed rebase so we leave a clean state
 					git.tryRun('rebase', '--abort');
 					git.checkout(currentBranch);
-					ui.error('Pre-merge restack failed. Resolve conflicts with `stack restack` first.');
+					ui.error('Pre-merge restack failed. Resolve conflicts with `st restack` first.');
 					return 2;
 				}
 				if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
@@ -378,7 +378,7 @@ export class MergeCommand extends Command {
 					if (!cascadeResult.ok) {
 						git.tryRun('rebase', '--abort');
 						git.checkout(currentBranch);
-						ui.error('Pre-merge restack failed. Resolve conflicts with `stack restack` first.');
+						ui.error('Pre-merge restack failed. Resolve conflicts with `st restack` first.');
 						return 2;
 					}
 				}
@@ -517,7 +517,7 @@ export class MergeCommand extends Command {
 			`#${steps[0]?.prNumber} \u2014 auto-merge enabled`,
 		);
 		ui.info(
-			`Waiting for CI + merge... (${theme.command('stack merge --status')} to check)`,
+			`Waiting for CI + merge... (${theme.command('st merge --status')} to check)`,
 		);
 
 		// Connect to SSE for live updates
@@ -728,7 +728,7 @@ export class MergeCommand extends Command {
 
 		clearInterval(pollInterval);
 		ui.error('Lost connection to merge server after multiple retries.');
-		ui.info(`Use ${theme.command('stack merge --status')} to check progress.`);
+		ui.info(`Use ${theme.command('st merge --status')} to check progress.`);
 		return 1;
 	}
 
@@ -876,7 +876,7 @@ export class MergeCommand extends Command {
 		}
 
 		ui.error('Lost connection to merge server after multiple retries.');
-		ui.info(`Use ${theme.command('stack merge --status')} to check progress.`);
+		ui.info(`Use ${theme.command('st merge --status')} to check progress.`);
 		return 1;
 	}
 

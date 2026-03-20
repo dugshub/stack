@@ -7,10 +7,10 @@ import type { StackPosition } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class BottomCommand extends Command {
-	static override paths = [['bottom']];
+	static override paths = [['branch', 'bottom'], ['bottom']];
 	static override usage = Command.Usage({
 		description: 'Jump to bottom of stack',
-		examples: [['Jump to bottom of stack', 'stack bottom']],
+		examples: [['Jump to bottom of stack', 'st bottom']],
 	});
 
 	stackName = Option.String('--stack,-s', { description: 'Target stack by name' });
@@ -49,7 +49,7 @@ export class BottomCommand extends Command {
 
 		const verifyResult = git.tryRun('rev-parse', '--verify', target.name);
 		if (!verifyResult.ok) {
-			ui.error(`Branch "${target.name}" no longer exists. Run ${theme.command('stack remove ' + target.name)} to clean up.`);
+			ui.error(`Branch "${target.name}" no longer exists. Run ${theme.command('st remove ' + target.name)} to clean up.`);
 			return 2;
 		}
 

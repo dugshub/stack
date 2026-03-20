@@ -9,28 +9,28 @@ import type { Stack } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class CreateCommand extends Command {
-  static override paths = [['create']];
+  static override paths = [['stack', 'create'], ['create']];
 
   static override usage = Command.Usage({
     description: 'Create a new stack or adopt existing branches',
     examples: [
-      ['Create a new stack', 'stack create frozen-column'],
+      ['Create a new stack', 'st create frozen-column'],
       [
         'Create with first branch description',
-        'stack create frozen-column --description sticky-header',
+        'st create frozen-column --description sticky-header',
       ],
       [
         'Adopt existing branches',
-        'stack create frozen-column --from branch1 branch2',
+        'st create frozen-column --from branch1 branch2',
       ],
-      ['Auto-detect from current branch', 'stack create'],
+      ['Auto-detect from current branch', 'st create'],
       [
         'Create a dependent stack from a specific branch',
-        'stack create cache-invalidation --base user/stack/5-cache-docs -d initial-setup',
+        'st create cache-invalidation --base user/stack/5-cache-docs -d initial-setup',
       ],
       [
         'Create a dependent stack from current branch',
-        'stack create cache-invalidation -b . -d initial-setup',
+        'st create cache-invalidation -b . -d initial-setup',
       ],
     ],
   });

@@ -8,13 +8,13 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class RenameCommand extends Command {
-	static override paths = [['rename']];
+	static override paths = [['branch', 'rename'], ['rename']];
 
 	static override usage = Command.Usage({
 		description: 'Rename the current branch in the stack',
 		examples: [
-			['Rename current branch', 'stack rename new-name'],
-			['Rename without updating PR title', 'stack rename new-name --no-pr-update'],
+			['Rename current branch', 'st rename new-name'],
+			['Rename without updating PR title', 'st rename new-name --no-pr-update'],
 		],
 	});
 

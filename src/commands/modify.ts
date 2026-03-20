@@ -7,15 +7,15 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class ModifyCommand extends Command {
-	static override paths = [['modify']];
+	static override paths = [['branch', 'modify'], ['modify']];
 
 	static override usage = Command.Usage({
 		description: 'Amend staged changes into the current commit and restack',
 		examples: [
-			['Amend staged changes and restack', 'stack modify'],
-			['Stage all changes, amend, and restack', 'stack modify -a'],
-			['Amend with a new commit message', 'stack modify -m "new message"'],
-			['Amend without restacking', 'stack modify --no-restack'],
+			['Amend staged changes and restack', 'st modify'],
+			['Stage all changes, amend, and restack', 'st modify -a'],
+			['Amend with a new commit message', 'st modify -m "new message"'],
+			['Amend without restacking', 'st modify --no-restack'],
 		],
 	});
 
@@ -116,7 +116,7 @@ export class ModifyCommand extends Command {
 			ui.success(`Restacked ${cascadeResult.rebased} downstream branch(es)`);
 		} else {
 			ui.error('Restack encountered conflicts.');
-			ui.info(`Resolve conflicts, then run ${theme.command('stack continue')}.`);
+			ui.info(`Resolve conflicts, then run ${theme.command('st continue')}.`);
 			return 1;
 		}
 

@@ -6,13 +6,13 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class TrackCommand extends Command {
-	static override paths = [['track']];
+	static override paths = [['branch', 'track'], ['track']];
 
 	static override usage = Command.Usage({
 		description: 'Add the current branch to a stack',
 		examples: [
-			['Track current branch in active stack', 'stack track'],
-			['Track in a specific stack', 'stack track --stack frozen-column'],
+			['Track current branch in active stack', 'st track'],
+			['Track in a specific stack', 'st track --stack frozen-column'],
 		],
 	});
 
@@ -46,7 +46,7 @@ export class TrackCommand extends Command {
 			// Check if there is exactly one stack — use it
 			const stackNames = Object.keys(state.stacks);
 			if (stackNames.length === 0) {
-				ui.error(`No tracked stacks. Use ${theme.command('stack create <name>')} to start one.`);
+				ui.error(`No tracked stacks. Use ${theme.command('st create <name>')} to start one.`);
 				return 2;
 			}
 			if (stackNames.length === 1) {

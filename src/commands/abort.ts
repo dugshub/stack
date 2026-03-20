@@ -10,7 +10,7 @@ export class AbortCommand extends Command {
 	static override usage = Command.Usage({
 		description: 'Abort an in-progress restack',
 		examples: [
-			['Abort an in-progress restack', 'stack abort'],
+			['Abort an in-progress restack', 'st abort'],
 		],
 	});
 

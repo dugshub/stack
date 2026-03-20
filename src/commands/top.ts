@@ -7,10 +7,10 @@ import type { StackPosition } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class TopCommand extends Command {
-	static override paths = [['top']];
+	static override paths = [['branch', 'top'], ['top']];
 	static override usage = Command.Usage({
 		description: 'Jump to top of stack',
-		examples: [['Jump to top of stack', 'stack top']],
+		examples: [['Jump to top of stack', 'st top']],
 	});
 
 	stackName = Option.String('--stack,-s', { description: 'Target stack by name' });
@@ -50,7 +50,7 @@ export class TopCommand extends Command {
 
 		const verifyResult = git.tryRun('rev-parse', '--verify', target.name);
 		if (!verifyResult.ok) {
-			ui.error(`Branch "${target.name}" no longer exists. Run ${theme.command('stack remove ' + target.name)} to clean up.`);
+			ui.error(`Branch "${target.name}" no longer exists. Run ${theme.command('st remove ' + target.name)} to clean up.`);
 			return 2;
 		}
 

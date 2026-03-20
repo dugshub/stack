@@ -12,11 +12,11 @@ import * as ui from '../lib/ui.js';
 import { findActiveJobForStack } from '../server/state.js';
 
 export class SyncCommand extends Command {
-  static override paths = [['sync']];
+  static override paths = [['stack', 'sync'], ['sync']];
 
   static override usage = Command.Usage({
     description: 'Sync stack: remove merged branches, rebase remaining',
-    examples: [['Sync current stack', 'stack sync']],
+    examples: [['Sync current stack', 'st sync']],
   });
 
   stackName = Option.String('--stack,-s', {
@@ -35,7 +35,7 @@ export class SyncCommand extends Command {
             const activeJob = findActiveJobForStack(name);
             if (activeJob) {
               ui.error(
-                `A merge job is active for this stack. Use ${theme.command('stack merge --status')} to check progress.`,
+                `A merge job is active for this stack. Use ${theme.command('st merge --status')} to check progress.`,
               );
               return 2;
             }
@@ -275,7 +275,7 @@ export class SyncCommand extends Command {
             }
           }
           ui.info(
-            `Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`,
+            `Resolve conflicts, stage files, then run ${theme.command('st continue')}.`,
           );
           return 1;
         }

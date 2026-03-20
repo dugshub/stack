@@ -15,7 +15,7 @@ export class ContinueCommand extends Command {
 	static override usage = Command.Usage({
 		description: 'Continue a paused restack after resolving conflicts',
 		examples: [
-			['Continue after resolving conflicts', 'stack continue'],
+			['Continue after resolving conflicts', 'st continue'],
 		],
 	});
 
@@ -153,7 +153,7 @@ export class ContinueCommand extends Command {
 			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
 
 			if (!cascade) {
-				ui.info(`Tip: Run ${theme.command(`stack restack -s ${depName}`)} to update it.`);
+				ui.info(`Tip: Run ${theme.command(`st restack -s ${depName}`)} to update it.`);
 				continue;
 			}
 
@@ -200,7 +200,7 @@ export class ContinueCommand extends Command {
 								ui.info(`  ${file}`);
 							}
 						}
-						ui.info(`Resolve conflicts, stage files, then run ${theme.command('stack continue')}.`);
+						ui.info(`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`);
 						return;
 					}
 				}

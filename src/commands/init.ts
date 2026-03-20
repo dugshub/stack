@@ -11,7 +11,7 @@ export class InitCommand extends Command {
 	static override usage = Command.Usage({
 		description: 'Install Claude Code skills for stack management into the current project',
 		examples: [
-			['Install skills into current project', 'stack init'],
+			['Install skills into current project', 'st init'],
 		],
 	});
 

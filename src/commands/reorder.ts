@@ -7,13 +7,13 @@ import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class ReorderCommand extends Command {
-	static override paths = [['reorder']];
+	static override paths = [['branch', 'reorder'], ['reorder']];
 
 	static override usage = Command.Usage({
 		description: 'Reorder branches in the stack',
 		examples: [
-			['Reorder branches', 'stack reorder 3 1 2 4'],
-			['Preview the reorder', 'stack reorder --dry-run 3 1 2 4'],
+			['Reorder branches', 'st reorder 3 1 2 4'],
+			['Preview the reorder', 'st reorder --dry-run 3 1 2 4'],
 		],
 	});
 
@@ -48,14 +48,14 @@ export class ReorderCommand extends Command {
 
 		if (stack.restackState) {
 			ui.error(
-				`Restack in progress. Run ${theme.command('stack continue')} or ${theme.command('stack abort')} first.`,
+				`Restack in progress. Run ${theme.command('st continue')} or ${theme.command('st abort')} first.`,
 			);
 			return 2;
 		}
 
 		if (this.positions.length === 0) {
 			ui.error(
-				'Provide position numbers for the new order. Example: stack reorder 3 1 2 4',
+				'Provide position numbers for the new order. Example: st reorder 3 1 2 4',
 			);
 			return 2;
 		}
@@ -130,7 +130,7 @@ export class ReorderCommand extends Command {
 			`Reordered branches in stack ${theme.stack(resolvedName)}.`,
 		);
 		ui.warn(
-			`Branches reordered. Run ${theme.command('stack restack')} to rebase, then ${theme.command('stack submit')} to update PRs.`,
+			`Branches reordered. Run ${theme.command('st restack')} to rebase, then ${theme.command('st submit')} to update PRs.`,
 		);
 		return 0;
 	}

@@ -137,7 +137,7 @@ export class CompletionsCommand extends Command {
 
 	private topLevelCommands(): string[] {
 		return [
-			'stack', 'branch',
+			'stack', 's', 'branch', 'b',
 			'abort', 'absorb', 'bottom', 'check', 'completions', 'config', 'continue',
 			'create', 'daemon', 'delete', 'down', 'fold', 'graph', 'init',
 			'insert', 'merge', 'modify', 'move', 'nav', 'pop', 'remove',
@@ -185,14 +185,14 @@ ${cmds.map(c => `    '${c}:${this.commandDescription(c)}'`).join('\n')}
       ;;
     args)
       case $words[1] in
-        stack)
+        stack|s)
           local -a stack_cmds
           stack_cmds=(
 ${stackSubs.map(c => `            '${c}:${this.commandDescription(c)}'`).join('\n')}
           )
           _describe 'stack command' stack_cmds
           ;;
-        branch)
+        branch|b)
           local -a branch_cmds
           branch_cmds=(
 ${branchSubs.map(c => `            '${c}:${this.commandDescription(c)}'`).join('\n')}
@@ -243,10 +243,10 @@ _st "$@"
   fi
 
   case "\${COMP_WORDS[1]}" in
-    stack)
+    stack|s)
       COMPREPLY=( $(compgen -W "${stackSubs.join(' ')}" -- "\${cur}") )
       ;;
-    branch)
+    branch|b)
       COMPREPLY=( $(compgen -W "${branchSubs.join(' ')}" -- "\${cur}") )
       ;;
     completions)
@@ -275,7 +275,9 @@ complete -F _st stack
 	private commandDescription(cmd: string): string {
 		const descriptions: Record<string, string> = {
 			stack: 'Stack operations',
+			s: 'Shorthand for stack',
 			branch: 'Branch operations',
+			b: 'Shorthand for branch',
 			abort: 'Abort an in-progress restack',
 			absorb: 'Route fixes to correct stack branches',
 			bottom: 'Jump to bottom of stack',

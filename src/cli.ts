@@ -40,6 +40,12 @@ const args = rawArgs.length === 1 && /^\d+$/.test(rawArgs[0] ?? '')
   ? ['nav', rawArgs[0]!]
   : rawArgs;
 
+// `st s ...` → `st stack ...`, `st b ...` → `st branch ...`
+const groupShorthands: Record<string, string> = { s: 'stack', b: 'branch' };
+if (args[0] && args[0] in groupShorthands) {
+  args[0] = groupShorthands[args[0]]!;
+}
+
 // Bare `st stack` and `st branch` show help (no repo needed)
 const isBareGroupHelp = args.length === 1 && (args[0] === 'stack' || args[0] === 'branch');
 const needsRepo = args.length > 0 && !isBareGroupHelp && !args.some((a) => noRepoRequired.includes(a));
@@ -65,8 +71,8 @@ function showHelp(): never {
     ['modify',               'Amend and restack'],
     ['sync',                 'Clean up after merges'],
     ['',                     ''],
-    ['stack ...',             'Stack operations (create, delete, submit, merge, ...)'],
-    ['branch ...',            'Branch operations (up, down, fold, move, insert, ...)'],
+    ['stack | s ...',         'Stack operations (create, delete, submit, merge, ...)'],
+    ['branch | b ...',        'Branch operations (up, down, fold, move, insert, ...)'],
     ['',                     ''],
     ['continue / abort',     'Conflict resolution'],
     ['undo',                 'Undo last command'],

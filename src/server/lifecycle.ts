@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -77,14 +78,14 @@ export async function startDaemon(): Promise<{ pid: number; port: number }> {
 	const serverPath = join(import.meta.dir, 'index.ts');
 	const logFd = openSync(LOG_FILE, 'a');
 
-	const proc = Bun.spawn(['bun', 'run', serverPath], {
-		stdout: logFd,
-		stderr: logFd,
-		stdin: 'ignore',
+	// Use Node's child_process with detached:true to properly daemonize
+	const proc = spawn('bun', ['run', serverPath], {
+		detached: true,
+		stdio: ['ignore', logFd, logFd],
 	});
 	proc.unref();
 
-	const pid = proc.pid;
+	const pid = proc.pid!;
 	writeFileSync(PID_FILE, String(pid), 'utf-8');
 
 	// Wait up to 5s for health check

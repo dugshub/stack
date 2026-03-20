@@ -12,7 +12,7 @@ function buildAgent(context: {
 	headBranch: string;
 }): AgentDef {
 	return {
-		model: "claude-haiku-4-5",
+		model: "claude-sonnet-4-6",
 		background: {
 			"Stack info": {
 				stack: context.stackName,

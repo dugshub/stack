@@ -197,48 +197,47 @@ export class SubmitCommand extends Command {
 		const createBatch = new MutationBatch(repoNodeId);
 		const createAliases = new Map<string, number>(); // alias -> branch index
 
+		// Collect branches that need PRs
+		const toCreate: Array<{ index: number; branch: typeof stack.branches[0]; base: string; title: string }> = [];
 		for (let i = 0; i < stack.branches.length; i++) {
 			const branch = stack.branches[i];
 			if (!branch || branch.pr != null) continue;
-			const base =
-				i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
-			const title = this.deriveTitle(branch.name);
+			const base = i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
+			toCreate.push({ index: i, branch, base, title: this.deriveTitle(branch.name) });
+		}
 
-			let body: string;
-			if (useDescribe && apiKey) {
-				try {
-					const { generatePrDescription } = await import(
-						"../lib/ai/pr-description.js"
-					);
-					ui.info(
-						`  Generating PR description for ${theme.branch(branch.name)}...`,
-					);
-					body = await generatePrDescription({
+		// Generate AI descriptions in parallel (if enabled)
+		const createBodies = new Map<number, string>();
+		if (useDescribe && apiKey && toCreate.length > 0) {
+			const { generatePrDescription } = await import("../lib/ai/pr-description.js");
+			ui.info(`  Generating ${toCreate.length} PR description${toCreate.length > 1 ? 's' : ''}...`);
+			const results = await Promise.allSettled(
+				toCreate.map(({ index, branch, base }) =>
+					generatePrDescription({
 						baseBranch: base,
 						headBranch: branch.name,
 						stackName,
-						branchIndex: i,
+						branchIndex: index,
 						totalBranches: stack.branches.length,
-						apiKey,
-					});
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
+						apiKey: apiKey!,
+					}).then((body) => ({ index, body })),
+				),
+			);
+			for (const result of results) {
+				if (result.status === "fulfilled") {
+					createBodies.set(result.value.index, result.value.body);
+				} else {
+					const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
 					ui.warn(`  AI description failed: ${msg}. Using default.`);
-					body = this.generatePrBody(i, stack.branches.length, stackName);
 				}
-			} else {
-				body = this.generatePrBody(i, stack.branches.length, stackName);
 			}
+		}
 
-			const alias = `create_${i}`;
-			createBatch.createPR(alias, {
-				base,
-				head: branch.name,
-				title,
-				body,
-				draft: true,
-			});
-			createAliases.set(alias, i);
+		for (const { index, branch, base, title } of toCreate) {
+			const body = createBodies.get(index) ?? this.generatePrBody(index, stack.branches.length, stackName);
+			const alias = `create_${index}`;
+			createBatch.createPR(alias, { base, head: branch.name, title, body, draft: true });
+			createAliases.set(alias, index);
 		}
 
 		// Track newly created PR numbers for --ready suggestion
@@ -318,36 +317,45 @@ export class SubmitCommand extends Command {
 			const descBatch = new MutationBatch(repoNodeId);
 			const descUpdates: Array<{ pr: number; alias: string }> = [];
 
+			// Collect branches to update
+			const toUpdate: Array<{ index: number; branch: typeof stack.branches[0]; base: string; nodeId: string }> = [];
 			for (let i = 0; i < stack.branches.length; i++) {
 				const branch = stack.branches[i];
 				if (!branch?.pr) continue;
 				const nodeId = prNodeIds.get(branch.pr);
 				if (!nodeId) continue;
+				const base = i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
+				toUpdate.push({ index: i, branch, base, nodeId });
+			}
 
-				const base =
-					i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
+			if (toUpdate.length > 0) {
+				const { generatePrDescription } = await import("../lib/ai/pr-description.js");
+				ui.info(`  Generating ${toUpdate.length} PR description${toUpdate.length > 1 ? 's' : ''} in parallel...`);
 
-				try {
-					const { generatePrDescription } = await import(
-						"../lib/ai/pr-description.js"
-					);
-					ui.info(
-						`  Generating description for ${theme.pr(`#${branch.pr}`)}...`,
-					);
-					const body = await generatePrDescription({
-						baseBranch: base,
-						headBranch: branch.name,
-						stackName,
-						branchIndex: i,
-						totalBranches: stack.branches.length,
-						apiKey,
-					});
-					const alias = `desc_${i}`;
-					descBatch.updatePRBody(alias, nodeId, body);
-					descUpdates.push({ pr: branch.pr, alias });
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					ui.warn(`  AI description failed for #${branch.pr}: ${msg}`);
+				const results = await Promise.allSettled(
+					toUpdate.map(({ index, branch, base }) =>
+						generatePrDescription({
+							baseBranch: base,
+							headBranch: branch.name,
+							stackName,
+							branchIndex: index,
+							totalBranches: stack.branches.length,
+							apiKey: apiKey!,
+						}).then((body) => ({ index, body })),
+					),
+				);
+
+				for (const result of results) {
+					if (result.status === "fulfilled") {
+						const { index, body } = result.value;
+						const item = toUpdate.find((u) => u.index === index)!;
+						const alias = `desc_${index}`;
+						descBatch.updatePRBody(alias, item.nodeId, body);
+						descUpdates.push({ pr: item.branch.pr!, alias });
+					} else {
+						const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+						ui.warn(`  AI description failed: ${msg}`);
+					}
 				}
 			}
 

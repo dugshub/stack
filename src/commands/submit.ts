@@ -42,6 +42,10 @@ export class SubmitCommand extends Command {
 		description: "Generate PR descriptions with AI via Anthropic API (default: from config)",
 	});
 
+	update = Option.Boolean("--update", false, {
+		description: "Regenerate AI descriptions for existing PRs",
+	});
+
 	async execute(): Promise<number> {
 		const state = loadAndRefreshState();
 
@@ -59,7 +63,7 @@ export class SubmitCommand extends Command {
 			return this.showDryRun(stack, resolvedName);
 		}
 
-		let useDescribe = this.describe ?? state.config?.describe ?? false;
+		let useDescribe = this.update || (this.describe ?? state.config?.describe ?? false);
 		let apiKey: string | null = null;
 
 		if (useDescribe) {
@@ -71,7 +75,7 @@ export class SubmitCommand extends Command {
 			}
 		}
 
-		return this.fullSubmit(state, stack, resolvedName, position, useDescribe, apiKey);
+		return this.fullSubmit(state, stack, resolvedName, position, useDescribe, apiKey, this.update);
 	}
 
 	private showDryRun(
@@ -120,6 +124,7 @@ export class SubmitCommand extends Command {
 		position: import("../lib/types.js").StackPosition | null,
 		useDescribe: boolean,
 		apiKey: string | null,
+		updateExisting = false,
 	): Promise<number> {
 		saveSnapshot('submit');
 		const originalBranch = position ? git.currentBranch() : null;
@@ -308,7 +313,65 @@ export class SubmitCommand extends Command {
 			});
 		}
 
-		// Phase 5: Execute updates + comments (one mutation)
+		// Phase 5: Update descriptions for existing PRs (if --update)
+		if (updateExisting && useDescribe && apiKey) {
+			const descBatch = new MutationBatch(repoNodeId);
+			const descUpdates: Array<{ pr: number; alias: string }> = [];
+
+			for (let i = 0; i < stack.branches.length; i++) {
+				const branch = stack.branches[i];
+				if (!branch?.pr) continue;
+				const nodeId = prNodeIds.get(branch.pr);
+				if (!nodeId) continue;
+
+				const base =
+					i === 0 ? stack.trunk : (stack.branches[i - 1]?.name ?? stack.trunk);
+
+				try {
+					const { generatePrDescription } = await import(
+						"../lib/ai/pr-description.js"
+					);
+					ui.info(
+						`  Generating description for ${theme.pr(`#${branch.pr}`)}...`,
+					);
+					const body = await generatePrDescription({
+						baseBranch: base,
+						headBranch: branch.name,
+						stackName,
+						branchIndex: i,
+						totalBranches: stack.branches.length,
+						apiKey,
+					});
+					const alias = `desc_${i}`;
+					descBatch.updatePRBody(alias, nodeId, body);
+					descUpdates.push({ pr: branch.pr, alias });
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					ui.warn(`  AI description failed for #${branch.pr}: ${msg}`);
+				}
+			}
+
+			if (!descBatch.isEmpty) {
+				try {
+					const result = descBatch.flush();
+					const failedPaths = new Set(
+						result.errors.map((e) => e.path?.[0] ?? ""),
+					);
+					for (const upd of descUpdates) {
+						if (failedPaths.has(upd.alias)) {
+							ui.warn(`Failed to update description on ${theme.pr(`#${upd.pr}`)}`);
+						} else {
+							ui.success(`Updated description on ${theme.pr(`#${upd.pr}`)}`);
+						}
+					}
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					ui.warn(`Failed to update descriptions: ${msg}`);
+				}
+			}
+		}
+
+		// Phase 6: Execute updates + comments (one mutation)
 		const updateBatch = new MutationBatch(repoNodeId);
 		const baseUpdates: Array<{ pr: number; base: string; alias: string }> = [];
 		const commentUpdates: Array<{ pr: number; alias: string }> = [];

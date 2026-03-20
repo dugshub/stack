@@ -195,6 +195,19 @@ export class MutationBatch {
 		return this;
 	}
 
+	updatePRBody(alias: string, prNodeId: string, body: string): this {
+		this.entries.push({
+			alias,
+			body: `updatePullRequest(input: {
+      pullRequestId: ${JSON.stringify(prNodeId)}
+      body: ${JSON.stringify(body)}
+    }) {
+      pullRequest { id number }
+    }`,
+		});
+		return this;
+	}
+
 	updatePRBase(alias: string, prNodeId: string, base: string): this {
 		this.entries.push({
 			alias,

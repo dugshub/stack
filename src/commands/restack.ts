@@ -129,14 +129,14 @@ export class RestackCommand extends Command {
 		});
 
 		if (cascadeResult.ok) {
-			// Return to the original branch
-			git.checkout(originalBranch);
 			// Refresh commit statuses
 			gh.updateMergeReadyStatuses(state.repo, stack.branches, stack.trunk);
 			ui.success(
 				`Restacked ${cascadeResult.rebased + (fromIndex === -1 && stack.branches.length > 0 ? 1 : 0)} branches in "${resolvedName}"`,
 			);
 			await this.cascadeDependentStacks(state, resolvedName, this.cascade, new Set());
+			// Return to the original branch (after dependent cascades which may move HEAD)
+			git.checkout(originalBranch);
 		}
 
 		return cascadeResult.ok ? 0 : 1;

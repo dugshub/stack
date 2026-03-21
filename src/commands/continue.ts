@@ -20,6 +20,7 @@ export class ContinueCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
+		const originalBranch = git.currentBranch();
 		const state = loadAndRefreshState();
 		const position = findActiveStack(state);
 
@@ -122,6 +123,8 @@ export class ContinueCommand extends Command {
 				`Restacked remaining branches in "${stackName}"`,
 			);
 			await this.cascadeDependentStacks(state, stackName, true, new Set());
+			// Return to the original branch (after dependent cascades which may move HEAD)
+			git.checkout(originalBranch);
 		}
 
 		return cascadeResult.ok ? 0 : 1;

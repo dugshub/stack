@@ -32,8 +32,9 @@ export class ConfigCommand extends Command {
 
 		if (this.describe === true) {
 			// Enable: ensure auth
-			ui.info("AI descriptions use the Anthropic API (billed to your account).");
 			if (this.key) {
+				ui.warn("Storing an API key — calls will be billed to this key's account.");
+				ui.info("Consider using `st login` for OAuth instead.");
 				const { saveCredentials } = await import("../lib/ai/auth.js");
 				saveCredentials({
 					apiKey: this.key,
@@ -44,7 +45,7 @@ export class ConfigCommand extends Command {
 				const { ensureAuth } = await import("../lib/ai/pr-description.js");
 				const apiKey = await ensureAuth();
 				if (!apiKey) {
-					ui.warn("No API key provided. AI descriptions not enabled.");
+					ui.warn("Auth not configured. AI descriptions not enabled.");
 					return 1;
 				}
 			}
@@ -65,16 +66,26 @@ export class ConfigCommand extends Command {
 		}
 
 		// Show config
-		const { hasCredentials } = await import("../lib/ai/auth.js");
+		const { resolveAuth } = await import("../lib/ai/auth.js");
 		const descStatus = state.config?.describe
 			? theme.accent("enabled")
 			: theme.muted("disabled");
-		const authStatus = hasCredentials()
-			? theme.accent("configured")
-			: theme.muted("not configured");
+		const auth = resolveAuth();
+		let authStatus: string;
+		if (!auth) {
+			authStatus = theme.muted("not configured — run `st login`");
+		} else {
+			const labels: Record<string, string> = {
+				"oauth": "OAuth",
+				"claude-code": "Claude Code OAuth",
+				"env-api-key": "ANTHROPIC_API_KEY env var",
+				"stored-api-key": "stored API key",
+			};
+			authStatus = theme.accent(labels[auth.source] ?? auth.source);
+		}
 		ui.heading("Configuration");
 		ui.info(`  AI PR descriptions: ${descStatus}`);
-		ui.info(`  API key: ${authStatus}`);
+		ui.info(`  Auth: ${authStatus}`);
 		return 0;
 	}
 }

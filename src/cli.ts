@@ -147,33 +147,6 @@ if (!skipDaemon) {
   try {
     const { ensureDaemon } = await import('./server/lifecycle.js');
     await ensureDaemon();
-
-    // Fire-and-forget: register current repo with daemon
-    if (git.tryRun('rev-parse', '--show-toplevel').ok) {
-      try {
-        const { loadState } = await import('./lib/state.js');
-        const { loadDaemonToken } = await import('./lib/daemon-client.js');
-        const { getDaemonPort } = await import('./server/lifecycle.js');
-        const state = loadState();
-        let repoName = state.repo;
-        if (!repoName) {
-          const { repoFullName } = await import('./lib/gh.js');
-          repoName = repoFullName();
-        }
-        if (repoName) {
-          const token = loadDaemonToken();
-          const port = getDaemonPort();
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-          if (token) headers.Authorization = `Bearer ${token}`;
-          fetch(`http://localhost:${port}/api/repos`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ repo: repoName }),
-            signal: AbortSignal.timeout(1000),
-          }).catch(() => {});
-        }
-      } catch { /* non-fatal */ }
-    }
   } catch { /* daemon start failed — non-fatal, commands still work */ }
 }
 

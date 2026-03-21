@@ -1,18 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { executeActions } from './actions.js';
-import { cacheToJson, getCachedPr, getCachedPrs, isCacheStale, refreshCache, updateCachedPr } from './cache.js';
-import { ensureClone } from './clone.js';
-import { processEvent } from './engine.js';
-import { findJobForPR, loadAllJobs, loadJob, saveJob } from './state.js';
+import { cacheToJson, getCachedPr, isCacheStale, refreshCache, updateCachedPr } from './cache.js';
+import { ensureClone, fetchClone, rebaseInWorktree, getBranchSha, pushBranch } from './clone.js';
+import { log, setForeground, addLogClient, removeLogClient } from './log.js';
+import { acquireLock, releaseLock, isStackLocked, activeLockCount, listActiveLocks } from './locks.js';
 import { startTunnel, stopTunnel, isTunnelRunning, getTunnelRestartCount } from './tunnel.js';
-import type { DaemonConfig, MergeJob } from './types.js';
-import { handlePushEvent, handlePRMergedEvent } from './stack-checks.js';
+import type { DaemonConfig } from './types.js';
+import { handlePushEvent, handlePRMergedEvent, loadStackStateForRepo, findStackForPR } from './stack-checks.js';
+import { ghAsync } from './spawn.js';
 import { parseWebhook, verifySignature } from './webhook.js';
 import { registerRepo, unregisterRepo, syncWebhooks } from './webhook-manager.js';
 
-const sseClients = new Map<string, Set<WritableStreamDefaultWriter>>();
 const daemonStartTime = Date.now();
 let daemonToken: string | null = null;
 
@@ -35,17 +34,6 @@ function checkAuth(req: Request): boolean {
 	return token === daemonToken;
 }
 
-function pushSSE(jobId: string, data: Record<string, unknown>): void {
-	const clients = sseClients.get(jobId);
-	if (!clients) return;
-	const message = `data: ${JSON.stringify(data)}\n\n`;
-	for (const writer of clients) {
-		writer.write(new TextEncoder().encode(message)).catch(() => {
-			clients.delete(writer);
-		});
-	}
-}
-
 function repoUrl(repo: string): string {
 	return `https://github.com/${repo}.git`;
 }
@@ -53,6 +41,98 @@ function repoUrl(repo: string): string {
 function repoName(repo: string): string {
 	return repo.replace('/', '-');
 }
+
+// --- New webhook handlers (replaces engine/actions/state) ---
+
+async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
+	const state = loadStackStateForRepo(repo);
+	if (!state) return;
+
+	const found = findStackForPR(state, prNumber);
+	if (!found) return;
+	const { stackName, stack, branchIndex } = found;
+
+	// Check CLI sync lock
+	if (isStackLocked(stackName)) {
+		log('info', `Stack "${stackName}" locked by CLI — skipping sync`, stackName);
+		return;
+	}
+
+	log('info', `PR #${prNumber} merged in stack "${stackName}" — cascading...`, stackName);
+
+	// Find remaining unmerged branches after this one
+	const remaining = stack.branches.slice(branchIndex + 1);
+	if (remaining.length === 0) {
+		log('success', `Stack "${stackName}" fully merged`, stackName);
+		return;
+	}
+
+	const nextBranch = remaining[0];
+	if (!nextBranch?.pr) return;
+
+	// Get the merged branch's tip for rebase exclusion
+	const mergedBranch = stack.branches[branchIndex];
+	const oldBase = mergedBranch?.tip;
+	if (!oldBase) {
+		log('error', 'Missing branch tip for rebase — cannot cascade', stackName);
+		return;
+	}
+
+	// Rebase next branch onto trunk using bare clone
+	const clonePath = await ensureClone(repoUrl(repo), repoName(repo));
+	await fetchClone(clonePath);
+
+	const preSha = await getBranchSha(clonePath, nextBranch.name);
+	const rebaseResult = await rebaseInWorktree(clonePath, {
+		branch: nextBranch.name,
+		onto: stack.trunk,
+		oldBase,
+	});
+	if (!rebaseResult.ok) {
+		log('error', `Rebase failed for ${nextBranch.name}: ${rebaseResult.error}`, stackName);
+		return;
+	}
+
+	const pushResult = await pushBranch(clonePath, nextBranch.name, preSha);
+	if (!pushResult.ok) {
+		log('error', `Push failed for ${nextBranch.name}: ${pushResult.error}`, stackName);
+		return;
+	}
+
+	// Post rebase-status check
+	const newSha = await getBranchSha(clonePath, nextBranch.name);
+	await ghAsync(
+		'api', `repos/${repo}/statuses/${newSha}`,
+		'-f', 'state=success', '-f', 'context=stack/rebase-status',
+		'-f', `description=Rebased on ${stack.trunk}`,
+	);
+
+	// Retarget PR to trunk
+	await ghAsync('pr', 'edit', String(nextBranch.pr), '--base', stack.trunk);
+	log('info', `Retargeted #${nextBranch.pr} to ${stack.trunk}`, stackName);
+
+	// Enable auto-merge on next PR
+	const mergeResult = await ghAsync('pr', 'merge', String(nextBranch.pr), '--auto', '--squash');
+	if (mergeResult.ok) {
+		log('success', `Auto-merge enabled on #${nextBranch.pr}`, stackName);
+	} else {
+		log('error', `Failed to enable auto-merge on #${nextBranch.pr}: ${mergeResult.stderr}`, stackName);
+	}
+}
+
+async function handleAutoMergeDisabled(repo: string, prNumber: number, reason: string): Promise<void> {
+	const state = loadStackStateForRepo(repo);
+	if (!state) return;
+
+	const found = findStackForPR(state, prNumber);
+	if (!found) return;
+
+	log('error',
+		`Auto-merge disabled on #${prNumber}: ${reason} — cascade stalled. Run \`st merge --all\` to restart.`,
+		found.stackName);
+}
+
+// --- Webhook handler ---
 
 async function handleWebhook(
 	req: Request,
@@ -62,11 +142,11 @@ async function handleWebhook(
 	const signature = req.headers.get('x-hub-signature-256') ?? '';
 	const eventType = req.headers.get('x-github-event') ?? '';
 
-	console.log(`Webhook received: ${eventType}`);
+	log('info', `Webhook received: ${eventType}`);
 
 	const valid = await verifySignature(body, signature, config.webhookSecret);
 	if (!valid) {
-		console.log('Webhook signature verification failed');
+		log('error', 'Webhook signature verification failed');
 		return new Response('invalid signature', { status: 401 });
 	}
 
@@ -79,7 +159,7 @@ async function handleWebhook(
 
 	const event = parseWebhook(eventType, payload);
 
-	// Update cache from raw webhook payload (broader than engine events)
+	// Update cache from raw webhook payload
 	updateCacheFromWebhook(eventType, payload);
 
 	if (!event) {
@@ -88,221 +168,36 @@ async function handleWebhook(
 
 	// Push events go to the rebase check handler (fire-and-forget)
 	if (event.type === 'push') {
-		console.log(`Push event: ${event.branch} (${event.headSha.slice(0, 7)})`);
+		log('info', `Push event: ${event.branch} (${event.headSha.slice(0, 7)})`);
 		handlePushEvent(event).catch((err) => {
-			console.error('Rebase check failed:', err);
+			log('error', `Rebase check failed: ${err}`);
 		});
 		return new Response('ok');
 	}
 
-	// Always re-evaluate merge-ready statuses when a PR merges,
-	// even if there's an active merge job — the job's cascade may
-	// fail and leave stale "failure" statuses on remaining PRs.
+	// PR merged — update merge-ready statuses + cascade
 	if (event.type === 'pr_merged') {
 		handlePRMergedEvent(event).catch((err) => {
-			console.error('Merge-ready update failed:', err);
+			log('error', `Merge-ready update failed: ${err}`);
 		});
-	}
-
-	const job = findJobForPR(event.repo, event.prNumber);
-	if (!job) {
+		handlePRMerged(event.repo, event.prNumber).catch((err) => {
+			log('error', `Merge cascade failed: ${err}`);
+		});
 		return new Response('ok');
 	}
 
-	// Process event through engine — job may be in 'rebasing-next' state
-	const result = processEvent(job, event);
-
-	// Save state FIRST for crash safety (captures 'rebasing-next' to disk)
-	saveJob(result.job);
-
-	// Push initial event to SSE
-	pushSSE(job.id, {
-		type: 'state',
-		job: result.job,
-	});
-
-	// Execute actions asynchronously
-	const clonePath = await ensureClone(
-		repoUrl(result.job.repo),
-		repoName(result.job.repo),
-	);
-	const actionResults = await executeActions(result.actions, { clonePath, repo: result.job.repo });
-
-	// Check for action failures
-	const failed = actionResults.find((r) => !r.ok);
-	if (failed) {
-		result.job.status = 'failed';
-		const step = result.job.steps[result.job.currentStep];
-		if (step) {
-			step.status = 'failed';
-			step.error = failed.error ?? 'Action execution failed';
-		}
-		result.job.pendingNextStep = undefined;
-		saveJob(result.job);
-
-		pushSSE(job.id, {
-			type: 'error',
-			message: failed.error ?? 'Action execution failed',
-			job: result.job,
+	// Auto-merge disabled — log error about stalled cascade
+	if (event.type === 'auto_merge_disabled') {
+		handleAutoMergeDisabled(event.repo, event.prNumber, event.reason).catch((err) => {
+			log('error', `Auto-merge disabled handler failed: ${err}`);
 		});
-	} else if (result.job.pendingNextStep != null) {
-		// Actions succeeded — finalize the rebasing-next -> done transition
-		const prevStep = result.job.steps[result.job.currentStep];
-		if (prevStep) {
-			prevStep.status = 'done';
-		}
-		const nextIndex = result.job.pendingNextStep;
-		result.job.currentStep = nextIndex;
-		const nextStep = result.job.steps[nextIndex];
-		if (nextStep) {
-			nextStep.status = 'auto-merge-enabled';
-		}
-		result.job.pendingNextStep = undefined;
-		saveJob(result.job);
-	}
-
-	// Push action results to SSE
-	for (const actionResult of actionResults) {
-		if (actionResult.action.type === 'notify') {
-			const { message, level } = actionResult.action;
-			pushSSE(job.id, { type: 'notify', message, level });
-		}
-	}
-
-	// If job completed or failed, close SSE connections
-	if (result.job.status === 'completed' || result.job.status === 'failed') {
-		pushSSE(job.id, { type: 'done', job: result.job });
-		const clients = sseClients.get(job.id);
-		if (clients) {
-			for (const writer of clients) {
-				writer.close().catch(() => {});
-			}
-			sseClients.delete(job.id);
-		}
+		return new Response('ok');
 	}
 
 	return new Response('ok');
 }
 
-async function handleCreateJob(req: Request): Promise<Response> {
-	let body: MergeJob;
-	try {
-		body = (await req.json()) as MergeJob;
-	} catch {
-		return Response.json({ error: 'invalid json' }, { status: 400 });
-	}
-
-	if (!body.id || !body.stackName || !body.steps || body.steps.length === 0) {
-		return Response.json({ error: 'invalid job' }, { status: 400 });
-	}
-
-	saveJob(body);
-
-	// Ensure bare clone exists
-	const clonePath = await ensureClone(
-		repoUrl(body.repo),
-		repoName(body.repo),
-	);
-
-	// Enable auto-merge on the first PR
-	const firstStep = body.steps[0];
-	if (firstStep) {
-		const results = await executeActions(
-			[
-				{
-					type: 'enable-auto-merge',
-					prNumber: firstStep.prNumber,
-					strategy: body.strategy,
-				},
-			],
-			{ clonePath, repo: body.repo },
-		);
-
-		const failed = results.find((r) => !r.ok);
-		if (failed) {
-			body.status = 'failed';
-			firstStep.status = 'failed';
-			firstStep.error = failed.error ?? 'Failed to enable auto-merge';
-			saveJob(body);
-			return Response.json({ job: body, error: failed.error }, { status: 500 });
-		}
-
-		firstStep.status = 'auto-merge-enabled';
-		saveJob(body);
-	}
-
-	return Response.json({ job: body }, { status: 201 });
-}
-
-function handleGetJob(req: Request): Response {
-	const url = new URL(req.url);
-	const id = url.pathname.split('/').pop();
-	if (!id) {
-		return Response.json({ error: 'missing id' }, { status: 400 });
-	}
-
-	const job = loadJob(id);
-	if (!job) {
-		return Response.json({ error: 'not found' }, { status: 404 });
-	}
-
-	return Response.json({ job });
-}
-
-function handleListJobs(): Response {
-	const jobs = loadAllJobs();
-	return Response.json({ jobs: Object.values(jobs) });
-}
-
-function handleSSE(req: Request): Response {
-	const url = new URL(req.url);
-	const parts = url.pathname.split('/');
-	// /api/jobs/:id/events -> id is at index -2
-	const id = parts[parts.length - 2];
-	if (!id) {
-		return Response.json({ error: 'missing id' }, { status: 400 });
-	}
-
-	const job = loadJob(id);
-	if (!job) {
-		return Response.json({ error: 'not found' }, { status: 404 });
-	}
-
-	const { readable, writable } = new TransformStream();
-	const writer = writable.getWriter();
-
-	if (!sseClients.has(id)) {
-		sseClients.set(id, new Set());
-	}
-	sseClients.get(id)?.add(writer);
-
-	// Send current state immediately
-	const initial = `data: ${JSON.stringify({ type: 'state', job })}\n\n`;
-	writer.write(new TextEncoder().encode(initial)).catch(() => {});
-
-	// If the job is already done, close immediately after sending state
-	if (job.status === 'completed' || job.status === 'failed') {
-		const done = `data: ${JSON.stringify({ type: 'done', job })}\n\n`;
-		writer.write(new TextEncoder().encode(done)).then(() => {
-			writer.close().catch(() => {});
-			sseClients.get(id)?.delete(writer);
-		}).catch(() => {});
-	}
-
-	// Clean up on abort
-	req.signal.addEventListener('abort', () => {
-		sseClients.get(id)?.delete(writer);
-		writer.close().catch(() => {});
-	});
-
-	return new Response(readable, {
-		headers: {
-			'Content-Type': 'text/event-stream',
-			'Cache-Control': 'no-cache',
-			Connection: 'keep-alive',
-		},
-	});
-}
+// --- Cache update from webhook ---
 
 function updateCacheFromWebhook(eventType: string, payload: unknown): void {
 	const data = payload as Record<string, unknown>;
@@ -361,6 +256,8 @@ function updateCacheFromWebhook(eventType: string, payload: unknown): void {
 	}
 }
 
+// --- Config ---
+
 function loadDaemonConfig(): DaemonConfig {
 	const configPath = join(
 		homedir(),
@@ -381,9 +278,8 @@ function loadDaemonConfig(): DaemonConfig {
 		};
 		// Migrate: if old format missing new fields, write back
 		if (!raw.webhooks || !raw.repos) {
-			const { writeFileSync: writeSync, mkdirSync } = require('node:fs') as typeof import('node:fs');
 			mkdirSync(join(homedir(), '.claude', 'stacks'), { recursive: true });
-			writeSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+			writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 		}
 		return config;
 	} catch {
@@ -395,6 +291,8 @@ function loadDaemonConfig(): DaemonConfig {
 		};
 	}
 }
+
+// --- Server ---
 
 export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve> {
 	const cfg = config ?? loadDaemonConfig();
@@ -422,10 +320,6 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 
 			// Daemon status
 			if (url.pathname === '/api/status' && req.method === 'GET') {
-				const jobs = loadAllJobs();
-				const activeJobs = Object.values(jobs).filter(
-					(j) => j.status === 'running',
-				).length;
 				return Response.json({
 					running: true,
 					pid: process.pid,
@@ -439,8 +333,78 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 							}
 						: null,
 					repos: cfg.repos,
-					activeJobs,
+					activeLocks: activeLockCount(),
 				});
+			}
+
+			// Log stream (SSE)
+			if (url.pathname === '/api/logs' && req.method === 'GET') {
+				const stackFilter = url.searchParams.get('stack') ?? undefined;
+				const { readable, writable } = new TransformStream();
+				const writer = writable.getWriter();
+				addLogClient(writer);
+
+				if (stackFilter) {
+					const filteredWriter = new Proxy(writer, {
+						get(target, prop) {
+							if (prop === 'write') {
+								return (chunk: Uint8Array) => {
+									const text = new TextDecoder().decode(chunk);
+									if (text.includes(`"stack":"${stackFilter}"`)) {
+										return target.write(chunk);
+									}
+									return Promise.resolve();
+								};
+							}
+							return Reflect.get(target, prop);
+						},
+					});
+					removeLogClient(writer);
+					addLogClient(filteredWriter as WritableStreamDefaultWriter);
+
+					req.signal.addEventListener('abort', () => {
+						removeLogClient(filteredWriter as WritableStreamDefaultWriter);
+						writer.close().catch(() => {});
+					});
+				} else {
+					req.signal.addEventListener('abort', () => {
+						removeLogClient(writer);
+						writer.close().catch(() => {});
+					});
+				}
+
+				return new Response(readable, {
+					headers: {
+						'Content-Type': 'text/event-stream',
+						'Cache-Control': 'no-cache',
+						Connection: 'keep-alive',
+					},
+				});
+			}
+
+			// Stack lock — acquire
+			const lockMatch = url.pathname.match(/^\/api\/stacks\/([^/]+)\/lock$/);
+			if (lockMatch && req.method === 'POST') {
+				const stackName = decodeURIComponent(lockMatch[1] as string);
+				const acquired = acquireLock(stackName);
+				if (acquired) {
+					log('info', `CLI sync lock acquired for "${stackName}"`, stackName);
+					return Response.json({ ok: true });
+				}
+				return Response.json({ error: 'already locked' }, { status: 409 });
+			}
+
+			// Stack lock — release
+			if (lockMatch && req.method === 'DELETE') {
+				const stackName = decodeURIComponent(lockMatch[1] as string);
+				releaseLock(stackName);
+				log('info', `CLI sync lock released for "${stackName}"`, stackName);
+				return Response.json({ ok: true });
+			}
+
+			// List active locks
+			if (url.pathname === '/api/locks' && req.method === 'GET') {
+				return Response.json({ locks: listActiveLocks() });
 			}
 
 			// Register repo
@@ -474,7 +438,7 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 				// Background refresh if stale
 				if (isCacheStale(fullRepo)) {
 					refreshCache(fullRepo).catch((err) => {
-						console.error(`Cache refresh failed for ${fullRepo}:`, err);
+						log('error', `Cache refresh failed for ${fullRepo}: ${err}`);
 					});
 				}
 				return Response.json(cacheToJson(fullRepo));
@@ -496,31 +460,11 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 				return Response.json(pr);
 			}
 
-			// Existing job routes
-			if (url.pathname === '/api/jobs' && req.method === 'POST') {
-				return handleCreateJob(req);
-			}
-			if (
-				url.pathname.match(/^\/api\/jobs\/[\w-]+\/events$/) &&
-				req.method === 'GET'
-			) {
-				return handleSSE(req);
-			}
-			if (
-				url.pathname.match(/^\/api\/jobs\/[\w-]+$/) &&
-				req.method === 'GET'
-			) {
-				return handleGetJob(req);
-			}
-			if (url.pathname === '/api/jobs' && req.method === 'GET') {
-				return handleListJobs();
-			}
-
 			return new Response('not found', { status: 404 });
 		},
 	});
 
-	console.log(`Stack daemon listening on port ${cfg.port}`);
+	log('info', `Stack daemon listening on port ${cfg.port}`);
 	return server;
 }
 
@@ -528,7 +472,7 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 if (import.meta.main) {
 	// Generate/load daemon token
 	daemonToken = ensureDaemonToken();
-	console.log('Daemon token loaded');
+	log('info', 'Daemon token loaded');
 
 	// Clean up old server.pid if present
 	const oldPidFile = join(homedir(), '.claude', 'stacks', 'server.pid');
@@ -546,12 +490,12 @@ if (import.meta.main) {
 
 	// Sync webhooks for all watched repos (fire-and-forget)
 	syncWebhooks(config).catch((err) => {
-		console.error('Webhook sync failed:', err);
+		log('error', `Webhook sync failed: ${err}`);
 	});
 
 	// Graceful shutdown
 	const shutdown = (): void => {
-		console.log('Shutting down daemon...');
+		log('info', 'Shutting down daemon...');
 		stopTunnel();
 		server.stop(true);
 		// Clean up PID file

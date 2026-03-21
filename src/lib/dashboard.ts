@@ -1,4 +1,4 @@
-import { tryDaemonCache } from './daemon-client.js';
+import { tryDaemonCache } from './daemon.js';
 import { formatRelativeTime } from './format.js';
 import * as gh from './gh.js';
 import * as git from './git.js';

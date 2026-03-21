@@ -69,7 +69,7 @@ function rotateLogIfNeeded(): void {
 
 async function getDaemonPidFromServer(port: number): Promise<number | null> {
 	try {
-		const { loadDaemonToken } = await import('../lib/daemon-client.js');
+		const { loadDaemonToken } = await import('../lib/daemon.js');
 		const token = loadDaemonToken();
 		const headers: Record<string, string> = {};
 		if (token) headers.Authorization = `Bearer ${token}`;
@@ -186,13 +186,13 @@ export interface DaemonStatusInfo {
 	uptime: number | null;
 	tunnel: { running: boolean; hostname: string; restarts: number } | null;
 	repos: string[];
-	activeJobs: number;
+	activeLocks: number;
 }
 
 export async function daemonStatus(): Promise<DaemonStatusInfo> {
 	const port = getDaemonPort();
 	try {
-		const { loadDaemonToken } = await import('../lib/daemon-client.js');
+		const { loadDaemonToken } = await import('../lib/daemon.js');
 		const token = loadDaemonToken();
 		const headers: Record<string, string> = {};
 		if (token) {
@@ -203,10 +203,10 @@ export async function daemonStatus(): Promise<DaemonStatusInfo> {
 			signal: AbortSignal.timeout(2000),
 		});
 		if (!response.ok) {
-			return { running: false, pid: null, port, uptime: null, tunnel: null, repos: [], activeJobs: 0 };
+			return { running: false, pid: null, port, uptime: null, tunnel: null, repos: [], activeLocks: 0 };
 		}
 		return (await response.json()) as DaemonStatusInfo;
 	} catch {
-		return { running: false, pid: null, port, uptime: null, tunnel: null, repos: [], activeJobs: 0 };
+		return { running: false, pid: null, port, uptime: null, tunnel: null, repos: [], activeLocks: 0 };
 	}
 }

@@ -1,45 +1,6 @@
 import type { MergeStrategy } from '../lib/types.js';
 export type { MergeStrategy };
 
-/** Status of an individual merge step in the daemon pipeline */
-export type StepStatus =
-	| 'pending'
-	| 'auto-merge-enabled'
-	| 'merged'
-	| 'rebasing-next'
-	| 'done'
-	| 'failed';
-
-/** Overall status of a merge job */
-export type JobStatus = 'running' | 'completed' | 'failed';
-
-/** A single PR merge step */
-export interface MergeStep {
-	prNumber: number;
-	branch: string;
-	status: StepStatus;
-	error?: string;
-	mergedAt?: string;
-	/** Stored before merge so we can use it as rebase exclusion point */
-	branchTip?: string;
-}
-
-/** Full stack merge operation */
-export interface MergeJob {
-	id: string;
-	stackName: string;
-	repo: string;
-	trunk: string;
-	status: JobStatus;
-	strategy: MergeStrategy;
-	steps: MergeStep[];
-	currentStep: number;
-	/** Set by engine when rebasing-next; cleared by server after actions succeed */
-	pendingNextStep?: number;
-	created: string;
-	updated: string;
-}
-
 /** Parsed webhook events from GitHub */
 export type WebhookEvent =
 	| { type: 'pr_merged'; prNumber: number; repo: string }
@@ -58,16 +19,6 @@ export type WebhookEvent =
 			headSha: string;
 	  };
 
-export type EngineAction =
-	| { type: 'enable-auto-merge'; prNumber: number; strategy: MergeStrategy }
-	| { type: 'rebase-and-push'; branch: string; onto: string; oldBase: string }
-	| { type: 'retarget-pr'; prNumber: number; newBase: string }
-	| {
-			type: 'delete-branches';
-			branches: Array<{ name: string; remote: boolean }>;
-	  }
-	| { type: 'notify'; message: string; level: 'info' | 'success' | 'error' };
-
 export interface TunnelConfig {
 	configPath: string;
 	hostname: string;
@@ -80,4 +31,17 @@ export interface DaemonConfig {
 	tunnel?: TunnelConfig;
 	webhooks: Record<string, number>;
 	repos: string[];
+}
+
+export interface StackLock {
+	stackName: string;
+	acquiredAt: string;
+	expiresAt: string; // TTL-based expiry (5 min default)
+}
+
+export interface LogEntry {
+	timestamp: string;
+	level: 'info' | 'success' | 'error' | 'warn';
+	message: string;
+	stack?: string; // optional: for filtering
 }

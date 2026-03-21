@@ -1,5 +1,5 @@
 import { Command, Option } from 'clipanion';
-import { tryDaemonCache } from '../lib/daemon-client.js';
+import { tryDaemonCache } from '../lib/daemon.js';
 import { formatRelativeTime } from '../lib/format.js';
 import * as gh from '../lib/gh.js';
 import { getHint } from '../lib/hints.js';

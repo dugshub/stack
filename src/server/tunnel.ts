@@ -1,3 +1,4 @@
+import { log } from './log.js';
 import type { DaemonConfig } from './types.js';
 
 let tunnelProc: ReturnType<typeof Bun.spawn> | null = null;
@@ -7,7 +8,7 @@ const MAX_RESTARTS = 10;
 
 export function startTunnel(config: DaemonConfig): ReturnType<typeof Bun.spawn> | null {
 	if (!config.tunnel) {
-		console.log('No tunnel config — skipping tunnel start');
+		log('info', 'No tunnel config — skipping tunnel start');
 		return null;
 	}
 
@@ -24,22 +25,22 @@ export function startTunnel(config: DaemonConfig): ReturnType<typeof Bun.spawn> 
 
 	// Monitor for unexpected exit and auto-restart
 	proc.exited.then((exitCode) => {
-		console.log(`cloudflared exited with code ${exitCode}`);
+		log('warn', `cloudflared exited with code ${exitCode}`);
 		if (tunnelProc === proc) {
 			tunnelProc = null;
 			if (restartCount < MAX_RESTARTS) {
 				restartCount++;
-				console.log(`Restarting tunnel (attempt ${restartCount}/${MAX_RESTARTS}) in 5s...`);
+				log('info', `Restarting tunnel (attempt ${restartCount}/${MAX_RESTARTS}) in 5s...`);
 				restartTimer = setTimeout(() => {
 					startTunnel(config);
 				}, 5000);
 			} else {
-				console.error(`Tunnel exceeded max restarts (${MAX_RESTARTS}). Not retrying.`);
+				log('error', `Tunnel exceeded max restarts (${MAX_RESTARTS}). Not retrying.`);
 			}
 		}
 	});
 
-	console.log(`Tunnel started: https://${config.tunnel.hostname}`);
+	log('success', `Tunnel started: https://${config.tunnel.hostname}`);
 	return proc;
 }
 
@@ -52,7 +53,7 @@ export function stopTunnel(): void {
 		const proc = tunnelProc;
 		tunnelProc = null; // Prevent auto-restart
 		proc.kill('SIGTERM');
-		console.log('Tunnel stopped');
+		log('info', 'Tunnel stopped');
 	}
 }
 

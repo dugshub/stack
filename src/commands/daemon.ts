@@ -27,7 +27,8 @@ export class DaemonCommand extends Command {
 			['Stop the daemon', 'st daemon stop'],
 			['Show daemon status', 'st daemon status'],
 			['View daemon logs', 'st daemon logs'],
-			['Configure daemon', 'st daemon setup'],
+			['Run daemon in foreground', 'st daemon run'],
+			['Attach to daemon log stream', 'st daemon attach'],
 		],
 	});
 
@@ -35,6 +36,10 @@ export class DaemonCommand extends Command {
 
 	follow = Option.Boolean('-f,--follow', false, {
 		description: 'Follow log output (for logs subcommand)',
+	});
+
+	stackFilter = Option.String('--stack,-s', {
+		description: 'Filter logs by stack name (for attach subcommand)',
 	});
 
 	async execute(): Promise<number> {
@@ -49,6 +54,10 @@ export class DaemonCommand extends Command {
 				return this.runLogs();
 			case 'setup':
 				return this.runSetup();
+			case 'run':
+				return this.runForeground();
+			case 'attach':
+				return this.runAttach();
 			default:
 				return this.runStatus();
 		}
@@ -123,7 +132,7 @@ export class DaemonCommand extends Command {
 		if (info.repos.length > 0) {
 			process.stderr.write(`  Repos:   ${info.repos.join(', ')}\n`);
 		}
-		process.stderr.write(`  Jobs:    ${info.activeJobs}\n`);
+		process.stderr.write(`  Locks:   ${info.activeLocks ?? 0}\n`);
 		process.stderr.write('\n');
 		return 0;
 	}
@@ -147,6 +156,78 @@ export class DaemonCommand extends Command {
 			stderr: 'inherit',
 		});
 		return proc.exitCode;
+	}
+
+	private async runForeground(): Promise<number> {
+		const { setForeground } = await import('../server/log.js');
+		const { startServer } = await import('../server/index.js');
+		setForeground(true);
+		ui.info('Starting daemon in foreground (Ctrl-C to stop)...');
+		startServer();
+		// Server runs indefinitely; this promise never resolves normally
+		await new Promise(() => {});
+		return 0;
+	}
+
+	private async runAttach(): Promise<number> {
+		const port = getDaemonPort();
+		const { loadDaemonToken } = await import('../lib/daemon.js');
+		const token = loadDaemonToken();
+		const headers: Record<string, string> = {};
+		if (token) headers.Authorization = `Bearer ${token}`;
+
+		const url = this.stackFilter
+			? `http://localhost:${port}/api/logs?stack=${encodeURIComponent(this.stackFilter)}`
+			: `http://localhost:${port}/api/logs`;
+
+		ui.info(`Attached to daemon logs${this.stackFilter ? ` (stack: ${this.stackFilter})` : ''} — Ctrl-C to detach`);
+
+		try {
+			const response = await fetch(url, { headers });
+			if (!response.ok || !response.body) {
+				ui.error('Failed to connect to daemon log stream. Is the daemon running?');
+				return 2;
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() ?? '';
+
+				for (const line of lines) {
+					if (!line.startsWith('data: ')) continue;
+					try {
+						const entry = JSON.parse(line.slice(6)) as {
+							timestamp: string;
+							level: string;
+							message: string;
+							stack?: string;
+						};
+						const prefix = { info: ' ', success: '+', error: '!', warn: '?' }[entry.level] ?? ' ';
+						const time = entry.timestamp.slice(11, 19);
+						const stackTag = entry.stack ? ` [${entry.stack}]` : '';
+						process.stdout.write(`${theme.muted(time)} [${prefix}]${stackTag} ${entry.message}\n`);
+					} catch {
+						// Skip malformed lines
+					}
+				}
+			}
+		} catch (err) {
+			if (err instanceof Error && err.name === 'AbortError') {
+				return 0;
+			}
+			ui.error(`Connection lost: ${err instanceof Error ? err.message : String(err)}`);
+			return 2;
+		}
+
+		return 0;
 	}
 
 	private runSetup(): number {

@@ -16,6 +16,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ensureClone, fetchClone } from './clone.js';
+import { log } from './log.js';
 import { ghAsync, gitAsync } from './spawn.js';
 import type { WebhookEvent } from './types.js';
 
@@ -42,7 +43,7 @@ interface BranchPosition {
 /** Find the stack state file for a given repo (e.g. "owner/repo").
  *  Scans all state files and matches on the `repo` field, which is the
  *  canonical full name stored by the CLI. */
-function loadStackStateForRepo(fullRepoName: string): StackFile | null {
+export function loadStackStateForRepo(fullRepoName: string): StackFile | null {
 	const stacksDir = join(homedir(), '.claude', 'stacks');
 	let files: string[];
 	try {
@@ -83,6 +84,20 @@ function findBranchInStack(
 	return null;
 }
 
+export function findStackForPR(
+	state: StackFile,
+	prNumber: number,
+): { stackName: string; stack: StackFile['stacks'][string]; branchIndex: number } | null {
+	for (const [stackName, stack] of Object.entries(state.stacks)) {
+		for (let i = 0; i < stack.branches.length; i++) {
+			if (stack.branches[i]?.pr === prNumber) {
+				return { stackName, stack, branchIndex: i };
+			}
+		}
+	}
+	return null;
+}
+
 async function postCommitStatus(
 	repo: string,
 	sha: string,
@@ -110,23 +125,23 @@ export async function handlePushEvent(
 
 	// Skip branch deletion events (SHA is all zeros)
 	if (/^0+$/.test(event.headSha)) {
-		console.log(`Rebase check: ${event.branch} deleted, skipping`);
+		log('info', `Rebase check: ${event.branch} deleted, skipping`);
 		return;
 	}
 
 	const state = loadStackStateForRepo(event.repo);
 	if (!state) {
-		console.log(`Rebase check: no state for ${event.repo}`);
+		log('info', `Rebase check: no state for ${event.repo}`);
 		return;
 	}
 
 	const position = findBranchInStack(state, event.branch);
 	if (!position) {
-		console.log(`Rebase check: ${event.branch} not in any stack`);
+		log('info', `Rebase check: ${event.branch} not in any stack`);
 		return;
 	}
 
-	console.log(`Rebase check: ${event.branch} (parent: ${position.parentBranch})`);
+	log('info', `Rebase check: ${event.branch} (parent: ${position.parentBranch})`, position.stackName);
 
 	// Post pending status immediately
 	await postCommitStatus(
@@ -142,7 +157,7 @@ export async function handlePushEvent(
 	try {
 		await fetchClone(clonePath);
 	} catch {
-		console.log(`Rebase check: fetch failed, re-cloning ${repoName}`);
+		log('warn', `Rebase check: fetch failed, re-cloning ${repoName}`);
 		const { rmSync } = await import('node:fs');
 		rmSync(clonePath, { recursive: true, force: true });
 		clonePath = await ensureClone(repoUrl, repoName);
@@ -161,7 +176,7 @@ export async function handlePushEvent(
 	);
 
 	if (result.ok) {
-		console.log(`Rebase check: ${event.branch} ✓ rebased on ${position.parentBranch}`);
+		log('success', `Rebase check: ${event.branch} rebased on ${position.parentBranch}`, position.stackName);
 		await postCommitStatus(
 			event.repo,
 			event.headSha,
@@ -169,7 +184,7 @@ export async function handlePushEvent(
 			`Rebased on ${position.parentBranch}`,
 		);
 	} else {
-		console.log(`Rebase check: ${event.branch} ✗ NOT rebased on ${position.parentBranch} (stderr: ${result.stderr})`);
+		log('warn', `Rebase check: ${event.branch} NOT rebased on ${position.parentBranch}`, position.stackName);
 		await postCommitStatus(
 			event.repo,
 			event.headSha,
@@ -275,7 +290,7 @@ export async function handlePRMergedEvent(
 	for (const [stackName, stack] of Object.entries(state.stacks)) {
 		const branch = stack.branches.find(b => b.pr === event.prNumber);
 		if (branch) {
-			console.log(`Merge-ready: PR #${event.prNumber} merged, updating stack "${stackName}"`);
+			log('info', `Merge-ready: PR #${event.prNumber} merged, updating stack "${stackName}"`, stackName);
 			// Fetch bare clone to get current branch HEADs
 			const repoName = event.repo.replace('/', '-');
 			const repoUrl = `https://github.com/${event.repo}.git`;

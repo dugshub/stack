@@ -1,6 +1,6 @@
 import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
-import { tryDaemonCache } from '../lib/daemon-client.js';
+import { tryDaemonCache } from '../lib/daemon.js';
 import { findActiveStack, findDependentStacks, loadAndRefreshState } from '../lib/state.js';
 import { findCommonPrefix } from '../lib/stack-report.js';
 import type { Branch, PrStatus, Stack, StackFile } from '../lib/types.js';

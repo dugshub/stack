@@ -9,7 +9,6 @@ import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
-import { findActiveJobForStack } from '../server/state.js';
 
 export class SyncCommand extends Command {
   static override paths = [['stack', 'sync'], ['sync']];
@@ -25,25 +24,6 @@ export class SyncCommand extends Command {
 
   async execute(): Promise<number> {
     const state = loadAndRefreshState();
-
-    // Guard: check if a merge job is active for the current stack
-    const currentBranchForGuard = git.tryRun('branch', '--show-current');
-    if (currentBranchForGuard.ok) {
-      for (const [name, s] of Object.entries(state.stacks)) {
-        for (const branch of s.branches) {
-          if (branch.name === currentBranchForGuard.stdout) {
-            const activeJob = findActiveJobForStack(name);
-            if (activeJob) {
-              ui.error(
-                `A merge job is active for this stack. Use ${theme.command('st merge --status')} to check progress.`,
-              );
-              return 2;
-            }
-            break;
-          }
-        }
-      }
-    }
 
     let resolved: Awaited<ReturnType<typeof resolveStack>>;
     try {
@@ -98,10 +78,12 @@ export class SyncCommand extends Command {
 
     // 3. Check which PRs are merged
     const mergedIndices: number[] = [];
+    const prStatusMap = new Map<number, PrStatus | null>();
     for (let i = 0; i < stack.branches.length; i++) {
       const branch = stack.branches[i];
       if (!branch || branch.pr == null) continue;
       const prStatus = gh.prView(branch.pr);
+      prStatusMap.set(branch.pr, prStatus ?? null);
       if (prStatus?.state === 'MERGED') {
         mergedIndices.push(i);
       }
@@ -140,6 +122,10 @@ export class SyncCommand extends Command {
         if (mergedSet.has(i)) continue;
         const branch = stack.branches[i];
         if (!branch || branch.pr == null) continue;
+
+        // Skip closed/merged PRs — GitHub rejects base changes on non-open PRs
+        const status = prStatusMap.get(branch.pr);
+        if (!status || status.state !== 'OPEN') continue;
 
         // New parent = closest non-merged branch below, or trunk if none
         let newBase = stack.trunk;

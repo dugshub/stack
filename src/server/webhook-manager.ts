@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { DaemonConfig } from './types.js';
+import { log } from './log.js';
 import { ghAsync } from './spawn.js';
+import type { DaemonConfig } from './types.js';
 
 const CONFIG_PATH = join(homedir(), '.claude', 'stacks', 'server.config.json');
 
@@ -65,19 +66,19 @@ export async function ensureWebhook(
 	} catch { /* ignore */ }
 
 	if (!result.ok) {
-		console.error(`Webhook creation failed for ${repo}: ${result.stderr}`);
+		log('error', `Webhook creation failed for ${repo}: ${result.stderr}`);
 		return null;
 	}
 
 	const hookId = Number.parseInt(result.stdout.trim(), 10);
 	if (Number.isNaN(hookId)) {
-		console.error(`Could not parse webhook ID from: ${result.stdout}`);
+		log('error', `Could not parse webhook ID from: ${result.stdout}`);
 		return null;
 	}
 
 	config.webhooks[repo] = hookId;
 	saveConfig(config);
-	console.log(`Webhook created for ${repo} (id: ${hookId})`);
+	log('success', `Webhook created for ${repo} (id: ${hookId})`);
 	return hookId;
 }
 
@@ -89,7 +90,7 @@ export async function syncWebhooks(config: DaemonConfig): Promise<void> {
 			: null;
 
 	if (!webhookUrl) {
-		console.log('No public URL or tunnel configured — skipping webhook sync');
+		log('info', 'No public URL or tunnel configured — skipping webhook sync');
 		return;
 	}
 
@@ -106,7 +107,7 @@ export async function registerRepo(
 
 	config.repos.push(repo);
 	saveConfig(config);
-	console.log(`Registered repo: ${repo}`);
+	log('info', `Registered repo: ${repo}`);
 
 	const webhookUrl = config.publicUrl
 		? `${config.publicUrl}/webhooks/github`
@@ -135,5 +136,5 @@ export async function unregisterRepo(
 
 	config.repos.splice(idx, 1);
 	saveConfig(config);
-	console.log(`Unregistered repo: ${repo}`);
+	log('info', `Unregistered repo: ${repo}`);
 }

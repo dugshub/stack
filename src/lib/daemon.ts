@@ -34,7 +34,7 @@ function getDaemonPort(): number {
 	}
 }
 
-export async function daemonFetch(path: string): Promise<Response | null> {
+export async function daemonFetch(path: string, opts?: { method?: string; body?: string; timeout?: number }): Promise<Response | null> {
 	const token = loadDaemonToken();
 	const port = getDaemonPort();
 	try {
@@ -42,9 +42,14 @@ export async function daemonFetch(path: string): Promise<Response | null> {
 		if (token) {
 			headers.Authorization = `Bearer ${token}`;
 		}
+		if (opts?.body) {
+			headers['Content-Type'] = 'application/json';
+		}
 		const response = await fetch(`http://localhost:${port}${path}`, {
+			method: opts?.method ?? 'GET',
 			headers,
-			signal: AbortSignal.timeout(200),
+			body: opts?.body,
+			signal: AbortSignal.timeout(opts?.timeout ?? 2000),
 		});
 		if (!response.ok) return null;
 		return response;

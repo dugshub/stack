@@ -1,6 +1,11 @@
 import { type AgentDef, invoke } from "./invoke.js";
 import * as git from "../git.js";
-import { resolveApiKey, promptForApiKey, saveCredentials } from "./auth.js";
+import {
+	resolveAuthAsync,
+	showAuthSourceWarning,
+	type ResolvedAuth,
+} from "./auth.js";
+import { oauthLogin } from "./oauth.js";
 import * as ui from "../ui.js";
 
 const MAX_DIFF_CHARS = 12_000;
@@ -51,19 +56,25 @@ function buildAgent(context: {
 	};
 }
 
-/** Ensure we have a valid API key, prompting if needed. Returns key or null. */
+/**
+ * Ensure we have valid auth for AI features.
+ * Priority: OAuth token → Claude Code token → env API key (with warning) → prompt for OAuth login.
+ */
 export async function ensureAuth(): Promise<string | null> {
-	const existing = resolveApiKey();
-	if (existing) return existing;
+	// Try existing credentials
+	const existing = await resolveAuthAsync();
+	if (existing) {
+		showAuthSourceWarning(existing);
+		return existing.apiKey;
+	}
 
-	ui.info("AI descriptions use the Anthropic API (billed to your account).");
-	ui.info("Get a key at console.anthropic.com/settings/keys");
-	const key = await promptForApiKey();
-	if (!key) return null;
+	// No credentials — prompt for OAuth login
+	ui.info("Log in with your Anthropic account to enable AI descriptions.");
+	const accessToken = await oauthLogin();
+	if (!accessToken) return null;
 
-	saveCredentials({ apiKey: key, createdAt: new Date().toISOString() });
-	ui.success("API key saved.");
-	return key;
+	ui.success("Logged in successfully.");
+	return accessToken;
 }
 
 export async function generatePrDescription(opts: {

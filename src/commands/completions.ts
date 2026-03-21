@@ -140,7 +140,7 @@ export class CompletionsCommand extends Command {
 			'stack', 's', 'branch', 'b',
 			'abort', 'absorb', 'bottom', 'check', 'completions', 'config', 'continue',
 			'create', 'daemon', 'delete', 'down', 'fold', 'graph', 'init',
-			'insert', 'merge', 'modify', 'move', 'nav', 'pop', 'remove',
+			'insert', 'login', 'logout', 'merge', 'modify', 'move', 'nav', 'pop', 'remove',
 			'rename', 'reorder', 'restack', 'split', 'status', 'submit',
 			'sync', 'top', 'track', 'undo', 'up', 'update',
 		];
@@ -318,6 +318,8 @@ complete -F _st stack
 			graph: 'Show dependency graph',
 			init: 'Install Claude Code skills',
 			insert: 'Insert a new branch at position',
+			login: 'Log in with Anthropic OAuth',
+			logout: 'Clear stored credentials',
 			merge: 'Merge entire stack',
 			modify: 'Amend and restack',
 			move: 'Move a branch within the stack',

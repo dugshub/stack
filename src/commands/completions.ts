@@ -163,6 +163,18 @@ export class CompletionsCommand extends Command {
 		const branchSubs = this.branchSubcommands();
 		return `#compdef st
 
+_st_stacks() {
+  local -a stacks
+  stacks=(\${(f)"$(st _complete stacks 2>/dev/null)"})
+  [[ \${#stacks[@]} -gt 0 ]] && compadd -X 'stacks' "\${stacks[@]}"
+}
+
+_st_branches() {
+  local -a branches
+  branches=(\${(f)"$(st _complete all-branches 2>/dev/null)"})
+  [[ \${#branches[@]} -gt 0 ]] && compadd -X 'branches' -- "\${branches[@]}"
+}
+
 _st() {
   local -a commands
   commands=(
@@ -176,47 +188,54 @@ ${cmds.map(c => `    '${c}:${this.commandDescription(c)}'`).join('\n')}
   case $state in
     command)
       _describe 'command' commands
-      # Also complete stack names
-      local -a stacks
-      stacks=(\${(f)"$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"})
-      if [[ \${#stacks[@]} -gt 0 ]]; then
-        _describe 'stack' stacks
-      fi
+      _st_stacks
+      _st_branches
       ;;
     args)
       case $words[1] in
         stack|s)
-          local -a stack_cmds
-          stack_cmds=(
-${stackSubs.map(c => `            '${c}:${this.commandDescription(c)}'`).join('\n')}
-          )
-          _describe 'stack command' stack_cmds
+          if (( CURRENT == 2 )); then
+            local -a stack_cmds
+            stack_cmds=(
+${stackSubs.map(c => `              '${c}:${this.commandDescription(c)}'`).join('\n')}
+            )
+            _describe 'stack command' stack_cmds
+          else
+            _st_stack_flag_args
+          fi
           ;;
         branch|b)
-          local -a branch_cmds
-          branch_cmds=(
-${branchSubs.map(c => `            '${c}:${this.commandDescription(c)}'`).join('\n')}
-          )
-          _describe 'branch command' branch_cmds
-          ;;
-        create|delete|submit|status|check|restack|sync|merge|graph)
-          # Complete --stack flag values
-          _arguments \\
-            '--stack[Target stack by name]:stack name:->stackname' \\
-            '-s[Target stack by name]:stack name:->stackname' \\
-            '*::'
-          if [[ $state == stackname ]]; then
-            local -a stacks
-            stacks=(\${(f)"$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"})
-            _describe 'stack' stacks
+          if (( CURRENT == 2 )); then
+            local -a branch_cmds
+            branch_cmds=(
+${branchSubs.map(c => `              '${c}:${this.commandDescription(c)}'`).join('\n')}
+            )
+            _describe 'branch command' branch_cmds
+          else
+            _st_stack_flag_args
           fi
           ;;
         completions)
           _arguments '1:shell:(zsh bash)'
           ;;
+        *)
+          _st_stack_flag_args
+          ;;
       esac
       ;;
   esac
+}
+
+_st_stack_flag_args() {
+  if [[ "\${words[CURRENT-1]}" == "--stack" || "\${words[CURRENT-1]}" == "-s" ]]; then
+    _st_stacks
+  else
+    _arguments \\
+      '--stack[Target stack by name]:stack name:_st_stacks' \\
+      '-s[Target stack by name]:stack name:_st_stacks' \\
+      '--help[Show help]' \\
+      '*::'
+  fi
 }
 
 _st "$@"
@@ -235,34 +254,40 @@ _st "$@"
   commands="${cmds.join(' ')}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    # Complete commands and stack names
+    local stacks branches
+    stacks="$(st _complete stacks 2>/dev/null)"
+    branches="$(st _complete all-branches 2>/dev/null)"
+    COMPREPLY=( $(compgen -W "\${commands} \${stacks} \${branches}" -- "\${cur}") )
+    return 0
+  fi
+
+  if [[ "\${prev}" == "--stack" || "\${prev}" == "-s" ]]; then
     local stacks
-    stacks="$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"
-    COMPREPLY=( $(compgen -W "\${commands} \${stacks}" -- "\${cur}") )
+    stacks="$(st _complete stacks 2>/dev/null)"
+    COMPREPLY=( $(compgen -W "\${stacks}" -- "\${cur}") )
     return 0
   fi
 
   case "\${COMP_WORDS[1]}" in
     stack|s)
-      COMPREPLY=( $(compgen -W "${stackSubs.join(' ')}" -- "\${cur}") )
-      ;;
-    branch|b)
-      COMPREPLY=( $(compgen -W "${branchSubs.join(' ')}" -- "\${cur}") )
-      ;;
-    completions)
-      COMPREPLY=( $(compgen -W "zsh bash" -- "\${cur}") )
-      ;;
-    create|delete|submit|status|check|restack|sync|merge|graph)
-      if [[ "\${prev}" == "--stack" || "\${prev}" == "-s" ]]; then
-        local stacks
-        stacks="$(st status --json 2>/dev/null | grep -o '"[^"]*":' | head -20 | tr -d '":' || true)"
-        COMPREPLY=( $(compgen -W "\${stacks}" -- "\${cur}") )
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${stackSubs.join(' ')}" -- "\${cur}") )
       else
         COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
       fi
       ;;
+    branch|b)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${branchSubs.join(' ')}" -- "\${cur}") )
+      else
+        COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
+      fi
+      ;;
+    completions)
+      COMPREPLY=( $(compgen -W "zsh bash" -- "\${cur}") )
+      ;;
     *)
-      COMPREPLY=( $(compgen -W "--help -h" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
       ;;
   esac
 }

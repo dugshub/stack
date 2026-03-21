@@ -32,7 +32,7 @@ for (const file of commandFiles) {
 }
 
 // Commands that don't require a git repo
-const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon', 'completions'];
+const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon', 'completions', '_complete'];
 const rawArgs = process.argv.slice(2);
 
 // `st 3` → `st nav 3`
@@ -141,7 +141,7 @@ if (args.length === 0) {
 }
 
 // Auto-start daemon unless running a command that doesn't need it
-const noDaemonCommands = ['daemon', 'update', 'completions', '--help', '-h', '--version', '-v', '--ai'];
+const noDaemonCommands = ['daemon', 'update', 'completions', '_complete', '--help', '-h', '--version', '-v', '--ai'];
 const skipDaemon = args.length === 0 || args.some((a) => noDaemonCommands.includes(a));
 if (!skipDaemon) {
   try {

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { rebaseBranch } from '../lib/rebase.js';
@@ -35,7 +36,9 @@ export class AbsorbCommand extends Command {
       ['Absorb changes into their owning branches', 'st absorb'],
       ['Preview without making changes', 'st absorb --dry-run'],
       ['Route files to branch 5 manually', 'st absorb --branch 5 GroupedTable.tsx'],
+      ['Route files to specific branches', 'st absorb --route 4-goldmark:goldmark.go --route 7-input:registry.go'],
       ['Absorb with a custom commit message', 'st absorb -m "fix typos"'],
+      ['Skip interactive prompts', 'st absorb --no-prompt'],
     ],
   });
 
@@ -53,6 +56,14 @@ export class AbsorbCommand extends Command {
 
   branchTarget = Option.String('--branch,-b', {
     description: '1-based branch index to route files to',
+  });
+
+  route = Option.Array('--route', {
+    description: 'Route files to branches as branch:file pairs',
+  });
+
+  noPrompt = Option.Boolean('--no-prompt', false, {
+    description: 'Disable interactive prompts for ambiguous/unowned files',
   });
 
   files = Option.Rest();
@@ -127,9 +138,10 @@ export class AbsorbCommand extends Command {
       }
     }
 
-    // Manual routing: --branch N file1 file2
+    // Manual routing: --branch N file1 file2 and --route branch:file
     const manualRoute = new Map<number, string[]>(); // branchIndex -> files
     const manualFiles = new Set<string>();
+    const hasRouteFlags = this.route && this.route.length > 0;
 
     if (this.branchTarget !== undefined) {
       const idx = parseInt(this.branchTarget, 10) - 1; // 1-based → 0-based
@@ -139,26 +151,86 @@ export class AbsorbCommand extends Command {
       }
 
       const restArgs = this.files ?? [];
-      if (restArgs.length === 0) {
+      if (restArgs.length === 0 && !hasRouteFlags) {
         ui.error('--branch requires file paths as positional arguments');
         return 2;
       }
 
-      const validFiles: string[] = [];
-      for (const file of restArgs) {
-        if (dirty.includes(file)) {
-          validFiles.push(file);
-          manualFiles.add(file);
-        } else {
-          ui.warn(`${file} is not dirty — skipping`);
+      if (restArgs.length > 0) {
+        const validFiles: string[] = [];
+        for (const file of restArgs) {
+          if (dirty.includes(file)) {
+            validFiles.push(file);
+            manualFiles.add(file);
+          } else {
+            ui.warn(`${file} is not dirty — skipping`);
+          }
+        }
+
+        if (validFiles.length > 0) {
+          manualRoute.set(idx, validFiles);
+        } else if (!hasRouteFlags) {
+          ui.error('None of the specified files have uncommitted changes');
+          return 2;
         }
       }
+    }
 
-      if (validFiles.length > 0) {
-        manualRoute.set(idx, validFiles);
-      } else {
-        ui.error('None of the specified files have uncommitted changes');
-        return 2;
+    // Parse --route flags: branch:file pairs
+    if (hasRouteFlags) {
+      for (const entry of this.route!) {
+        const colonIdx = entry.indexOf(':');
+        if (colonIdx === -1) {
+          ui.error(`Invalid --route format: "${entry}" (expected branch:file)`);
+          return 2;
+        }
+
+        const identifier = entry.slice(0, colonIdx);
+        const filePath = entry.slice(colonIdx + 1);
+
+        if (!identifier || !filePath) {
+          ui.error(`Invalid --route format: "${entry}" (expected branch:file)`);
+          return 2;
+        }
+
+        // Resolve branch identifier: try integer first, then substring match
+        let branchIdx: number;
+        const parsed = parseInt(identifier, 10);
+        if (!Number.isNaN(parsed) && String(parsed) === identifier) {
+          branchIdx = parsed - 1; // 1-based → 0-based
+          if (branchIdx < 0 || branchIdx >= stack.branches.length) {
+            ui.error(`Branch index ${parsed} is out of range (1-${stack.branches.length})`);
+            return 2;
+          }
+        } else {
+          const matches: number[] = [];
+          for (let i = 0; i < stack.branches.length; i++) {
+            if (stack.branches[i]?.name.includes(identifier)) {
+              matches.push(i);
+            }
+          }
+          if (matches.length === 0) {
+            ui.error(`No branch matching "${identifier}"`);
+            return 2;
+          }
+          if (matches.length > 1) {
+            const names = matches.map((i) => stack.branches[i]?.name ?? '???');
+            ui.error(`Ambiguous branch identifier "${identifier}" matches: ${names.join(', ')}`);
+            return 2;
+          }
+          branchIdx = matches[0]!;
+        }
+
+        // Validate file against dirty set
+        if (!dirty.includes(filePath)) {
+          ui.warn(`${filePath} is not dirty — skipping`);
+          continue;
+        }
+
+        manualFiles.add(filePath);
+        const existing = manualRoute.get(branchIdx) ?? [];
+        existing.push(filePath);
+        manualRoute.set(branchIdx, existing);
       }
     }
 
@@ -192,6 +264,66 @@ export class AbsorbCommand extends Command {
       absorbable.set(idx, existing);
     }
 
+    // Track files resolved via interactive prompts
+    const interactiveFiles = new Set<string>();
+    const isInteractive = process.stdin.isTTY && !this.noPrompt;
+
+    // Interactive prompts for ambiguous/unowned files
+    if ((conflicted.length > 0 || unowned.length > 0) && isInteractive) {
+      // Prompt for each ambiguous file
+      for (const { file, branches } of conflicted) {
+        const owners = ownershipMap.get(file) ?? [];
+        const result = await p.select({
+          message: `${file} is touched by ${branches.join(' and ')}`,
+          options: [
+            ...owners.map((idx) => ({
+              value: idx,
+              label: `branch-${idx + 1} (${stack.branches[idx]?.name ?? '???'})`,
+            })),
+            { value: -1, label: '[skip]' },
+          ],
+        });
+
+        if (p.isCancel(result)) {
+          process.exit(130);
+        }
+
+        if (result !== -1) {
+          const branchIdx = result as number;
+          const existing = absorbable.get(branchIdx) ?? [];
+          existing.push(file);
+          absorbable.set(branchIdx, existing);
+          interactiveFiles.add(file);
+        }
+      }
+
+      // Prompt for each unowned file
+      for (const file of unowned) {
+        const result = await p.select({
+          message: `${file} is not owned by any branch`,
+          options: [
+            ...stack.branches.map((b, idx) => ({
+              value: idx,
+              label: `branch-${idx + 1} (${b.name})`,
+            })),
+            { value: -1, label: '[skip]' },
+          ],
+        });
+
+        if (p.isCancel(result)) {
+          process.exit(130);
+        }
+
+        if (result !== -1) {
+          const branchIdx = result as number;
+          const existing = absorbable.get(branchIdx) ?? [];
+          existing.push(file);
+          absorbable.set(branchIdx, existing);
+          interactiveFiles.add(file);
+        }
+      }
+    }
+
     // Display plan
     ui.heading('Absorb plan');
     process.stderr.write('\n');
@@ -204,24 +336,85 @@ export class AbsorbCommand extends Command {
         );
         for (const file of files) {
           const isManual = manualFiles.has(file);
-          ui.info(`  ${file}${isManual ? theme.muted(' (manual)') : ''}`);
+          const isPrompted = interactiveFiles.has(file);
+          const annotation = isManual
+            ? theme.muted(' (manual)')
+            : isPrompted
+              ? theme.muted(' (interactive)')
+              : '';
+          ui.info(`  ${file}${annotation}`);
         }
       }
     }
 
-    if (conflicted.length > 0) {
+    // Show remaining conflicted/unowned that were not resolved by prompts
+    const unresolvedConflicted = conflicted.filter(
+      ({ file }) => !interactiveFiles.has(file),
+    );
+    const unresolvedUnowned = unowned.filter(
+      (file) => !interactiveFiles.has(file),
+    );
+
+    if (unresolvedConflicted.length > 0) {
       process.stderr.write('\n');
-      for (const { file, branches } of conflicted) {
+      for (const { file, branches } of unresolvedConflicted) {
         ui.warn(
           `${file} ${theme.muted(`(touched by ${branches.map((b) => theme.branch(b)).join(', ')})`)}`,
         );
       }
     }
 
-    if (unowned.length > 0) {
+    if (unresolvedUnowned.length > 0) {
       process.stderr.write('\n');
-      for (const file of unowned) {
+      for (const file of unresolvedUnowned) {
         ui.info(`${file} ${theme.muted('(not owned by any stack branch)')}`);
+      }
+    }
+
+    // Non-interactive hints for unresolved files
+    if (!isInteractive && (unresolvedConflicted.length > 0 || unresolvedUnowned.length > 0)) {
+      process.stderr.write('\n');
+
+      if (unresolvedConflicted.length > 0) {
+        ui.info('hint: Route ambiguous files:');
+        for (const { file } of unresolvedConflicted) {
+          const owners = ownershipMap.get(file) ?? [];
+          const firstOwner = owners[0];
+          if (firstOwner !== undefined) {
+            const branchName = stack.branches[firstOwner]?.name ?? '???';
+            const shortName = branchName.split('/').pop() ?? branchName;
+            ui.info(`  st absorb --route ${shortName}:${file}`);
+          }
+        }
+      }
+
+      if (unresolvedUnowned.length > 0) {
+        for (const file of unresolvedUnowned) {
+          ui.info(`hint: Assign ${file} to a branch:`);
+          for (const branch of stack.branches) {
+            const shortName = branch.name.split('/').pop() ?? branch.name;
+            ui.info(`  st absorb --route ${shortName}:${file}`);
+          }
+        }
+      }
+
+      // Combined example
+      const allUnresolved = [
+        ...unresolvedConflicted.map(({ file }) => {
+          const owners = ownershipMap.get(file) ?? [];
+          const firstOwner = owners[0];
+          const branchName = firstOwner !== undefined
+            ? stack.branches[firstOwner]?.name ?? '???'
+            : '???';
+          const shortName = branchName.split('/').pop() ?? branchName;
+          return `--route ${shortName}:${file}`;
+        }),
+        ...unresolvedUnowned.map((file) => `--route <BRANCH>:${file}`),
+      ];
+      if (allUnresolved.length > 1) {
+        process.stderr.write('\n');
+        ui.info(`hint: Or combine routing in one command:`);
+        ui.info(`  st absorb ${allUnresolved.join(' ')}`);
       }
     }
 

@@ -36,18 +36,22 @@ export class DefaultCommand extends Command {
 			return 0;
 		}
 
-		if (git.isDirty()) {
-			ui.error('Working tree is dirty. Commit or stash before switching.');
-			return 2;
-		}
-
 		const target = stack.branches[0];
 		if (!target) {
 			ui.error('Stack has no branches.');
 			return 2;
 		}
 
+		// Auto-stash for checkout
+		const wasDirty = git.isDirty();
+		if (wasDirty) git.stashPush({ includeUntracked: true, message: 'stack-auto-stash' });
 		git.checkout(target.name);
+		if (wasDirty) {
+			const pop = git.tryRun('stash', 'pop');
+			if (!pop.ok) {
+				process.stderr.write(`\x1b[33m⚠\x1b[0m Auto-stash pop failed — your changes are in \`git stash\`.\n`);
+			}
+		}
 		state.currentStack = this.name;
 		saveState(state);
 

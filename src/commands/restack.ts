@@ -30,16 +30,10 @@ export class RestackCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
-		const originalBranch = git.currentBranch();
+		return git.withCleanWorktreeAsync(() => this.executeInner());
+	}
 
-		// Verify clean working tree
-		if (git.isDirty()) {
-			ui.error(
-				'Working tree is dirty. Commit or stash changes before restacking.',
-			);
-			return 2;
-		}
-
+	private async executeInner(): Promise<number> {
 		const state = loadAndRefreshState();
 
 		let resolved: Awaited<ReturnType<typeof resolveStack>>;
@@ -135,8 +129,6 @@ export class RestackCommand extends Command {
 				`Restacked ${cascadeResult.rebased + (fromIndex === -1 && stack.branches.length > 0 ? 1 : 0)} branches in "${resolvedName}"`,
 			);
 			await this.cascadeDependentStacks(state, resolvedName, this.cascade, new Set());
-			// Return to the original branch (after dependent cascades which may move HEAD)
-			git.checkout(originalBranch);
 		}
 
 		return cascadeResult.ok ? 0 : 1;

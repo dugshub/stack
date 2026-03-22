@@ -16,14 +16,10 @@ export class FoldCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
-		// Require clean working tree
-		if (git.isDirty()) {
-			ui.error(
-				'Working tree is dirty. Commit or stash changes before folding.',
-			);
-			return 2;
-		}
+		return git.withCleanWorktreeAsync(() => this.executeInner());
+	}
 
+	private async executeInner(): Promise<number> {
 		const state = loadAndRefreshState();
 		const position = findActiveStack(state);
 

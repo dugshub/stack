@@ -42,6 +42,10 @@ export class MergeCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
+		if (this.all && this.now) {
+			ui.error('Cannot combine --all and --now.');
+			return 2;
+		}
 		if (this.dryRun) return this.showDryRun();
 		if (this.now) return this.mergeNow();
 		if (this.all) return this.mergeAll();
@@ -124,6 +128,10 @@ export class MergeCommand extends Command {
 
 	/** st merge --all — merge entire stack */
 	private async mergeAll(): Promise<number> {
+		return git.withCleanWorktreeAsync(() => this.mergeAllInner());
+	}
+
+	private async mergeAllInner(): Promise<number> {
 		const state = loadAndRefreshState();
 
 		let resolved: Awaited<ReturnType<typeof resolveStack>>;
@@ -211,9 +219,35 @@ export class MergeCommand extends Command {
 			return 2;
 		}
 
-		// Retarget first unmerged PR to trunk if its base was already merged
+		// Ensure first unmerged branch is rebased onto trunk before enabling auto-merge.
+		// Without this, GitHub shows "merge main into your branch" if the branch is behind trunk.
 		const first = unmerged[0]!;
 		const firstOrigIndex = stack.branches.indexOf(first);
+
+		git.fetch();
+		const upToDate = git.tryRun(
+			'merge-base', '--is-ancestor', `origin/${stack.trunk}`, first.name,
+		);
+		if (!upToDate.ok) {
+			ui.info(`Rebasing ${first.name} onto ${stack.trunk}...`);
+			const oldBase = firstOrigIndex > 0
+				? (stack.branches[firstOrigIndex - 1]?.tip ?? git.revParse(`origin/${stack.branches[firstOrigIndex - 1]?.name ?? stack.trunk}`))
+				: git.run('merge-base', `origin/${stack.trunk}`, first.name);
+
+			git.run('checkout', first.name);
+			const rebaseResult = git.tryRun(
+				'rebase', '--onto', `origin/${stack.trunk}`, '--empty=drop', oldBase, first.name,
+			);
+			if (!rebaseResult.ok) {
+				git.tryRun('rebase', '--abort');
+				ui.error(`Rebase failed for ${first.name}. Run st sync to fix.`);
+				return 2;
+			}
+			git.pushForceWithLease('origin', first.name);
+			ui.success(`Rebased ${first.name} onto ${stack.trunk}`);
+		}
+
+		// Retarget PR to trunk if its base was already merged
 		if (firstOrigIndex > 0) {
 			ui.info(`Retargeting #${first.pr} to ${stack.trunk}...`);
 			gh.prEdit(first.pr as number, { base: stack.trunk });
@@ -431,9 +465,14 @@ export class MergeCommand extends Command {
 			const currentBranch = git.currentBranch();
 			const active = findActiveStack(state);
 			if (!active) {
-				if (this.stackOpt && state.stacks[this.stackOpt]) {
-					stackName = this.stackOpt;
-					stack = state.stacks[this.stackOpt]!;
+				if (this.stackOpt) {
+					if (state.stacks[this.stackOpt]) {
+						stackName = this.stackOpt;
+						stack = state.stacks[this.stackOpt]!;
+					} else {
+						ui.error(`Stack "${this.stackOpt}" not found.`);
+						return 2;
+					}
 				} else {
 					ui.error('Not on a stack branch.');
 					return 2;

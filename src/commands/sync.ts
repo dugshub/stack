@@ -23,6 +23,10 @@ export class SyncCommand extends Command {
   });
 
   async execute(): Promise<number> {
+    return git.withCleanWorktreeAsync(() => this.executeInner());
+  }
+
+  private async executeInner(): Promise<number> {
     const state = loadAndRefreshState();
 
     let resolved: Awaited<ReturnType<typeof resolveStack>>;
@@ -38,14 +42,6 @@ export class SyncCommand extends Command {
     if (stack.restackState) {
       ui.error(
         'A restack is in progress. Finish it first with --continue or --abort.',
-      );
-      return 2;
-    }
-
-    // Check for dirty working tree before any rebase operations
-    if (git.isDirty()) {
-      ui.error(
-        'Working tree is dirty. Commit or stash changes before syncing.',
       );
       return 2;
     }

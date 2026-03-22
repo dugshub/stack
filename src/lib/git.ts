@@ -307,6 +307,62 @@ export function stashDrop(message: string): void {
   }
 }
 
+/**
+ * Run a function with a clean worktree. Auto-stashes if dirty, restores
+ * original branch and pops stash on completion.
+ * Pass `skip: true` (e.g. from --no-stash) to reject dirty worktrees instead.
+ */
+export function withCleanWorktree<T>(fn: () => T, opts?: { skip?: boolean }): T {
+  const dirty = isDirty();
+  if (dirty && opts?.skip) {
+    throw new Error('Working tree is dirty. Commit or stash changes first.');
+  }
+  const originalBranch = currentBranch();
+  if (dirty) stashPush({ includeUntracked: true, message: 'stack-auto-stash' });
+  try {
+    return fn();
+  } finally {
+    const current = tryRun('branch', '--show-current');
+    if (current.ok && current.stdout !== originalBranch) {
+      tryRun('checkout', originalBranch);
+    }
+    if (dirty) {
+      const pop = tryRun('stash', 'pop');
+      if (!pop.ok) {
+        process.stderr.write(
+          `\x1b[33m⚠\x1b[0m Auto-stash pop failed — your changes are in \`git stash\`.\n`,
+        );
+      }
+    }
+  }
+}
+
+/** Async version of withCleanWorktree. */
+export async function withCleanWorktreeAsync<T>(fn: () => Promise<T>, opts?: { skip?: boolean }): Promise<T> {
+  const dirty = isDirty();
+  if (dirty && opts?.skip) {
+    throw new Error('Working tree is dirty. Commit or stash changes first.');
+  }
+  const originalBranch = currentBranch();
+  if (dirty) stashPush({ includeUntracked: true, message: 'stack-auto-stash' });
+  try {
+    return await fn();
+  } finally {
+    const current = tryRun('branch', '--show-current');
+    if (current.ok && current.stdout !== originalBranch) {
+      tryRun('checkout', originalBranch);
+    }
+    if (dirty) {
+      const pop = tryRun('stash', 'pop');
+      if (!pop.ok) {
+        process.stderr.write(
+          `\x1b[33m⚠\x1b[0m Auto-stash pop failed — your changes are in \`git stash\`.\n`,
+        );
+      }
+    }
+  }
+}
+
 /** Reset working tree to match HEAD: discard modifications and remove untracked files. */
 export function cleanWorkingTree(): void {
   tryRun('checkout', '--', '.');

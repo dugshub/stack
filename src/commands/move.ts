@@ -32,6 +32,10 @@ export class MoveCommand extends Command {
 	direction = Option.String({ required: true });
 
 	async execute(): Promise<number> {
+		return git.withCleanWorktreeAsync(() => this.executeInner());
+	}
+
+	private async executeInner(): Promise<number> {
 		const state = loadAndRefreshState();
 
 		let resolved: Awaited<ReturnType<typeof resolveStack>>;
@@ -46,12 +50,6 @@ export class MoveCommand extends Command {
 
 		if (!position) {
 			ui.error('Not on a stack branch. Check out a branch in the stack first.');
-			return 2;
-		}
-
-		// Pre-flight checks
-		if (git.isDirty()) {
-			ui.error('Working tree is dirty. Commit or stash changes first.');
 			return 2;
 		}
 

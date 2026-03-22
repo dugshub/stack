@@ -28,6 +28,10 @@ export class ReorderCommand extends Command {
 	positions = Option.Rest();
 
 	async execute(): Promise<number> {
+		return git.withCleanWorktreeAsync(() => this.executeInner());
+	}
+
+	private async executeInner(): Promise<number> {
 		const state = loadAndRefreshState();
 
 		let resolved: Awaited<ReturnType<typeof resolveStack>>;
@@ -39,12 +43,6 @@ export class ReorderCommand extends Command {
 		}
 
 		const { stackName: resolvedName, stack } = resolved;
-
-		// Pre-flight checks
-		if (git.isDirty()) {
-			ui.error('Working tree is dirty. Commit or stash changes first.');
-			return 2;
-		}
 
 		if (stack.restackState) {
 			ui.error(

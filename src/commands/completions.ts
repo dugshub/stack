@@ -201,7 +201,15 @@ ${stackSubs.map(c => `              '${c}:${this.commandDescription(c)}'`).join(
             )
             _describe 'stack command' stack_cmds
           else
-            _st_stack_flag_args
+            case $words[2] in
+              delete)
+                _st_stacks
+                _st_stack_flag_args
+                ;;
+              *)
+                _st_stack_flag_args
+                ;;
+            esac
           fi
           ;;
         branch|b)
@@ -212,14 +220,52 @@ ${branchSubs.map(c => `              '${c}:${this.commandDescription(c)}'`).join
             )
             _describe 'branch command' branch_cmds
           else
-            _st_stack_flag_args
+            case $words[2] in
+              remove)
+                _st_branches
+                _st_stack_flag_args
+                ;;
+              *)
+                _st_stack_flag_args
+                ;;
+            esac
           fi
           ;;
         completions)
           _arguments '1:shell:(zsh bash)'
           ;;
         *)
-          _st_stack_flag_args
+          case $words[1] in
+            delete)
+              _st_stacks
+              _st_stack_flag_args
+              ;;
+            remove)
+              _st_branches
+              _st_stack_flag_args
+              ;;
+            daemon)
+              if (( CURRENT == 2 )); then
+                local -a actions
+                actions=(start stop status logs run attach setup)
+                compadd -X 'actions' "\${actions[@]}"
+              else
+                _st_stack_flag_args
+              fi
+              ;;
+            move)
+              if (( CURRENT == 2 )); then
+                local -a dirs
+                dirs=(up down)
+                compadd -X 'direction' "\${dirs[@]}"
+              else
+                _st_stack_flag_args
+              fi
+              ;;
+            *)
+              _st_stack_flag_args
+              ;;
+          esac
           ;;
       esac
       ;;
@@ -273,18 +319,60 @@ _st "$@"
       if [[ \${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=( $(compgen -W "${stackSubs.join(' ')}" -- "\${cur}") )
       else
-        COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
+        case "\${COMP_WORDS[2]}" in
+          delete)
+            local stacks
+            stacks="$(st _complete stacks 2>/dev/null)"
+            COMPREPLY=( $(compgen -W "\${stacks} --branches --prs --help -h" -- "\${cur}") )
+            ;;
+          *)
+            COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
+            ;;
+        esac
       fi
       ;;
     branch|b)
       if [[ \${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=( $(compgen -W "${branchSubs.join(' ')}" -- "\${cur}") )
       else
-        COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
+        case "\${COMP_WORDS[2]}" in
+          remove)
+            local branches
+            branches="$(st _complete all-branches 2>/dev/null)"
+            COMPREPLY=( $(compgen -W "\${branches} --stack -s --help -h" -- "\${cur}") )
+            ;;
+          *)
+            COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
+            ;;
+        esac
       fi
       ;;
     completions)
       COMPREPLY=( $(compgen -W "zsh bash" -- "\${cur}") )
+      ;;
+    delete)
+      local stacks
+      stacks="$(st _complete stacks 2>/dev/null)"
+      COMPREPLY=( $(compgen -W "\${stacks} --branches --prs --help -h" -- "\${cur}") )
+      ;;
+    remove)
+      local branches
+      branches="$(st _complete all-branches 2>/dev/null)"
+      COMPREPLY=( $(compgen -W "\${branches} --stack -s --help -h" -- "\${cur}") )
+      ;;
+    daemon)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "start stop status logs run attach setup" -- "\${cur}") )
+      else
+        COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
+      fi
+      ;;
+    move)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "up down" -- "\${cur}") )
+      else
+        COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )
+      fi
       ;;
     *)
       COMPREPLY=( $(compgen -W "--stack -s --help -h" -- "\${cur}") )

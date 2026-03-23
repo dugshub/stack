@@ -5,9 +5,8 @@ import * as ui from "../ui.js";
 // Anthropic OAuth endpoints (same as Claude Code uses)
 const AUTHORIZE_URL = "https://platform.claude.com/oauth/authorize";
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
-const CREATE_API_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key";
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const SCOPES = "user:inference user:profile org:create_api_key";
+const SCOPES = "user:inference user:profile";
 const KEYCHAIN_SERVICE = "st-cli-credentials";
 
 interface OAuthToken {
@@ -98,40 +97,6 @@ function generatePKCE(): { verifier: string; challenge: string } {
 	return { verifier, challenge };
 }
 
-/** Exchange an OAuth access token for a temporary Anthropic API key */
-async function exchangeForApiKey(accessToken: string): Promise<string | null> {
-	try {
-		const response = await fetch(CREATE_API_KEY_URL, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${accessToken}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ name: "st-cli" }),
-		});
-		if (!response.ok) return null;
-		const data = await response.json() as any;
-		return data.raw_key ?? data.api_key ?? data.key ?? null;
-	} catch {
-		return null;
-	}
-}
-
-/** Get a usable API key from a stored OAuth token, creating one if needed */
-export async function getApiKeyFromToken(token: OAuthToken): Promise<string | null> {
-	// If we already have an API key, use it
-	if (token.apiKey) return token.apiKey;
-
-	// Exchange OAuth token for an API key
-	const apiKey = await exchangeForApiKey(token.accessToken);
-	if (apiKey) {
-		// Cache the API key in the token
-		token.apiKey = apiKey;
-		saveOAuthToken(token);
-	}
-	return apiKey;
-}
-
 /** Run the full OAuth PKCE login flow. Opens browser, waits for callback. */
 export async function oauthLogin(): Promise<string | null> {
 	const { verifier, challenge } = generatePKCE();
@@ -199,24 +164,18 @@ export async function oauthLogin(): Promise<string | null> {
 
 		const data = await tokenResponse.json() as any;
 
-		// Exchange OAuth token for a real API key
-		const apiKey = await exchangeForApiKey(data.access_token);
-		if (!apiKey) {
-			throw new Error("Got OAuth token but failed to create API key from it");
-		}
-
 		const token: OAuthToken = {
 			accessToken: data.access_token,
 			refreshToken: data.refresh_token ?? null,
 			expiresAt: data.expires_in
 				? new Date(Date.now() + data.expires_in * 1000).toISOString()
 				: null,
-			apiKey,
+			apiKey: null,
 			createdAt: new Date().toISOString(),
 		};
 
 		saveOAuthToken(token);
-		return apiKey;
+		return data.access_token;
 	} catch (err: any) {
 		ui.error(`OAuth login failed: ${err.message}`);
 		return null;
@@ -241,20 +200,17 @@ export async function refreshOAuthToken(token: OAuthToken): Promise<string | nul
 
 		const data = await response.json() as any;
 
-		// Get a new API key from the refreshed token
-		const apiKey = await exchangeForApiKey(data.access_token);
-
 		const newToken: OAuthToken = {
 			accessToken: data.access_token,
 			refreshToken: data.refresh_token ?? token.refreshToken,
 			expiresAt: data.expires_in
 				? new Date(Date.now() + data.expires_in * 1000).toISOString()
 				: null,
-			apiKey: apiKey ?? token.apiKey, // Fall back to old key if exchange fails
+			apiKey: null,
 			createdAt: new Date().toISOString(),
 		};
 		saveOAuthToken(newToken);
-		return apiKey;
+		return data.access_token;
 	} catch {
 		return null;
 	}

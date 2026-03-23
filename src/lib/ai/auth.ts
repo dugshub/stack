@@ -13,7 +13,6 @@ import {
 	loadOAuthToken,
 	loadClaudeCodeToken,
 	refreshOAuthToken,
-	getApiKeyFromToken,
 	oauthLogin,
 } from "./oauth.js";
 
@@ -62,10 +61,10 @@ export interface ResolvedAuth {
  * 4. Stored API key (from `st config --key`)
  */
 export function resolveAuth(): ResolvedAuth | null {
-	// 1. Our own OAuth token (with cached API key)
+	// 1. Our own OAuth token — use access token directly
 	const oauthToken = loadOAuthToken();
-	if (oauthToken?.apiKey) {
-		return { apiKey: oauthToken.apiKey, source: "oauth" };
+	if (oauthToken?.accessToken) {
+		return { apiKey: oauthToken.accessToken, source: "oauth" };
 	}
 
 	// 2. Claude Code's token from Keychain
@@ -91,17 +90,11 @@ export function resolveAuth(): ResolvedAuth | null {
 
 /** Async version that can refresh expired OAuth tokens */
 export async function resolveAuthAsync(): Promise<ResolvedAuth | null> {
-	// 1. Our own OAuth token (with API key creation + refresh)
+	// 1. Our own OAuth token — use access token directly
 	const oauthToken = loadOAuthToken();
 	if (oauthToken) {
-		// If we already have a cached API key, use it
-		if (oauthToken.apiKey) {
-			return { apiKey: oauthToken.apiKey, source: "oauth" };
-		}
-		// Try to create an API key from the access token
-		const apiKey = await getApiKeyFromToken(oauthToken);
-		if (apiKey) {
-			return { apiKey, source: "oauth" };
+		if (oauthToken.accessToken) {
+			return { apiKey: oauthToken.accessToken, source: "oauth" };
 		}
 		// Token might be expired — try refresh
 		if (oauthToken.refreshToken) {

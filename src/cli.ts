@@ -32,7 +32,7 @@ for (const file of commandFiles) {
 }
 
 // Commands that don't require a git repo
-const noRepoRequired = ['--help', '-h', '--version', '-v', 'help', 'version', 'update', '--ai', 'daemon', 'completions', '_complete', 'login', 'logout'];
+const noRepoRequired = ['--help', '-h', '--version', '-v', '-i', '--interactive', 'help', 'version', 'update', '--ai', 'daemon', 'completions', '_complete', 'login', 'logout'];
 const rawArgs = process.argv.slice(2);
 
 // `st 3` → `st nav 3`
@@ -122,6 +122,17 @@ if (args.includes('--ai')) {
 // `stack --help` / `stack -h` — always show our custom help
 if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
   showHelp();
+}
+
+// `st -i` — interactive graph
+if (args.length === 1 && (args[0] === '-i' || args[0] === '--interactive')) {
+  if (git.tryRun('rev-parse', '--show-toplevel').ok) {
+    const { showInteractiveGraph } = await import('./lib/interactive-graph.js');
+    const result = await showInteractiveGraph();
+    process.exit(result);
+  }
+  ui.error('Not in a git repository.');
+  process.exit(2);
 }
 
 // Bare `stack` with no args — show dashboard if stacks exist, otherwise first-run guide

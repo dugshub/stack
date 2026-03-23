@@ -1,4 +1,3 @@
-import { isatty } from 'node:tty';
 import { formatRelativeTime } from './format.js';
 import * as git from './git.js';
 import { getHint } from './hints.js';
@@ -25,12 +24,6 @@ export async function showDashboard(): Promise<number | null> {
 
 	if (stackNames.length === 0) {
 		return null;
-	}
-
-	// Interactive mode when stdin is a TTY
-	if (isatty(0)) {
-		const { showInteractiveGraph } = await import('./interactive-graph.js');
-		return showInteractiveGraph();
 	}
 
 	const position = findActiveStack(state);
@@ -211,7 +204,8 @@ function renderQuickActions(
 
 	const line = actions.join(sep);
 	const helpHint = theme.muted('st -h');
-	process.stderr.write(`  ${line}${sep}${helpHint}\n`);
+	const interactiveHint = theme.muted('st -i');
+	process.stderr.write(`  ${line}${sep}${interactiveHint}${sep}${helpHint}\n`);
 }
 
 // ── Helpers ─────────────────────────────────────────────────

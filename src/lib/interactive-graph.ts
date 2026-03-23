@@ -252,13 +252,13 @@ function interactiveGraphSelect(
 
 		let firstRender = true;
 
+		// Use alternate screen buffer for clean rendering
+		process.stderr.write('\x1b[?1049h'); // Enter alternate screen
+		process.stderr.write('\x1b[?25l');   // Hide cursor
+
 		function render() {
-			// Move cursor up to beginning on subsequent renders
-			// +1 for the extra newline after all lines
-			if (!firstRender) {
-				process.stderr.write(`\x1b[${lines.length}A\x1b[J`);
-			}
-			firstRender = false;
+			// Move to top-left on every render
+			process.stderr.write('\x1b[H\x1b[J');
 
 			const selectedIdx = selectableIndices[cursorPos] ?? -1;
 			for (const [i, l] of lines.entries()) {
@@ -268,9 +268,12 @@ function interactiveGraphSelect(
 					process.stderr.write(`${l.text}\n`);
 				}
 			}
+			firstRender = false;
 		}
 
 		function cleanup() {
+			process.stderr.write('\x1b[?25h');    // Show cursor
+			process.stderr.write('\x1b[?1049l');   // Leave alternate screen
 			if (process.stdin.setRawMode) process.stdin.setRawMode(false);
 			rl.close();
 			process.stdin.pause();

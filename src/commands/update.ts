@@ -66,6 +66,17 @@ export class UpdateCommand extends Command {
 			return 1;
 		}
 		ui.success('Updated to latest version');
+
+		// 5. Restart daemon if running (so it picks up new code)
+		const { isDaemonRunning, stopDaemon, startDaemon } = await import('../server/lifecycle.js');
+		if (isDaemonRunning()) {
+			ui.info('Restarting daemon...');
+			await stopDaemon();
+			await new Promise((r) => setTimeout(r, 500));
+			const { pid } = await startDaemon();
+			ui.success(`Daemon restarted (pid ${pid})`);
+		}
+
 		return 0;
 	}
 }

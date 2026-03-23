@@ -270,7 +270,7 @@ async function updateMergeReadyStatus(
 				'Ready to merge (next in stack)', MERGE_READY_CONTEXT);
 		} else {
 			const blockingPR = stack.branches[firstUnmergedIndex]?.pr;
-			await postCommitStatus(repo, sha, 'failure',
+			await postCommitStatus(repo, sha, 'pending',
 				`Waiting for PR #${blockingPR} to merge first`, MERGE_READY_CONTEXT);
 		}
 	}

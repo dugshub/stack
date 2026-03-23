@@ -299,7 +299,7 @@ export function updateMergeReadyStatuses(
     const isReady = branch.pr === firstOpenPR;
     exec(
       'api', `repos/${repo}/statuses/${sha}`,
-      '-f', `state=${isReady ? 'success' : 'failure'}`,
+      '-f', `state=${isReady ? 'success' : 'pending'}`,
       '-f', 'context=stack/merge-ready',
       '-f', `description=${isReady ? 'Ready to merge (next in stack)' : `Waiting for PR #${firstOpenPR} to merge first`}`,
     );

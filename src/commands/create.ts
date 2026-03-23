@@ -21,7 +21,11 @@ export class CreateCommand extends Command {
       ],
       [
         'Adopt existing branches',
-        'st create frozen-column --from branch1 branch2',
+        'st create frozen-column branch1 branch2',
+      ],
+      [
+        'Adopt existing branches (explicit flag)',
+        'st create frozen-column --from branch1 --from branch2',
       ],
       ['Auto-detect from current branch', 'st create'],
       [
@@ -53,7 +57,20 @@ export class CreateCommand extends Command {
     description: 'Base branch to build on (creates a dependent stack). Use "." for current branch.',
   });
 
+  rest = Option.Rest();
+
   async execute(): Promise<number> {
+    // Option.Rest() captures all positional args (including the name slot).
+    // Shift the first rest arg into name when clipanion didn't populate it.
+    if (!this.name && this.rest.length > 0) {
+      this.name = this.rest.shift();
+    }
+
+    // Merge remaining positional rest args into --from
+    if (this.rest.length > 0) {
+      this.from = [...(this.from ?? []), ...this.rest];
+    }
+
     // Mode 3: Retroactive — --from flag
     if (this.from && this.from.length > 0) {
       if (!this.name) {

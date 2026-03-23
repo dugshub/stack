@@ -163,6 +163,7 @@ if (!skipDaemon) {
 
 // Check for updates after command runs (non-blocking)
 const exitCode = await cli.run(args);
+process.stderr.write('\n');
 if (args[0] !== 'update') {
   const updateMsg = checkForUpdate();
   if (updateMsg) {

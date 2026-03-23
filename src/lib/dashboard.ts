@@ -1,8 +1,8 @@
-import { tryDaemonCache } from './daemon.js';
+import { isatty } from 'node:tty';
 import { formatRelativeTime } from './format.js';
-import * as gh from './gh.js';
 import * as git from './git.js';
 import { getHint } from './hints.js';
+import { fetchAllPrStatuses } from './pr-status.js';
 import { findCommonPrefix } from './stack-report.js';
 import { findActiveStack, loadAndRefreshState } from './state.js';
 import { theme } from './theme.js';
@@ -25,6 +25,12 @@ export async function showDashboard(): Promise<number | null> {
 
 	if (stackNames.length === 0) {
 		return null;
+	}
+
+	// Interactive mode when stdin is a TTY
+	if (isatty(0)) {
+		const { showInteractiveGraph } = await import('./interactive-graph.js');
+		return showInteractiveGraph();
 	}
 
 	const position = findActiveStack(state);
@@ -209,30 +215,6 @@ function renderQuickActions(
 }
 
 // ── Helpers ─────────────────────────────────────────────────
-
-async function fetchAllPrStatuses(
-	state: StackFile,
-): Promise<Map<number, PrStatus>> {
-	const allPrNumbers: number[] = [];
-	for (const stack of Object.values(state.stacks)) {
-		for (const branch of stack.branches) {
-			if (branch.pr != null) {
-				allPrNumbers.push(branch.pr);
-			}
-		}
-	}
-
-	if (allPrNumbers.length === 0) return new Map();
-
-	const fullName = state.repo || gh.repoFullName();
-	const [owner, repoName] = fullName.split('/');
-	let prStatuses =
-		owner && repoName ? await tryDaemonCache(owner, repoName) : null;
-	if (!prStatuses) {
-		prStatuses = gh.prViewBatch(allPrNumbers);
-	}
-	return prStatuses;
-}
 
 function statusFromEmoji(
 	emoji: string,

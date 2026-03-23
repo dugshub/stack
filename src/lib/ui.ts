@@ -240,14 +240,14 @@ export function aggregateStatusEmoji(emojis: StatusEmoji[]): StatusEmoji {
 
 // ── Graph rendering ─────────────────────────────────────
 
-const DOT_TRUNK = '\u25C7';    // ◇
-const DOT_STACK = '\u25CF';    // ●
-const DOT_BRANCH = '\u25CB';   // ○
-const DOT_CURRENT = '\u25C9';  // ◉
-const PIPE = '\u2502';         // │
-const FORK_MID = '\u251C';     // ├
-const FORK_END = '\u2570';     // ╰
-const DASH = '\u2500';         // ─
+export const DOT_TRUNK = '\u25C7';    // ◇
+export const DOT_STACK = '\u25CF';    // ●
+export const DOT_BRANCH = '\u25CB';   // ○
+export const DOT_CURRENT = '\u25C9';  // ◉
+export const PIPE = '\u2502';         // │
+export const FORK_MID = '\u251C';     // ├
+export const FORK_END = '\u2570';     // ╰
+export const DASH = '\u2500';         // ─
 
 export function renderStackGraph(
 	roots: Array<{ trunk: string; stacks: GraphStackNode[] }>,

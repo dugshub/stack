@@ -1,6 +1,5 @@
 import { Command, Option } from 'clipanion';
-import * as gh from '../lib/gh.js';
-import { tryDaemonCache } from '../lib/daemon.js';
+import { fetchAllPrStatuses } from '../lib/pr-status.js';
 import { findActiveStack, findDependentStacks, loadAndRefreshState } from '../lib/state.js';
 import { findCommonPrefix } from '../lib/stack-report.js';
 import type { Branch, PrStatus, Stack, StackFile } from '../lib/types.js';
@@ -40,7 +39,7 @@ export class GraphCommand extends Command {
 		const currentStackName = position?.stackName ?? null;
 		const currentBranchName = position?.branch.name ?? null;
 
-		const prStatuses = await this.fetchAllPrStatuses(state);
+		const prStatuses = await fetchAllPrStatuses(state);
 
 		let roots = buildGraph(
 			state,
@@ -65,39 +64,14 @@ export class GraphCommand extends Command {
 		return 0;
 	}
 
-	private async fetchAllPrStatuses(
-		state: StackFile,
-	): Promise<Map<number, PrStatus>> {
-		const allPrNumbers: number[] = [];
-		for (const stack of Object.values(state.stacks)) {
-			for (const branch of stack.branches) {
-				if (branch.pr != null) {
-					allPrNumbers.push(branch.pr);
-				}
-			}
-		}
-
-		if (allPrNumbers.length === 0) return new Map();
-
-		const fullName = state.repo || gh.repoFullName();
-		const [owner, repoName] = fullName.split('/');
-		let prStatuses = owner && repoName
-			? await tryDaemonCache(owner, repoName)
-			: null;
-		if (!prStatuses) {
-			prStatuses = gh.prViewBatch(allPrNumbers);
-		}
-
-		return prStatuses;
-	}
 }
 
-interface GraphRoot {
+export interface GraphRoot {
 	trunk: string;
 	stacks: GraphStackNode[];
 }
 
-function buildGraph(
+export function buildGraph(
 	state: StackFile,
 	currentStackName: string | null,
 	currentBranchName: string | null,
@@ -131,7 +105,7 @@ function buildGraph(
 	return roots;
 }
 
-function buildStackNode(
+export function buildStackNode(
 	state: StackFile,
 	stackName: string,
 	stack: Stack,
@@ -207,7 +181,7 @@ function buildStackNode(
 	};
 }
 
-function collectChain(state: StackFile, startStack: string): Set<string> {
+export function collectChain(state: StackFile, startStack: string): Set<string> {
 	const chain = new Set<string>();
 
 	// Walk up ancestors
@@ -233,7 +207,7 @@ function collectChain(state: StackFile, startStack: string): Set<string> {
 	return chain;
 }
 
-function filterNodes(nodes: GraphStackNode[], chain: Set<string>): GraphStackNode[] {
+export function filterNodes(nodes: GraphStackNode[], chain: Set<string>): GraphStackNode[] {
 	return nodes.filter(node => {
 		if (chain.has(node.name)) {
 			if (node.children) {

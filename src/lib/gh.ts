@@ -247,7 +247,7 @@ export function prReady(prNumber: number): void {
 
 /**
  * Post merge-ready and rebase-status commit statuses for all open PRs in a stack.
- * merge-ready: bottom-most open PR gets "success"; others get "failure".
+ * merge-ready: bottom-most open PR gets "success"; others get "pending".
  * rebase-status: checks if parent tip is ancestor of branch tip.
  */
 export function updateMergeReadyStatuses(

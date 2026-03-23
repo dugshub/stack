@@ -1,3 +1,4 @@
+import { buildGraph } from '../commands/graph.js';
 import { formatRelativeTime } from './format.js';
 import * as git from './git.js';
 import { getHint } from './hints.js';
@@ -6,7 +7,7 @@ import { findCommonPrefix } from './stack-report.js';
 import { findActiveStack, loadAndRefreshState } from './state.js';
 import { theme } from './theme.js';
 import type { PrStatus, Stack, StackFile, StackPosition } from './types.js';
-import { aggregateStatusEmoji, statusEmoji, statusText } from './ui.js';
+import { aggregateStatusEmoji, renderStackGraph, statusEmoji, statusText } from './ui.js';
 import { currentVersion } from './version.js';
 
 /**
@@ -27,28 +28,23 @@ export async function showDashboard(): Promise<number | null> {
 	}
 
 	const position = findActiveStack(state);
-	const currentStackName = position?.stackName ?? state.currentStack;
+	const currentStackName = position?.stackName ?? state.currentStack ?? null;
+	const currentBranchName = position?.branch.name ?? null;
 
 	// Fetch PR statuses for all stacks (daemon cache first, batch fallback)
 	const prStatuses = await fetchAllPrStatuses(state);
 
-	const v = currentVersion();
-	process.stderr.write(`\n  ${theme.label('st')} ${theme.muted(`v${v}`)}\n`);
+	// Build and render the expanded graph
+	const roots = buildGraph(
+		state,
+		currentStackName,
+		currentBranchName,
+		prStatuses,
+		true, // expandAll
+	);
 
-	// ── Active stack (expanded) ──────────────────────────────
-	if (currentStackName) {
-		const stack = state.stacks[currentStackName];
-		if (stack) {
-			renderActiveStack(currentStackName, stack, position, prStatuses);
-		}
-	}
-
-	// ── Other stacks (compact) ───────────────────────────────
-	const otherStacks = stackNames.filter((n) => n !== currentStackName);
-	if (otherStacks.length > 0) {
-		process.stderr.write('\n');
-		renderCompactStacks(state, otherStacks, prStatuses);
-	}
+	process.stderr.write('\n');
+	renderStackGraph(roots);
 
 	// ── Quick actions ────────────────────────────────────────
 	process.stderr.write('\n');

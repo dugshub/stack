@@ -1,2 +1,0 @@
-# Routes
-API route definitions.

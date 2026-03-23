@@ -2,6 +2,7 @@
   "name": "@pattern-stack/stack",
   "version": "0.6.6",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "bin": {
     "st": "./src/cli.ts",

@@ -19,6 +19,9 @@ export class UpdateCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
+		// 0. Record current version before updating
+		const oldVersion = this.getInstalledVersion();
+
 		ui.info('Updating stack...');
 
 		// 1. Clean global package.json to avoid dependency loop
@@ -65,9 +68,13 @@ export class UpdateCommand extends Command {
 			ui.error('Update failed');
 			return 1;
 		}
-		ui.success('Updated to latest version');
+		const newVersion = this.getInstalledVersion();
+		ui.success(`Updated to ${newVersion ?? 'latest'}`);
 
-		// 5. Restart daemon if running (so it picks up new code)
+		// 5. Show changelog
+		this.showChangelog(oldVersion, newVersion);
+
+		// 6. Restart daemon if running (so it picks up new code)
 		const { isDaemonRunning, stopDaemon, startDaemon } = await import('../server/lifecycle.js');
 		if (isDaemonRunning()) {
 			ui.info('Restarting daemon...');
@@ -78,5 +85,48 @@ export class UpdateCommand extends Command {
 		}
 
 		return 0;
+	}
+
+	private getInstalledVersion(): string | null {
+		try {
+			const pkgPath = join(GLOBAL_DIR, 'node_modules', '@pattern-stack', 'stack', 'package.json');
+			const raw = readFileSync(pkgPath, 'utf-8');
+			return JSON.parse(raw).version ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	private showChangelog(oldVersion: string | null, newVersion: string | null): void {
+		try {
+			const changelogPath = join(GLOBAL_DIR, 'node_modules', '@pattern-stack', 'stack', 'CHANGELOG.md');
+			if (!existsSync(changelogPath)) return;
+			const content = readFileSync(changelogPath, 'utf-8');
+
+			// Parse version sections
+			const sections = content.split(/^## /m).slice(1);
+			const relevant: string[] = [];
+			for (const section of sections) {
+				const ver = section.split('\n')[0]?.trim();
+				if (!ver) continue;
+				if (oldVersion && ver === oldVersion) break;
+				relevant.push(section.trim());
+			}
+
+			if (relevant.length === 0) return;
+
+			console.log('');
+			console.log('  \x1b[1mWhat\'s new:\x1b[0m');
+			for (const section of relevant) {
+				const lines = section.split('\n');
+				console.log(`  \x1b[36m${lines[0]}\x1b[0m`);
+				for (const line of lines.slice(1)) {
+					if (line.trim()) console.log(`  ${line}`);
+				}
+			}
+			console.log('');
+		} catch {
+			// Non-critical
+		}
 	}
 }

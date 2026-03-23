@@ -462,147 +462,143 @@ export class AbsorbCommand extends Command {
     git.run('stash', 'push', '-u', '-m', 'stack-absorb-temp');
     const stashSha = git.tryRun('rev-parse', 'stash@{0}').stdout;
 
+    // Helper: drop the absorb stash and restore unabsorbed files.
+    // Called in finally block to ensure cleanup even on errors/conflicts.
+    const cleanupStash = () => {
+      // Drop stash by matching SHA (safe if other stashes were created)
+      if (stashSha) {
+        const listResult = git.tryRun('stash', 'list', '--format=%H');
+        if (listResult.ok) {
+          const shas = listResult.stdout.split('\n');
+          const idx = shas.indexOf(stashSha);
+          if (idx >= 0) {
+            git.tryRun('stash', 'drop', `stash@{${idx}}`);
+          }
+        }
+      }
+
+      // Write back unabsorbed file contents
+      if (unabsorbedFiles.length > 0) {
+        for (const file of unabsorbedFiles) {
+          const content = fileContents.get(file);
+          const fullPath = join(repoRoot, file);
+          if (content === null) {
+            // File was deleted — re-delete it
+            if (existsSync(fullPath)) {
+              unlinkSync(fullPath);
+            }
+          } else if (content !== undefined) {
+            writeFileSync(fullPath, content);
+          }
+        }
+        process.stderr.write('\n');
+        ui.info(
+          `Restored ${unabsorbedFiles.length} unabsorbed file${unabsorbedFiles.length === 1 ? '' : 's'} to working tree.`,
+        );
+      }
+    };
+
     // Step c: Single bottom-to-top pass — rebase then commit for each branch.
     // This ensures absorb commits are always on top of the restacked chain,
     // avoiding conflicts when branches later in the stack also have absorb commits.
-    const worktreeMap = git.worktreeList();
-    const sortedBranches = new Set([...absorbable.keys()]);
-    const lowestModifiedIndex = Math.min(...sortedBranches);
     let branchesCommitted = 0;
 
-    // Snapshot original tips BEFORE any modifications (immutable)
-    const originalTips: Record<string, string> = {};
-    for (let i = lowestModifiedIndex; i < stack.branches.length; i++) {
-      const branch = stack.branches[i];
-      if (!branch) continue;
-      originalTips[branch.name] = branch.tip ?? git.revParse(branch.name);
-    }
+    try {
+      const worktreeMap = git.worktreeList();
+      const sortedBranches = new Set([...absorbable.keys()]);
+      const lowestModifiedIndex = Math.min(...sortedBranches);
 
-    // Also track tips for RestackState conflict recovery
-    const oldTips: Record<string, string> = { ...originalTips };
-
-    for (let i = lowestModifiedIndex; i < stack.branches.length; i++) {
-      const branch = stack.branches[i];
-      if (!branch) continue;
-      const parentBranch = stack.branches[i - 1];
-      const worktreePath = worktreeMap.get(branch.name);
-
-      // --- Rebase this branch if an upstream branch was modified ---
-      if (i > lowestModifiedIndex && parentBranch) {
-        const rebaseResult = rebaseBranch({
-          branch,
-          parentRef: parentBranch.name,
-          fallbackOldBase: originalTips[parentBranch.name],
-          worktreeMap,
-        });
-
-        if (rebaseResult.ok) {
-          if (branch.tip) oldTips[branch.name] = branch.tip;
-          ui.success(`Rebased ${theme.branch(branch.name)}`);
-        } else {
-          stack.restackState = {
-            fromIndex: lowestModifiedIndex,
-            currentIndex: i,
-            oldTips,
-          };
-          stack.updated = new Date().toISOString();
-          saveState(state);
-
-          ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
-          if (rebaseResult.conflicts.length > 0) {
-            ui.info('Conflicting files:');
-            for (const file of rebaseResult.conflicts) {
-              ui.info(`  ${file}`);
-            }
-          }
-          ui.info(
-            `Resolve conflicts, then run ${theme.command('st continue')}.`,
-          );
-          return 1;
-        }
+      // Snapshot original tips BEFORE any modifications (immutable)
+      const originalTips: Record<string, string> = {};
+      for (let i = lowestModifiedIndex; i < stack.branches.length; i++) {
+        const branch = stack.branches[i];
+        if (!branch) continue;
+        originalTips[branch.name] = branch.tip ?? git.revParse(branch.name);
       }
 
-      // --- Commit absorb files to this branch (if any) ---
-      const files = absorbable.get(i);
-      if (files && files.length > 0) {
-        const commitMsg = this.message ?? generateCommitMessage(files, fileContents);
-        const baseDir = worktreePath ?? repoRoot;
-        if (!worktreePath) {
-          git.checkout(branch.name);
-        }
-        for (const file of files) {
-          const content = fileContents.get(file);
-          if (content === null) {
-            // File was deleted — remove it
-            if (worktreePath) {
-              Bun.spawnSync(['git', 'rm', '-f', file], {
-                stdout: 'pipe', stderr: 'pipe', cwd: worktreePath,
-              });
-            } else {
-              git.tryRun('rm', '-f', file);
+      // Also track tips for RestackState conflict recovery
+      const oldTips: Record<string, string> = { ...originalTips };
+
+      for (let i = lowestModifiedIndex; i < stack.branches.length; i++) {
+        const branch = stack.branches[i];
+        if (!branch) continue;
+        const parentBranch = stack.branches[i - 1];
+        const worktreePath = worktreeMap.get(branch.name);
+
+        // --- Rebase this branch if an upstream branch was modified ---
+        if (i > lowestModifiedIndex && parentBranch) {
+          const rebaseResult = rebaseBranch({
+            branch,
+            parentRef: parentBranch.name,
+            fallbackOldBase: originalTips[parentBranch.name],
+            worktreeMap,
+          });
+
+          if (rebaseResult.ok) {
+            if (branch.tip) oldTips[branch.name] = branch.tip;
+            ui.success(`Rebased ${theme.branch(branch.name)}`);
+          } else {
+            stack.restackState = {
+              fromIndex: lowestModifiedIndex,
+              currentIndex: i,
+              oldTips,
+            };
+            stack.updated = new Date().toISOString();
+            saveState(state);
+
+            ui.error(`Conflict rebasing ${theme.branch(branch.name)}`);
+            if (rebaseResult.conflicts.length > 0) {
+              ui.info('Conflicting files:');
+              for (const file of rebaseResult.conflicts) {
+                ui.info(`  ${file}`);
+              }
             }
-          } else if (content) {
-            writeFileSync(join(baseDir, file), content);
+            ui.info(
+              `Resolve conflicts, then run ${theme.command('st continue')}.`,
+            );
+            return 1;
           }
         }
-        const addFiles = files.filter((f) => fileContents.get(f) !== null);
-        if (worktreePath) {
+
+        // --- Commit absorb files to this branch (if any) ---
+        const files = absorbable.get(i);
+        if (files && files.length > 0) {
+          const commitMsg = this.message ?? generateCommitMessage(files, fileContents);
+          const gitCwd = worktreePath ?? repoRoot;
+          if (!worktreePath) {
+            git.checkout(branch.name);
+          }
+          for (const file of files) {
+            const content = fileContents.get(file);
+            if (content === null) {
+              // File was deleted — remove it
+              Bun.spawnSync(['git', 'rm', '-f', file], {
+                stdout: 'pipe', stderr: 'pipe', cwd: gitCwd,
+              });
+            } else if (content) {
+              writeFileSync(join(gitCwd, file), content);
+            }
+          }
+          const addFiles = files.filter((f) => fileContents.get(f) !== null);
           if (addFiles.length > 0) {
             Bun.spawnSync(['git', 'add', ...addFiles], {
-              stdout: 'pipe', stderr: 'pipe', cwd: worktreePath,
+              stdout: 'pipe', stderr: 'pipe', cwd: gitCwd,
             });
           }
           Bun.spawnSync(['git', 'commit', '-m', commitMsg], {
-            stdout: 'pipe', stderr: 'pipe', cwd: worktreePath,
+            stdout: 'pipe', stderr: 'pipe', cwd: gitCwd,
           });
-          branch.tip = git.revParse(branch.name, { cwd: worktreePath });
-        } else {
-          if (addFiles.length > 0) {
-            git.run('add', ...addFiles);
-          }
-          git.run('commit', '-m', commitMsg);
-          branch.tip = git.revParse(branch.name);
+          branch.tip = git.revParse(branch.name, { cwd: gitCwd });
+          branchesCommitted++;
+          ui.success(`Committed to ${theme.branch(branch.name)}: ${files.join(', ')}`);
         }
-        branchesCommitted++;
-        ui.success(`Committed to ${theme.branch(branch.name)}: ${files.join(', ')}`);
+
+        saveState(state);
       }
-
-      saveState(state);
-    }
-
-    // Step e: Return to original branch
-    git.checkout(originalBranch);
-
-    // Step f: Drop the absorb stash by matching SHA (safe if other stashes were created)
-    if (stashSha) {
-      const listResult = git.tryRun('stash', 'list', '--format=%H');
-      if (listResult.ok) {
-        const shas = listResult.stdout.split('\n');
-        const idx = shas.indexOf(stashSha);
-        if (idx >= 0) {
-          git.tryRun('stash', 'drop', `stash@{${idx}}`);
-        }
-      }
-    }
-
-    // Step g: Write back unabsorbed file contents
-    if (unabsorbedFiles.length > 0) {
-      for (const file of unabsorbedFiles) {
-        const content = fileContents.get(file);
-        const fullPath = join(repoRoot, file);
-        if (content === null) {
-          // File was deleted — re-delete it
-          if (existsSync(fullPath)) {
-            unlinkSync(fullPath);
-          }
-        } else if (content !== undefined) {
-          writeFileSync(fullPath, content);
-        }
-      }
-      process.stderr.write('\n');
-      ui.info(
-        `Restored ${unabsorbedFiles.length} unabsorbed file${unabsorbedFiles.length === 1 ? '' : 's'} to working tree.`,
-      );
+    } finally {
+      // Always return to original branch, drop stash, and restore unabsorbed files
+      git.tryRun('checkout', originalBranch);
+      cleanupStash();
     }
 
     // Step h: Report results

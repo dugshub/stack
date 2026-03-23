@@ -313,7 +313,7 @@ export function updateMergeReadyStatuses(
       ).exitCode === 0;
       exec(
         'api', `repos/${repo}/statuses/${sha}`,
-        '-f', `state=${isRebased ? 'success' : 'failure'}`,
+        '-f', `state=${isRebased ? 'success' : 'pending'}`,
         '-f', 'context=stack/rebase-status',
         '-f', `description=${isRebased ? `Rebased on ${parentRef}` : `Needs restack — not rebased on ${parentRef}`}`,
       );

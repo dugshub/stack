@@ -188,7 +188,7 @@ export async function handlePushEvent(
 		await postCommitStatus(
 			event.repo,
 			event.headSha,
-			'failure',
+			'pending',
 			`Needs restack — not rebased on ${position.parentBranch}`,
 		);
 	}

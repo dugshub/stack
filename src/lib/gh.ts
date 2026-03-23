@@ -137,6 +137,31 @@ export function prViewBatch(prNumbers: number[]): Map<number, PrStatus> {
 	return statuses;
 }
 
+/** Find existing open PRs by head branch name. Returns map of branchName -> prNumber. */
+export function findPRsByHead(repo: string, headBranches: string[]): Map<string, number> {
+  const result = new Map<string, number>();
+  if (headBranches.length === 0) return result;
+
+  // gh pr list can filter by head, but only one at a time — use GraphQL for batch
+  const [owner, name] = repo.split('/');
+  const aliases = headBranches
+    .map((h, i) => `pr${i}: pullRequests(headRefName: "${h}", states: OPEN, first: 1) { nodes { number } }`)
+    .join('\n');
+
+  const query = `query { repository(owner: "${owner}", name: "${name}") { ${aliases} } }`;
+  const res = exec('api', 'graphql', '-f', `query=${query}`);
+  if (!res.ok) return result;
+
+  const data = JSON.parse(res.stdout) as { data: { repository: Record<string, { nodes: Array<{ number: number }> }> } };
+  for (let i = 0; i < headBranches.length; i++) {
+    const entry = data.data.repository[`pr${i}`];
+    if (entry?.nodes?.[0]?.number) {
+      result.set(headBranches[i]!, entry.nodes[0].number);
+    }
+  }
+  return result;
+}
+
 export function prCreate(opts: {
   base: string;
   head: string;

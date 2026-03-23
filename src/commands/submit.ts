@@ -197,7 +197,25 @@ export class SubmitCommand extends Command {
 		const createBatch = new MutationBatch(repoNodeId);
 		const createAliases = new Map<string, number>(); // alias -> branch index
 
-		// Collect branches that need PRs
+		// Collect branches that need PRs — first check if any already exist on GitHub
+		const branchesWithoutPR = stack.branches
+			.map((b, i) => ({ branch: b, index: i }))
+			.filter(({ branch }) => branch && branch.pr == null);
+
+		if (branchesWithoutPR.length > 0) {
+			// Check GitHub for existing open PRs matching these head branches
+			const headNames = branchesWithoutPR.map(({ branch }) => branch.name);
+			const existingPRs = gh.findPRsByHead(state.repo, headNames);
+			for (const { branch } of branchesWithoutPR) {
+				const found = existingPRs.get(branch.name);
+				if (found) {
+					branch.pr = found;
+					ui.info(`  Adopted existing ${theme.pr(`#${found}`)} for ${theme.branch(branch.name)}`);
+				}
+			}
+			if (existingPRs.size > 0) saveState(state);
+		}
+
 		const toCreate: Array<{ index: number; branch: typeof stack.branches[0]; base: string; title: string }> = [];
 		for (let i = 0; i < stack.branches.length; i++) {
 			const branch = stack.branches[i];

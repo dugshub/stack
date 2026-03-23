@@ -2,9 +2,9 @@
 
 Stacked PRs for GitHub. No accounts, no hosted service -- just `git` and `gh`.
 
-`st` manages stacks of dependent pull requests so reviewers see clean, incremental diffs and you can keep shipping while waiting for review. It handles the tedious rebasing, retargeting, and comment-updating that makes stacking painful by hand.
+`st` manages stacks of dependent pull requests so reviewers see clean, incremental diffs and you can keep shipping while waiting for review. It handles the rebasing, retargeting, and comment-updating that makes stacking painful by hand.
 
-<!-- TODO: Add demo GIF -->
+<!-- TODO: GIF - full workflow: create stack, make commits, submit, show PRs created on GitHub. ~15 seconds, tight edit. -->
 
 ---
 
@@ -34,7 +34,7 @@ st completions --install
 
 ```bash
 # Create a stack
-st create my-feature -d add-schema
+st create my-feature -d add-schema   # -d names the first branch
 
 # Work on the first branch, commit normally
 # ... edit files, git add, git commit ...
@@ -56,9 +56,7 @@ st modify -a                      # amend + auto-restack downstream
 st merge --all                    # enables auto-merge, cascades through the stack
 ```
 
-That's it. Each PR targets the branch below it, reviewers see only the diff for that layer, and `st` posts a navigation comment on every PR:
-
-<!-- TODO: Add screenshot of stack navigation comment -->
+That's it. Each PR targets the branch below it, reviewers see only the diff for that layer, and `st` posts a navigation comment on every PR showing where it sits in the stack.
 
 ## Features
 
@@ -66,7 +64,7 @@ That's it. Each PR targets the branch below it, reviewers see only the diff for 
 
 Run `st` with no arguments to see an expanded graph of all your stacks, with PR status, review state, and CI checks at a glance. Run `st -i` for the interactive version with keyboard navigation.
 
-<!-- TODO: Add screenshot of graph dashboard -->
+<!-- TODO: GIF - run `st` showing graph dashboard with multiple stacks, PR status badges, and CI indicators. Then switch to `st -i` and arrow through branches. -->
 
 ### Submit and PR Management
 
@@ -94,6 +92,8 @@ st submit --describe               # or per-submit
 
 After editing a mid-stack branch, `st restack` cascades the rebase through all downstream branches. If there are conflicts, resolve them and `st continue`. Cascading extends to dependent stacks automatically.
 
+<!-- TODO: GIF - edit a file on branch 2 of a 4-branch stack, run `st modify -a`, watch restack cascade through branches 3 and 4. -->
+
 ```bash
 st modify -a               # amend current branch + restack in one step
 st restack                 # manual restack from current position
@@ -111,7 +111,9 @@ st sync                    # fetch, remove merged, rebase remaining
 
 ### Merge
 
-Merge an entire stack through GitHub's auto-merge. The daemon (or a local poll loop) watches each PR merge, then rebases, retargets, and enables auto-merge on the next one.
+Merge an entire stack through GitHub's auto-merge. The daemon watches each PR merge, then rebases, retargets, and enables auto-merge on the next one.
+
+<!-- TODO: GIF - run `st merge --all` on a 3-PR stack, show the cascade as each PR merges and the next one gets enabled. Speed up the waiting parts. -->
 
 ```bash
 st merge                   # enable auto-merge on current PR
@@ -123,6 +125,8 @@ st merge --now             # merge immediately (bottom PR only)
 ### Absorb
 
 Working tree has changes that belong on different branches? `st absorb` routes each file to its owning branch based on diff history. Ambiguous files get interactive prompts. Manual routing is available for CI or scripted use.
+
+<!-- TODO: GIF - stage changes touching files from 3 different branches, run `st absorb`, show auto-routing output and one interactive prompt for an ambiguous file. -->
 
 ```bash
 st absorb                                      # auto-route by ownership
@@ -182,6 +186,8 @@ st check --json bun test           # JSON output for CI
 ### Undo
 
 Every mutating command saves a snapshot. Undo restores both state and git branch tips.
+
+<!-- TODO: GIF - run a restack that goes wrong, then `st undo` to snap back. Show the before/after state with `st`. -->
 
 ```bash
 st undo                    # undo last operation
@@ -314,4 +320,4 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE.md) — free to use, modify, and share. Not for commercial use.
+[PolyForm Noncommercial 1.0.0](LICENSE.md) -- free to use, modify, and share. Not for commercial use.

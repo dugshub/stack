@@ -39,7 +39,7 @@ export class CreateCommand extends Command {
     ],
   });
 
-  name = Option.String({ required: false });
+  args = Option.Rest();
 
   description = Option.String('--description,-d', {
     description: 'Description for the first branch (kebab-case)',
@@ -57,18 +57,14 @@ export class CreateCommand extends Command {
     description: 'Base branch to build on (creates a dependent stack). Use "." for current branch.',
   });
 
-  rest = Option.Rest();
+  name: string | undefined;
 
   async execute(): Promise<number> {
-    // Option.Rest() captures all positional args (including the name slot).
-    // Shift the first rest arg into name when clipanion didn't populate it.
-    if (!this.name && this.rest.length > 0) {
-      this.name = this.rest.shift();
-    }
-
-    // Merge remaining positional rest args into --from
-    if (this.rest.length > 0) {
-      this.from = [...(this.from ?? []), ...this.rest];
+    // First positional arg is the stack name, rest are branches to adopt
+    this.name = this.args[0];
+    const restBranches = this.args.slice(1);
+    if (restBranches.length > 0) {
+      this.from = [...(this.from ?? []), ...restBranches];
     }
 
     // Mode 3: Retroactive — --from flag

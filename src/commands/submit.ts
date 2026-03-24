@@ -328,7 +328,7 @@ export class SubmitCommand extends Command {
 		}
 
 		// Phase 5: Update descriptions for existing PRs (if --update)
-		if (updateExisting && useDescribe && apiKey) {
+		if (updateExisting && useDescribe) {
 			const descBatch = new MutationBatch(repoNodeId);
 			const descUpdates: Array<{ pr: number; alias: string }> = [];
 
@@ -355,7 +355,6 @@ export class SubmitCommand extends Command {
 							stackName,
 							branchIndex: index,
 							totalBranches: stack.branches.length,
-							apiKey: apiKey!,
 						}).then((body) => ({ index, body })),
 					),
 				);

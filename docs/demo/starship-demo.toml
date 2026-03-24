@@ -1,0 +1,13 @@
+format = "$directory$git_branch$character"
+
+[directory]
+truncation_length = 1
+format = "[$path]($style) "
+
+[git_branch]
+format = "on [$branch]($style) "
+style = "purple"
+
+[character]
+success_symbol = "[>](green)"
+error_symbol = "[>](red)"

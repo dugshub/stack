@@ -1,0 +1,104 @@
+{
+  "repo": "dugshub/todo",
+  "stacks": {
+    "api": {
+      "trunk": "main",
+      "branches": [
+        {
+          "name": "api/1-schema",
+          "tip": "97ec537ea27c871e398f46eef59bc331544c7884",
+          "pr": 158,
+          "parentTip": "89620bb63c14fad62994f6fbf6d7790633def4dd"
+        },
+        {
+          "name": "api/2-models",
+          "tip": "d3dfde539cd72f9d7479bc67ea3a6b99e921fb6d",
+          "pr": 159,
+          "parentTip": "97ec537ea27c871e398f46eef59bc331544c7884"
+        },
+        {
+          "name": "api/3-routes",
+          "tip": "83f1f6efda769836809ecde4da57fe11c4598b71",
+          "pr": 160,
+          "parentTip": "d3dfde539cd72f9d7479bc67ea3a6b99e921fb6d"
+        },
+        {
+          "name": "api/4-auth",
+          "tip": "0f0d7235599a992cc3140db4b099974a218ac898",
+          "pr": 161,
+          "parentTip": "83f1f6efda769836809ecde4da57fe11c4598b71"
+        },
+        {
+          "name": "api/5-validation",
+          "tip": "6c35c52e7507cb688dfbe2ffe891ffad2198bec3",
+          "pr": 162,
+          "parentTip": "0f0d7235599a992cc3140db4b099974a218ac898"
+        }
+      ],
+      "created": "2026-03-24T20:15:18.989Z",
+      "updated": "2026-03-24T20:21:16.383Z"
+    },
+    "cache": {
+      "trunk": "api/3-routes",
+      "branches": [
+        {
+          "name": "cache/1-redis",
+          "tip": "d6134f4b9631544365b0d8e24aaa15d3dccc201e",
+          "pr": 163,
+          "parentTip": "83f1f6efda769836809ecde4da57fe11c4598b71"
+        },
+        {
+          "name": "cache/2-keys",
+          "tip": "051747773323c609836f85ecff86db6719eea44b",
+          "pr": 164,
+          "parentTip": "d6134f4b9631544365b0d8e24aaa15d3dccc201e"
+        },
+        {
+          "name": "cache/3-middleware",
+          "tip": "55f4ed4b052e9bafb746b8ac1fa55e4cf9b7e242",
+          "pr": 165,
+          "parentTip": "051747773323c609836f85ecff86db6719eea44b"
+        }
+      ],
+      "created": "2026-03-24T20:15:20.119Z",
+      "updated": "2026-03-24T20:20:50.218Z",
+      "dependsOn": {
+        "stack": "api",
+        "branch": "api/3-routes"
+      }
+    },
+    "realtime": {
+      "trunk": "api/5-validation",
+      "branches": [
+        {
+          "name": "realtime/1-ws-server",
+          "tip": "d7814c43e38cdc602c4b3be94b2d0fda32e34f03",
+          "pr": 166,
+          "parentTip": "6c35c52e7507cb688dfbe2ffe891ffad2198bec3"
+        },
+        {
+          "name": "realtime/2-events",
+          "tip": "cd47499ce4998333832fb9c4b26c28ff78ae4b09",
+          "pr": 167,
+          "parentTip": "d7814c43e38cdc602c4b3be94b2d0fda32e34f03"
+        },
+        {
+          "name": "realtime/3-subscriptions",
+          "tip": "fd23f825b0230dbb757ceef364313ed52bec6686",
+          "pr": 168,
+          "parentTip": "cd47499ce4998333832fb9c4b26c28ff78ae4b09"
+        }
+      ],
+      "created": "2026-03-24T20:15:21.261Z",
+      "updated": "2026-03-24T20:21:04.601Z",
+      "dependsOn": {
+        "stack": "api",
+        "branch": "api/5-validation"
+      }
+    }
+  },
+  "currentStack": "api",
+  "config": {
+    "describeHintDismissed": true
+  }
+}

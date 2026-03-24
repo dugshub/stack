@@ -4,7 +4,7 @@ Stacked PRs for GitHub. No accounts, no hosted service -- just `git` and `gh`.
 
 `st` manages stacks of dependent pull requests so reviewers see clean, incremental diffs and you can keep shipping while waiting for review. It handles the rebasing, retargeting, and comment-updating that makes stacking painful by hand.
 
-<!-- TODO: GIF - full workflow: create stack, make commits, submit, show PRs created on GitHub. ~15 seconds, tight edit. -->
+![Create and submit a stack](docs/demo/scene1.gif)
 
 ---
 
@@ -49,7 +49,7 @@ st submit
 
 # Someone reviews branch 1. Meanwhile, keep working on branch 2.
 # Need to fix something in branch 1?
-st down                           # move to branch 1
+st up                             # move back to branch 1
 st modify -a                      # amend + auto-restack downstream
 
 # Ready to merge
@@ -92,10 +92,11 @@ st submit --describe               # or per-submit
 
 After editing a mid-stack branch, `st restack` cascades the rebase through all downstream branches. If there are conflicts, resolve them and `st continue`. Cascading extends to dependent stacks automatically.
 
-<!-- TODO: GIF - edit a file on branch 2 of a 4-branch stack, run `st modify -a`, watch restack cascade through branches 3 and 4. -->
+![Edit and cascade restack across dependent stacks](docs/demo/scene3.gif)
 
 ```bash
 st modify -a               # amend current branch + restack in one step
+st modify -a -m "message"  # amend with new message + restack
 st restack                 # manual restack from current position
 st continue                # after resolving conflicts
 st abort                   # bail out
@@ -144,15 +145,24 @@ st split "schema:src/db/**" "api:src/api/**" "ui:src/components/**"
 st split --dry-run "schema:src/db/**" "api:src/api/**"
 ```
 
+### Dependent Stacks
+
+Build stacks on top of other stacks. When you restack the parent, dependent stacks cascade automatically.
+
+```bash
+st create cache --base api/3-routes -d redis    # cache stack depends on api
+st restack                                       # cascades into dependent stacks
+```
+
 ### Navigation
 
 Move between branches in a stack without remembering branch names.
 
 ```bash
-st up                      # one branch toward the top
-st down                    # one branch toward the bottom
-st top                     # jump to the top
-st bottom                  # jump to the bottom
+st up                      # one branch toward trunk
+st down                    # one branch away from trunk
+st top                     # jump to the trunk end
+st bottom                  # jump to the tip
 st 3                       # jump to branch #3
 st nav                     # interactive picker with PR status
 st my-feature              # switch to a stack by name
@@ -203,6 +213,7 @@ A background daemon receives GitHub webhooks to watch merge cascades and cache P
 ```bash
 st daemon status           # check if running
 st daemon start            # manual start
+st daemon stop             # stop the daemon
 st daemon attach           # stream logs
 st daemon logs -f          # tail log file
 ```
@@ -237,10 +248,10 @@ Claude will see stack context and can run `st submit`, `st restack`, `st sync`, 
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `branch up` | `up` | Move up one branch |
-| `branch down` | `down` | Move down one branch |
-| `branch top` | `top` | Jump to the top |
-| `branch bottom` | `bottom` | Jump to the bottom |
+| `branch up` | `up` | Move one branch toward trunk |
+| `branch down` | `down` | Move one branch away from trunk |
+| `branch top` | `top` | Jump to the trunk end |
+| `branch bottom` | `bottom` | Jump to the tip |
 | `branch nav` | `nav` | Interactive branch picker |
 | `branch track` | `track` | Add current branch to the stack |
 | `branch remove` | `remove` | Remove a branch from the stack |
@@ -268,6 +279,7 @@ Claude will see stack context and can run `st submit`, `st restack`, `st sync`, 
 | `st completions` | Install shell completions (zsh, bash) |
 | `st init` | Install Claude Code skills |
 | `st update` | Self-update to latest version |
+| `st -i` | Interactive graph with keyboard navigation |
 | `st --ai [cmd]` | LLM-friendly docs for any command |
 
 ## Day-to-Day Workflow

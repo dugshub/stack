@@ -17,12 +17,12 @@ done
 # Kill any local branches except main
 git checkout main 2>/dev/null
 git pull --ff-only 2>/dev/null || true
-for branch in $(git branch --list 'dugshub/*' | tr -d ' *'); do
+for branch in $(git branch --list 'dugshub/*' 'backend/*' | tr -d ' *'); do
   git branch -D "$branch" 2>/dev/null || true
 done
 
 # Delete remote branches that might linger
-for ref in $(git branch -r --list 'origin/dugshub/*' | tr -d ' '); do
+for ref in $(git branch -r --list 'origin/dugshub/*' 'origin/backend/*' | tr -d ' '); do
   branch="${ref#origin/}"
   git push origin --delete "$branch" 2>/dev/null || true
 done
@@ -39,5 +39,28 @@ git checkout . 2>/dev/null
 # Set git identity to suppress committer warnings
 git config user.name "Doug"
 git config user.email "doug@example.com"
+
+# Pre-create branches with code (tape adopts them via st create)
+
+# Branch 1: schema
+git checkout -b backend/1-schema main
+mkdir -p src/db
+echo 'export const schema = { users: {}, posts: {} }' > src/db/schema.ts
+git add -A && git commit -m 'add database schema'
+
+# Branch 2: api (builds on branch 1)
+git checkout -b backend/2-api
+mkdir -p src/api
+echo 'export const routes = { "/users": handler, "/posts": handler }' > src/api/routes.ts
+git add -A && git commit -m 'add api routes'
+
+# Branch 3: auth (builds on branch 2)
+git checkout -b backend/3-auth
+mkdir -p src/middleware
+echo 'export const auth = (req, res, next) => verify(req.token)' > src/middleware/auth.ts
+git add -A && git commit -m 'add auth middleware'
+
+# Return to branch 1 for the demo
+git checkout backend/1-schema
 
 echo "✓ Ready for Scene 1"

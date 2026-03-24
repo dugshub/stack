@@ -9,11 +9,11 @@
     "stack": "./src/cli.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0",
-    "clipanion": "^4.0.0-rc.1",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@clack/prompts": "^1",
-    "picocolors": "^1",
-    "cli-table3": "^0.6"
+    "cli-table3": "^0.6",
+    "clipanion": "^4.0.0-rc.1",
+    "picocolors": "^1"
   },
   "devDependencies": {
     "bun-types": "latest"

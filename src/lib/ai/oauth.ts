@@ -2,20 +2,15 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import * as ui from "../ui.js";
 
-// Anthropic OAuth endpoints (same as Claude Code uses)
-const AUTHORIZE_URL = "https://platform.claude.com/oauth/authorize";
+// Anthropic OAuth endpoints — claude.ai for subscription-based (Max) login
+const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const SCOPES = "user:inference user:profile";
-const KEYCHAIN_SERVICE = "st-cli-credentials";
+const SCOPES = "user:inference user:profile user:sessions:claude_code user:mcp_servers user:file_upload";
 
-interface OAuthToken {
-	accessToken: string;
-	refreshToken: string | null;
-	expiresAt: string | null;
-	apiKey: string | null; // Temporary API key created from the OAuth token
-	createdAt: string;
-}
+// Store in Claude Code's Keychain entry so the Agent SDK subprocess can find it
+const KEYCHAIN_SERVICE = "Claude Code-credentials";
+const LEGACY_KEYCHAIN_SERVICE = "st-cli-credentials";
 
 // ── Keychain storage (macOS) ──
 
@@ -23,7 +18,18 @@ function keychainAccount(): string {
 	return Bun.env.USER ?? "default";
 }
 
-export function loadOAuthToken(): OAuthToken | null {
+interface ClaudeCodeCredentials {
+	claudeAiOauth?: {
+		accessToken: string;
+		refreshToken?: string;
+		expiresAt?: number;
+		scopes?: string[];
+		subscriptionType?: string;
+	};
+	mcpOAuth?: Record<string, unknown>;
+}
+
+function loadKeychainEntry(): ClaudeCodeCredentials | null {
 	try {
 		const result = Bun.spawnSync({
 			cmd: ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", keychainAccount(), "-w"],
@@ -33,14 +39,14 @@ export function loadOAuthToken(): OAuthToken | null {
 		if (result.exitCode !== 0) return null;
 		const raw = result.stdout.toString().trim();
 		if (!raw) return null;
-		return JSON.parse(raw) as OAuthToken;
+		return JSON.parse(raw) as ClaudeCodeCredentials;
 	} catch {
 		return null;
 	}
 }
 
-function saveOAuthToken(token: OAuthToken): void {
-	const json = JSON.stringify(token);
+function saveKeychainEntry(data: ClaudeCodeCredentials): void {
+	const json = JSON.stringify(data);
 	const account = keychainAccount();
 
 	// Delete existing entry (ignore errors)
@@ -58,37 +64,100 @@ function saveOAuthToken(token: OAuthToken): void {
 	});
 
 	if (result.exitCode !== 0) {
-		// Fallback: warn but don't fail
-		ui.warn("Could not store credentials in Keychain. Token will need to be re-entered next time.");
+		ui.warn("Could not store credentials in Keychain.");
 	}
+}
+
+/** Check if Claude Code has valid OAuth credentials */
+export function loadClaudeCodeToken(): string | null {
+	const data = loadKeychainEntry();
+	const oauth = data?.claudeAiOauth;
+	if (!oauth?.accessToken) return null;
+	if (oauth.expiresAt && Date.now() > oauth.expiresAt) return null;
+	return oauth.accessToken;
 }
 
 export function clearOAuthToken(): void {
-	Bun.spawnSync({
-		cmd: ["security", "delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", keychainAccount()],
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	const data = loadKeychainEntry();
+	if (!data?.claudeAiOauth) return;
+	delete data.claudeAiOauth;
+	saveKeychainEntry(data);
 }
 
-/** Try to read Claude Code's OAuth token from macOS Keychain */
-export function loadClaudeCodeToken(): string | null {
+/**
+ * Migrate legacy st-cli-credentials to Claude Code's Keychain format.
+ * Uses the refresh token to get a fresh access token, writes it to the
+ * new location, then deletes the old entry. No-op if already migrated.
+ */
+export async function migrateLegacyToken(): Promise<boolean> {
+	// Already have credentials — nothing to migrate
+	if (loadClaudeCodeToken()) return true;
+
+	// Check for legacy entry
+	let legacy: { accessToken?: string; refreshToken?: string } | null = null;
 	try {
 		const result = Bun.spawnSync({
-			cmd: ["security", "find-generic-password", "-s", "Claude Code-credentials", "-a", keychainAccount(), "-w"],
+			cmd: ["security", "find-generic-password", "-s", LEGACY_KEYCHAIN_SERVICE, "-a", keychainAccount(), "-w"],
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		if (result.exitCode !== 0) return null;
+		if (result.exitCode !== 0) return false;
 		const raw = result.stdout.toString().trim();
-		if (!raw) return null;
-		const data = JSON.parse(raw);
-		if (data.accessToken) return data.accessToken;
-		if (data.apiKey) return data.apiKey;
-		return null;
+		if (!raw) return false;
+		legacy = JSON.parse(raw);
 	} catch {
-		return null;
+		return false;
 	}
+
+	if (!legacy?.refreshToken) {
+		deleteLegacyEntry();
+		return false;
+	}
+
+	// Refresh the old token to get a fresh access token
+	try {
+		const response = await fetch(TOKEN_URL, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				grant_type: "refresh_token",
+				refresh_token: legacy.refreshToken,
+				client_id: CLIENT_ID,
+			}),
+		});
+
+		if (!response.ok) {
+			deleteLegacyEntry();
+			return false;
+		}
+
+		const data = await response.json() as any;
+
+		// Write to Claude Code's Keychain format
+		const existing = loadKeychainEntry() ?? {};
+		existing.claudeAiOauth = {
+			accessToken: data.access_token,
+			refreshToken: data.refresh_token ?? legacy.refreshToken,
+			expiresAt: data.expires_in
+				? Date.now() + data.expires_in * 1000
+				: undefined,
+			scopes: SCOPES.split(" "),
+		};
+		saveKeychainEntry(existing);
+		deleteLegacyEntry();
+		return true;
+	} catch {
+		deleteLegacyEntry();
+		return false;
+	}
+}
+
+function deleteLegacyEntry(): void {
+	Bun.spawnSync({
+		cmd: ["security", "delete-generic-password", "-s", LEGACY_KEYCHAIN_SERVICE, "-a", keychainAccount()],
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 }
 
 function generatePKCE(): { verifier: string; challenge: string } {
@@ -119,7 +188,7 @@ export async function oauthLogin(): Promise<string | null> {
 	const authorizeUrl = `${AUTHORIZE_URL}?${params}`;
 
 	// Open browser
-	ui.info("Opening browser to log in with your Anthropic account...");
+	ui.info("Opening browser to log in with your Claude account...");
 	const { spawn } = await import("node:child_process");
 	spawn("open", [authorizeUrl], { stdio: "ignore", detached: true }).unref();
 	ui.info("If the browser didn't open, visit:");
@@ -164,17 +233,18 @@ export async function oauthLogin(): Promise<string | null> {
 
 		const data = await tokenResponse.json() as any;
 
-		const token: OAuthToken = {
+		// Store in Claude Code's Keychain format (merge with existing data)
+		const existing = loadKeychainEntry() ?? {};
+		existing.claudeAiOauth = {
 			accessToken: data.access_token,
-			refreshToken: data.refresh_token ?? null,
+			refreshToken: data.refresh_token ?? undefined,
 			expiresAt: data.expires_in
-				? new Date(Date.now() + data.expires_in * 1000).toISOString()
-				: null,
-			apiKey: null,
-			createdAt: new Date().toISOString(),
+				? Date.now() + data.expires_in * 1000
+				: undefined,
+			scopes: SCOPES.split(" "),
 		};
+		saveKeychainEntry(existing);
 
-		saveOAuthToken(token);
 		return data.access_token;
 	} catch (err: any) {
 		ui.error(`OAuth login failed: ${err.message}`);
@@ -182,35 +252,40 @@ export async function oauthLogin(): Promise<string | null> {
 	}
 }
 
-/** Refresh an expired OAuth token and get a new API key */
-export async function refreshOAuthToken(token: OAuthToken): Promise<string | null> {
-	if (!token.refreshToken) return null;
+/** Refresh an expired OAuth token */
+export async function refreshOAuthToken(): Promise<string | null> {
+	const data = loadKeychainEntry();
+	const oauth = data?.claudeAiOauth;
+	if (!oauth?.refreshToken) return null;
+
 	try {
 		const response = await fetch(TOKEN_URL, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				grant_type: "refresh_token",
-				refresh_token: token.refreshToken,
+				refresh_token: oauth.refreshToken,
 				client_id: CLIENT_ID,
 			}),
 		});
 
 		if (!response.ok) return null;
 
-		const data = await response.json() as any;
+		const result = await response.json() as any;
 
-		const newToken: OAuthToken = {
-			accessToken: data.access_token,
-			refreshToken: data.refresh_token ?? token.refreshToken,
-			expiresAt: data.expires_in
-				? new Date(Date.now() + data.expires_in * 1000).toISOString()
-				: null,
-			apiKey: null,
-			createdAt: new Date().toISOString(),
+		// Update Keychain
+		const existing = loadKeychainEntry() ?? {};
+		existing.claudeAiOauth = {
+			...oauth,
+			accessToken: result.access_token,
+			refreshToken: result.refresh_token ?? oauth.refreshToken,
+			expiresAt: result.expires_in
+				? Date.now() + result.expires_in * 1000
+				: undefined,
 		};
-		saveOAuthToken(newToken);
-		return data.access_token;
+		saveKeychainEntry(existing);
+
+		return result.access_token;
 	} catch {
 		return null;
 	}

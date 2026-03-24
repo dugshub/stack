@@ -11,43 +11,23 @@ export class ConfigCommand extends Command {
 		examples: [
 			["Enable AI PR descriptions", "st config --describe"],
 			["Disable AI PR descriptions", "st config --no-describe"],
-			[
-				"Set API key non-interactively",
-				"st config --describe --key sk-ant-...",
-			],
 			["View current config", "st config"],
 		],
 	});
 
 	describe = Option.Boolean("--describe", {
-		description: "Enable AI-generated PR descriptions (uses Anthropic API)",
-	});
-
-	key = Option.String("--key", {
-		description: "Anthropic API key (for non-interactive setup)",
+		description: "Enable AI-generated PR descriptions (uses Claude Code OAuth)",
 	});
 
 	async execute(): Promise<number> {
 		const state = loadState();
 
 		if (this.describe === true) {
-			// Enable: ensure auth
-			if (this.key) {
-				ui.warn("Storing an API key — calls will be billed to this key's account.");
-				ui.info("Consider using `st login` for OAuth instead.");
-				const { saveCredentials } = await import("../lib/ai/auth.js");
-				saveCredentials({
-					apiKey: this.key,
-					createdAt: new Date().toISOString(),
-				});
-				ui.success("API key saved.");
-			} else {
-				const { ensureAuth } = await import("../lib/ai/pr-description.js");
-				const apiKey = await ensureAuth();
-				if (!apiKey) {
-					ui.warn("Auth not configured. AI descriptions not enabled.");
-					return 1;
-				}
+			const { ensureAuth } = await import("../lib/ai/pr-description.js");
+			const hasAuth = await ensureAuth();
+			if (!hasAuth) {
+				ui.warn("Auth not configured. AI descriptions not enabled.");
+				return 1;
 			}
 			if (!state.config) state.config = {};
 			state.config.describe = true;
@@ -66,23 +46,13 @@ export class ConfigCommand extends Command {
 		}
 
 		// Show config
-		const { resolveAuth } = await import("../lib/ai/auth.js");
+		const { hasCredentials } = await import("../lib/ai/auth.js");
 		const descStatus = state.config?.describe
 			? theme.accent("enabled")
 			: theme.muted("disabled");
-		const auth = resolveAuth();
-		let authStatus: string;
-		if (!auth) {
-			authStatus = theme.muted("not configured — run `st login`");
-		} else {
-			const labels: Record<string, string> = {
-				"oauth": "OAuth",
-				"claude-code": "Claude Code OAuth",
-				"env-api-key": "ANTHROPIC_API_KEY env var",
-				"stored-api-key": "stored API key",
-			};
-			authStatus = theme.accent(labels[auth.source] ?? auth.source);
-		}
+		const authStatus = hasCredentials()
+			? theme.accent("Claude Code OAuth")
+			: theme.muted("not configured — run `st login`");
 		ui.heading("Configuration");
 		ui.info(`  AI PR descriptions: ${descStatus}`);
 		ui.info(`  Auth: ${authStatus}`);

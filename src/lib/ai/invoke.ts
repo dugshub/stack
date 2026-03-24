@@ -57,48 +57,40 @@ export function buildPrompt(def: AgentDef): string {
 export async function invoke(
 	def: AgentDef,
 	userMessage: string,
-	apiKey: string,
 ): Promise<string> {
 	const sdk = await import("@anthropic-ai/claude-agent-sdk");
+	const systemPrompt = buildPrompt(def);
 
-	// Forward API key via env (SDK reads ANTHROPIC_API_KEY from process.env)
-	const prevKey = process.env.ANTHROPIC_API_KEY;
-	process.env.ANTHROPIC_API_KEY = apiKey;
-
-	try {
-		const systemPrompt = buildPrompt(def);
-
-		for await (const message of sdk.query({
-			prompt: userMessage,
-			options: {
-				model: def.model,
-				maxTurns: 1,
-				systemPrompt,
-			},
-		})) {
-			if (message.type === "result") {
-				// SDK can return subtype 'success' with is_error: true (e.g. bad API key)
-				if (message.is_error) {
-					const text = (message as any).result || (message as any).errors?.join(", ") || "AI invocation failed";
-					throw new Error(text);
-				}
-				if (message.subtype === "success") {
-					return (message as any).result as string;
-				}
-				if (typeof message.subtype === "string" && message.subtype.startsWith("error")) {
-					const errors = (message as any).errors as string[] | undefined;
-					throw new Error(errors?.join(", ") || "AI invocation failed");
-				}
+	for await (const message of sdk.query({
+		prompt: userMessage,
+		options: {
+			model: def.model,
+			maxTurns: 1,
+			systemPrompt,
+			tools: [],
+			persistSession: false,
+		},
+	})) {
+		if (message.type === "result") {
+			if (message.is_error) {
+				const text =
+					(message as any).result ||
+					(message as any).errors?.join(", ") ||
+					"AI invocation failed";
+				throw new Error(text);
+			}
+			if (message.subtype === "success") {
+				return (message as any).result as string;
+			}
+			if (
+				typeof message.subtype === "string" &&
+				message.subtype.startsWith("error")
+			) {
+				const errors = (message as any).errors as string[] | undefined;
+				throw new Error(errors?.join(", ") || "AI invocation failed");
 			}
 		}
-
-		return "";
-	} finally {
-		// Restore original env
-		if (prevKey !== undefined) {
-			process.env.ANTHROPIC_API_KEY = prevKey;
-		} else {
-			delete process.env.ANTHROPIC_API_KEY;
-		}
 	}
+
+	return "";
 }

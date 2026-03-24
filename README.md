@@ -1,4 +1,4 @@
-# st
+# Stack
 
 Stacked PRs for GitHub. No accounts, no hosted service -- just `git` and `gh`.
 

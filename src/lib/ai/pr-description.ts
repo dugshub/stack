@@ -1,11 +1,6 @@
 import { type AgentDef, invoke } from "./invoke.js";
 import * as git from "../git.js";
-import {
-	resolveAuthAsync,
-	showAuthSourceWarning,
-	type ResolvedAuth,
-} from "./auth.js";
-import { oauthLogin } from "./oauth.js";
+import { loadClaudeCodeToken, migrateLegacyToken, oauthLogin } from "./oauth.js";
 import * as ui from "../ui.js";
 
 const MAX_DIFF_CHARS = 12_000;
@@ -57,24 +52,27 @@ function buildAgent(context: {
 }
 
 /**
- * Ensure we have valid auth for AI features.
- * Priority: OAuth token → Claude Code token → env API key (with warning) → prompt for OAuth login.
+ * Ensure Claude Code is authenticated (OAuth via Keychain).
+ * If not, prompt the user to log in via `st login`.
  */
-export async function ensureAuth(): Promise<string | null> {
-	// Try existing credentials
-	const existing = await resolveAuthAsync();
-	if (existing) {
-		showAuthSourceWarning(existing);
-		return existing.apiKey;
+export async function ensureAuth(): Promise<boolean> {
+	// Check if Claude Code has OAuth credentials in Keychain
+	if (loadClaudeCodeToken()) return true;
+
+	// Try migrating legacy st-cli-credentials → Claude Code format
+	const migrated = await migrateLegacyToken();
+	if (migrated) {
+		ui.success("Migrated existing credentials.");
+		return true;
 	}
 
 	// No credentials — prompt for OAuth login
-	ui.info("Log in with your Anthropic account to enable AI descriptions.");
+	ui.info("Log in with your Claude account to enable AI descriptions.");
 	const accessToken = await oauthLogin();
-	if (!accessToken) return null;
+	if (!accessToken) return false;
 
 	ui.success("Logged in successfully.");
-	return accessToken;
+	return true;
 }
 
 export async function generatePrDescription(opts: {
@@ -83,7 +81,6 @@ export async function generatePrDescription(opts: {
 	stackName: string;
 	branchIndex: number;
 	totalBranches: number;
-	apiKey: string;
 }): Promise<string> {
 	let diff = git.run("diff", `${opts.baseBranch}...${opts.headBranch}`);
 	if (diff.length > MAX_DIFF_CHARS) {
@@ -110,5 +107,5 @@ export async function generatePrDescription(opts: {
 		diff,
 	].join("\n");
 
-	return invoke(agent, userMessage, opts.apiKey);
+	return invoke(agent, userMessage);
 }

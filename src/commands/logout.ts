@@ -1,5 +1,4 @@
 import { Command } from "clipanion";
-import { clearCredentials } from "../lib/ai/auth.js";
 import { clearOAuthToken } from "../lib/ai/oauth.js";
 import * as ui from "../lib/ui.js";
 
@@ -12,8 +11,7 @@ export class LogoutCommand extends Command {
 
 	async execute(): Promise<number> {
 		clearOAuthToken();
-		clearCredentials();
-		ui.success("Logged out. Cleared all stored credentials.");
+		ui.success("Logged out. Cleared stored credentials.");
 		return 0;
 	}
 }

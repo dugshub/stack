@@ -64,18 +64,17 @@ export class SubmitCommand extends Command {
 		}
 
 		let useDescribe = this.update || (this.describe ?? state.config?.describe ?? false);
-		let apiKey: string | null = null;
 
 		if (useDescribe) {
 			const { ensureAuth } = await import("../lib/ai/pr-description.js");
-			apiKey = await ensureAuth();
-			if (!apiKey) {
-				ui.warn("No API key available. Using default PR descriptions.");
+			const hasAuth = await ensureAuth();
+			if (!hasAuth) {
+				ui.warn("Not logged in. Using default PR descriptions.");
 				useDescribe = false;
 			}
 		}
 
-		return this.fullSubmit(state, stack, resolvedName, position, useDescribe, apiKey, this.update);
+		return this.fullSubmit(state, stack, resolvedName, position, useDescribe, this.update);
 	}
 
 	private showDryRun(
@@ -123,7 +122,6 @@ export class SubmitCommand extends Command {
 		stackName: string,
 		position: import("../lib/types.js").StackPosition | null,
 		useDescribe: boolean,
-		apiKey: string | null,
 		updateExisting = false,
 	): Promise<number> {
 		saveSnapshot('submit');
@@ -226,7 +224,7 @@ export class SubmitCommand extends Command {
 
 		// Generate AI descriptions in parallel (if enabled)
 		const createBodies = new Map<number, string>();
-		if (useDescribe && apiKey && toCreate.length > 0) {
+		if (useDescribe && toCreate.length > 0) {
 			const { generatePrDescription } = await import("../lib/ai/pr-description.js");
 			ui.info(`  Generating ${toCreate.length} PR description${toCreate.length > 1 ? 's' : ''}...`);
 			const results = await Promise.allSettled(
@@ -237,7 +235,6 @@ export class SubmitCommand extends Command {
 						stackName,
 						branchIndex: index,
 						totalBranches: stack.branches.length,
-						apiKey: apiKey!,
 					}).then((body) => ({ index, body })),
 				),
 			);

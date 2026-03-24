@@ -1,7 +1,9 @@
+import { isatty } from 'node:tty';
+import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
-import { findActiveStack, loadAndRefreshState, saveState } from '../lib/state.js';
+import { findActiveStack, findDependentStacks, loadAndRefreshState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
@@ -100,6 +102,12 @@ export class ModifyCommand extends Command {
 
 		const worktreeMap = git.worktreeList();
 
+		// Stash any remaining uncommitted changes so rebase has a clean worktree
+		const dirtyBeforeRebase = git.isDirty();
+		if (dirtyBeforeRebase) {
+			git.stashPush({ includeUntracked: true, message: 'stack-modify-auto-stash' });
+		}
+
 		ui.info('Restacking downstream branches...');
 		const cascadeResult = cascadeRebase({
 			state,
@@ -113,13 +121,105 @@ export class ModifyCommand extends Command {
 		if (cascadeResult.ok) {
 			// Return to the original branch
 			git.checkout(originalBranch);
+			// Restore stashed changes
+			if (dirtyBeforeRebase) {
+				const pop = git.tryRun('stash', 'pop');
+				if (!pop.ok) {
+					ui.warn('Auto-stash pop failed — your changes are in `git stash`.');
+				}
+			}
 			ui.success(`Restacked ${cascadeResult.rebased} downstream branch(es)`);
+
+			// Cascade into dependent stacks
+			await this.cascadeDependentStacks(state, position.stackName, new Set());
 		} else {
+			// Restore stashed changes even on conflict so they aren't lost
+			if (dirtyBeforeRebase) {
+				const pop = git.tryRun('stash', 'pop');
+				if (!pop.ok) {
+					ui.warn('Auto-stash pop failed — your changes are in `git stash`.');
+				}
+			}
 			ui.error('Restack encountered conflicts.');
 			ui.info(`Resolve conflicts, then run ${theme.command('st continue')}.`);
 			return 1;
 		}
 
 		return 0;
+	}
+
+	private async cascadeDependentStacks(
+		state: ReturnType<typeof loadAndRefreshState>,
+		stackName: string,
+		visited: Set<string>,
+	): Promise<void> {
+		visited.add(stackName);
+		const dependents = findDependentStacks(state, stackName);
+		if (dependents.length === 0) return;
+
+		for (const { name: depName, stack: depStack } of dependents) {
+			if (visited.has(depName)) continue;
+			if (depStack.restackState != null) continue;
+
+			const depBranch = depStack.dependsOn?.branch ?? depStack.trunk;
+			process.stderr.write('\n');
+			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
+
+			if (isatty(2)) {
+				const confirmed = await p.confirm({
+					message: `Restack dependent stack "${depName}"?`,
+					initialValue: true,
+				});
+				if (p.isCancel(confirmed) || !confirmed) continue;
+			}
+
+			saveSnapshot('modify');
+
+			const oldTips: Record<string, string> = {};
+			for (const branch of depStack.branches) {
+				oldTips[branch.name] = branch.tip ?? git.revParse(branch.name);
+			}
+
+			const worktreeMap = git.worktreeList();
+
+			if (depStack.branches.length > 0) {
+				const firstBranch = depStack.branches[0];
+				if (firstBranch) {
+					ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}...`);
+					const result = rebaseBranch({
+						branch: firstBranch,
+						parentRef: depStack.trunk,
+						fallbackOldBase: oldTips[firstBranch.name],
+						worktreeMap,
+					});
+					if (result.ok) {
+						if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
+						ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
+					} else {
+						depStack.restackState = { fromIndex: -1, currentIndex: 0, oldTips };
+						saveState(state);
+						ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)}`);
+						ui.info(`Resolve conflicts, then run ${theme.command('st continue')}.`);
+						return;
+					}
+				}
+			}
+
+			const cascadeResult = cascadeRebase({
+				state,
+				stack: depStack,
+				fromIndex: -1,
+				startIndex: 1,
+				worktreeMap,
+				oldTips,
+			});
+
+			if (cascadeResult.ok) {
+				ui.success(
+					`Restacked ${cascadeResult.rebased + (depStack.branches.length > 0 ? 1 : 0)} branches in "${depName}"`,
+				);
+				await this.cascadeDependentStacks(state, depName, visited);
+			}
+		}
 	}
 }

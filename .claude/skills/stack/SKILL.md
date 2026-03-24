@@ -1,7 +1,7 @@
 ---
 name: stack
 description: Manage PR stacks — create, track, submit, restack, sync, merge, split, navigate, undo, and more. Use when user mentions stacks, stacked PRs, restack, stack submit, merge, split, or branch dependencies.
-argument-hint: [create|track|submit|restack|sync|merge|split|nav|status|absorb|undo|delete|remove|check|graph]
+argument-hint: [create|track|submit|restack|sync|merge|split|nav|status|absorb|undo|delete|remove|check|graph|modify|config|login|pop|fold|continue|abort|daemon|update|init]
 allowed-tools: Bash, Read
 ---
 
@@ -116,18 +116,41 @@ st undo --dry-run              Preview what would change
 ```
 st status                      Show stack with PR statuses and checks
 st status --json               Machine-readable output
+st -i / st --interactive       Interactive graph visualization (TUI)
 st graph                       Show current stack as graph
 st graph --all                 Show all stacks and dependencies
 st graph --expand              Show individual branches in graph
 st daemon status               Check daemon health
 st daemon attach --stack <n>   Stream daemon logs for a stack
+st daemon logs [-f]            View daemon logs (follow with -f)
 ```
 
-### Configuration
+### Daemon Management
 ```
+st daemon start                Start background daemon
+st daemon stop                 Stop daemon
+st daemon status               Check daemon health
+st daemon logs [-f]            View logs (follow with -f)
+st daemon attach [-s <stack>]  Stream live log events
+st daemon run                  Run daemon in foreground (for debugging)
+st daemon setup                Initialize daemon config + secrets
+```
+
+### Meta
+```
+st init                        Install stack skills in project (.claude/skills/)
+st update                      Self-update to latest version from GitHub
+st completions [shell]         Print shell completion script
+st completions --install       Install completions for current shell
+```
+
+### Authentication & Configuration
+```
+st login                       Authenticate with Anthropic OAuth (required for AI features)
+st logout                      Clear stored credentials
 st config                      Show current config
-st config --describe           Enable/disable AI PR descriptions
-st config --key <API_KEY>      Set Anthropic API key for AI features
+st config --describe           Enable AI PR descriptions (requires `st login` first)
+st config --no-describe        Disable AI PR descriptions
 ```
 
 ## Smart Workflows
@@ -245,7 +268,8 @@ st sync                        # auto-converts to standalone stack
 st daemon stop                 # stop it
 st daemon start                # restart fresh
 st daemon status               # check health
-st daemon attach               # watch live logs
+st daemon logs -f              # follow log file
+st daemon attach               # stream live events
 ```
 
 ## Important Rules

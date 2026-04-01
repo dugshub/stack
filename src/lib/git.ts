@@ -338,7 +338,7 @@ export function withCleanWorktree<T>(fn: () => T, opts?: { skip?: boolean }): T 
 }
 
 /** Async version of withCleanWorktree. */
-export async function withCleanWorktreeAsync<T>(fn: () => Promise<T>, opts?: { skip?: boolean }): Promise<T> {
+export async function withCleanWorktreeAsync<T>(fn: () => Promise<T>, opts?: { skip?: boolean; noRestore?: boolean }): Promise<T> {
   const dirty = isDirty();
   if (dirty && opts?.skip) {
     throw new Error('Working tree is dirty. Commit or stash changes first.');
@@ -348,9 +348,11 @@ export async function withCleanWorktreeAsync<T>(fn: () => Promise<T>, opts?: { s
   try {
     return await fn();
   } finally {
-    const current = tryRun('branch', '--show-current');
-    if (current.ok && current.stdout !== originalBranch) {
-      tryRun('checkout', originalBranch);
+    if (!opts?.noRestore) {
+      const current = tryRun('branch', '--show-current');
+      if (current.ok && current.stdout !== originalBranch) {
+        tryRun('checkout', originalBranch);
+      }
     }
     if (dirty) {
       const pop = tryRun('stash', 'pop');

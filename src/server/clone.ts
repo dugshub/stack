@@ -39,12 +39,28 @@ export async function ensureClone(
 	return clonePath;
 }
 
+const fetchLocks = new Map<string, Promise<void>>();
+
 export async function fetchClone(clonePath: string): Promise<void> {
-	const result = await execAsync(['git', 'fetch', 'origin'], {
-		cwd: clonePath,
-	});
-	if (!result.ok) {
-		throw new Error(`Failed to fetch in bare clone: ${result.stderr}`);
+	// Serialize fetches per clone path to avoid concurrent git fetch races
+	while (fetchLocks.has(clonePath)) {
+		await fetchLocks.get(clonePath);
+	}
+
+	const fetchPromise = (async () => {
+		const result = await execAsync(['git', 'fetch', 'origin'], {
+			cwd: clonePath,
+		});
+		if (!result.ok) {
+			throw new Error(`Failed to fetch in bare clone: ${result.stderr}`);
+		}
+	})();
+
+	fetchLocks.set(clonePath, fetchPromise.catch(() => {}));
+	try {
+		await fetchPromise;
+	} finally {
+		fetchLocks.delete(clonePath);
 	}
 }
 

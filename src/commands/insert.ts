@@ -47,7 +47,7 @@ export class InsertCommand extends Command {
 	});
 
 	async execute(): Promise<number> {
-		return git.withCleanWorktreeAsync(() => this.executeInner());
+		return git.withCleanWorktreeAsync(() => this.executeInner(), { noRestore: true });
 	}
 
 	private async executeInner(): Promise<number> {

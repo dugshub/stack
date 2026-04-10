@@ -6,12 +6,6 @@ export type WebhookEvent =
 	| { type: 'pr_merged'; prNumber: number; repo: string }
 	| { type: 'pr_closed'; prNumber: number; repo: string }
 	| {
-			type: 'auto_merge_disabled';
-			prNumber: number;
-			repo: string;
-			reason: string;
-	  }
-	| {
 			type: 'push';
 			repo: string;
 			ref: string;

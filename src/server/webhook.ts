@@ -94,14 +94,6 @@ export function parseWebhook(
 		return { type: 'pr_closed', prNumber, repo };
 	}
 
-	if (data.action === 'auto_merge_disabled') {
-		return {
-			type: 'auto_merge_disabled',
-			prNumber,
-			repo,
-			reason: data.reason ?? 'unknown',
-		};
-	}
 
 	return null;
 }

@@ -59,7 +59,7 @@ export function generateComment(
   }
 
   lines.push('');
-  lines.push('<sub>Managed by Claude Code <code>/st</code></sub>');
+  lines.push('<sub>Managed by <a href="https://github.com/dugshub/stack">stack CLI</a></sub>');
 
   return lines.join('\n');
 }

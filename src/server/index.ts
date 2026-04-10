@@ -78,29 +78,37 @@ async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
 		return;
 	}
 
-	// Rebase next branch onto trunk using bare clone
+	// ── Cascade: rebase → push → retarget → auto-merge ──
+	const I = true; // indent flag for cascade block
+
 	const clonePath = await ensureClone(repoUrl(repo), repoName(repo));
+	log('info', `git fetch origin`, stackName, 'git', I);
 	await fetchClone(clonePath);
 
 	const preSha = await getBranchSha(clonePath, nextBranch.name);
+	log('info', `git rebase --onto ${stack.trunk} ${oldBase.slice(0, 7)} ${nextBranch.name}`, stackName, 'git', I);
 	const rebaseResult = await rebaseInWorktree(clonePath, {
 		branch: nextBranch.name,
 		onto: stack.trunk,
 		oldBase,
 	});
 	if (!rebaseResult.ok) {
-		log('error', `Rebase failed for ${nextBranch.name}: ${rebaseResult.error}`, stackName);
+		log('error', `Rebase failed for ${nextBranch.name}: ${rebaseResult.error}`, stackName, undefined, I);
 		return;
 	}
+	log('success', `Rebased ${nextBranch.name} onto ${stack.trunk}`, stackName, undefined, I);
 
+	log('info', `git push --force-with-lease ${nextBranch.name} (${preSha.slice(0, 7)})`, stackName, 'git', I);
 	const pushResult = await pushBranch(clonePath, nextBranch.name, preSha);
 	if (!pushResult.ok) {
-		log('error', `Push failed for ${nextBranch.name}: ${pushResult.error}`, stackName);
+		log('error', `Push failed for ${nextBranch.name}: ${pushResult.error}`, stackName, undefined, I);
 		return;
 	}
+	const newSha = await getBranchSha(clonePath, nextBranch.name);
+	log('success', `Pushed ${nextBranch.name} (${preSha.slice(0, 7)} → ${newSha.slice(0, 7)})`, stackName, undefined, I);
 
 	// Post rebase-status check
-	const newSha = await getBranchSha(clonePath, nextBranch.name);
+	log('info', `POST statuses/${newSha.slice(0, 7)} — rebase-status=success`, stackName, 'api', I);
 	await ghAsync(
 		'api', `repos/${repo}/statuses/${newSha}`,
 		'-f', 'state=success', '-f', 'context=stack/rebase-status',
@@ -108,15 +116,17 @@ async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
 	);
 
 	// Retarget PR to trunk
+	log('info', `gh pr edit #${nextBranch.pr} --base ${stack.trunk}`, stackName, 'api', I);
 	await ghAsync('pr', 'edit', String(nextBranch.pr), '--base', stack.trunk);
-	log('info', `Retargeted #${nextBranch.pr} to ${stack.trunk}`, stackName);
+	log('success', `Retargeted #${nextBranch.pr} to ${stack.trunk}`, stackName, undefined, I);
 
 	// Enable auto-merge on next PR
+	log('info', `gh pr merge #${nextBranch.pr} --auto --squash`, stackName, 'api', I);
 	const mergeResult = await ghAsync('pr', 'merge', String(nextBranch.pr), '--auto', '--squash');
 	if (mergeResult.ok) {
-		log('success', `Auto-merge enabled on #${nextBranch.pr}`, stackName);
+		log('success', `Auto-merge enabled on #${nextBranch.pr}`, stackName, undefined, I);
 	} else {
-		log('error', `Failed to enable auto-merge on #${nextBranch.pr}: ${mergeResult.stderr}`, stackName);
+		log('error', `Failed to enable auto-merge on #${nextBranch.pr}: ${mergeResult.stderr}`, stackName, undefined, I);
 	}
 }
 
@@ -142,8 +152,6 @@ async function handleWebhook(
 	const signature = req.headers.get('x-hub-signature-256') ?? '';
 	const eventType = req.headers.get('x-github-event') ?? '';
 
-	log('info', `Webhook received: ${eventType}`);
-
 	const valid = await verifySignature(body, signature, config.webhookSecret);
 	if (!valid) {
 		log('error', 'Webhook signature verification failed');
@@ -159,7 +167,7 @@ async function handleWebhook(
 
 	const event = parseWebhook(eventType, payload);
 
-	// Update cache from raw webhook payload
+	// Update cache from raw webhook payload (check_run/check_suite are cache-only, don't log)
 	updateCacheFromWebhook(eventType, payload);
 
 	if (!event) {
@@ -168,7 +176,7 @@ async function handleWebhook(
 
 	// Push events go to the rebase check handler (fire-and-forget)
 	if (event.type === 'push') {
-		log('info', `Push event: ${event.branch} (${event.headSha.slice(0, 7)})`);
+		log('info', `push: ${event.branch} (${event.headSha.slice(0, 7)})`, undefined, 'webhook');
 		handlePushEvent(event).catch((err) => {
 			log('error', `Rebase check failed: ${err}`);
 		});
@@ -177,6 +185,7 @@ async function handleWebhook(
 
 	// PR merged — update merge-ready statuses + cascade
 	if (event.type === 'pr_merged') {
+		log('info', `pull_request: #${event.prNumber} merged`, undefined, 'webhook');
 		handlePRMergedEvent(event).catch((err) => {
 			log('error', `Merge-ready update failed: ${err}`);
 		});
@@ -186,8 +195,15 @@ async function handleWebhook(
 		return new Response('ok');
 	}
 
+	// PR closed without merge
+	if (event.type === 'pr_closed') {
+		log('info', `pull_request: #${event.prNumber} closed`, undefined, 'webhook');
+		return new Response('ok');
+	}
+
 	// Auto-merge disabled — log error about stalled cascade
 	if (event.type === 'auto_merge_disabled') {
+		log('info', `pull_request: auto-merge disabled on #${event.prNumber}`, undefined, 'webhook');
 		handleAutoMergeDisabled(event.repo, event.prNumber, event.reason).catch((err) => {
 			log('error', `Auto-merge disabled handler failed: ${err}`);
 		});

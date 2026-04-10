@@ -44,4 +44,6 @@ export interface LogEntry {
 	level: 'info' | 'success' | 'error' | 'warn';
 	message: string;
 	stack?: string; // optional: for filtering
+	category?: 'webhook' | 'git' | 'api'; // direction indicator
+	indent?: boolean; // visual grouping (cascade operations)
 }

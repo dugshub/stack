@@ -104,7 +104,9 @@ async function postCommitStatus(
 	state: 'success' | 'failure' | 'pending',
 	description: string,
 	context: string = CHECK_CONTEXT,
+	stackName?: string,
 ): Promise<void> {
+	log('info', `POST statuses/${sha.slice(0, 7)} — ${context}=${state}`, stackName, 'api');
 	await ghAsync(
 		'api',
 		`repos/${repo}/statuses/${sha}`,
@@ -149,22 +151,27 @@ export async function handlePushEvent(
 		event.headSha,
 		'pending',
 		'Checking rebase status...',
+		CHECK_CONTEXT,
+		position.stackName,
 	);
 
 	// Ensure bare clone exists and fetch latest (retry with fresh clone on failure)
 	const repoUrl = `https://github.com/${event.repo}.git`;
 	let clonePath = await ensureClone(repoUrl, repoName);
 	try {
+		log('info', `git fetch origin`, position.stackName, 'git');
 		await fetchClone(clonePath);
 	} catch {
 		log('warn', `Rebase check: fetch failed, re-cloning ${repoName}`);
 		const { rmSync } = await import('node:fs');
 		rmSync(clonePath, { recursive: true, force: true });
 		clonePath = await ensureClone(repoUrl, repoName);
+		log('info', `git fetch origin (fresh clone)`, position.stackName, 'git');
 		await fetchClone(clonePath);
 	}
 
 	// In a bare clone, branches are local refs (no origin/ prefix)
+	log('info', `git merge-base --is-ancestor ${position.parentBranch} ${event.branch}`, position.stackName, 'git');
 	const result = await gitAsync(
 		[
 			'merge-base',
@@ -182,6 +189,8 @@ export async function handlePushEvent(
 			event.headSha,
 			'success',
 			`Rebased on ${position.parentBranch}`,
+			CHECK_CONTEXT,
+			position.stackName,
 		);
 	} else {
 		log('warn', `Rebase check: ${event.branch} NOT rebased on ${position.parentBranch}`, position.stackName);
@@ -190,6 +199,8 @@ export async function handlePushEvent(
 			event.headSha,
 			'pending',
 			`Needs restack — not rebased on ${position.parentBranch}`,
+			CHECK_CONTEXT,
+			position.stackName,
 		);
 	}
 
@@ -267,11 +278,11 @@ async function updateMergeReadyStatus(
 
 		if (i === firstUnmergedIndex) {
 			await postCommitStatus(repo, sha, 'success',
-				'Ready to merge (next in stack)', MERGE_READY_CONTEXT);
+				'Ready to merge (next in stack)', MERGE_READY_CONTEXT, stackName);
 		} else {
 			const blockingPR = stack.branches[firstUnmergedIndex]?.pr;
 			await postCommitStatus(repo, sha, 'pending',
-				`Waiting for PR #${blockingPR} to merge first`, MERGE_READY_CONTEXT);
+				`Waiting for PR #${blockingPR} to merge first`, MERGE_READY_CONTEXT, stackName);
 		}
 	}
 }
@@ -295,6 +306,7 @@ export async function handlePRMergedEvent(
 			const repoName = event.repo.replace('/', '-');
 			const repoUrl = `https://github.com/${event.repo}.git`;
 			const clonePath = await ensureClone(repoUrl, repoName);
+			log('info', `git fetch origin`, stackName, 'git');
 			await fetchClone(clonePath);
 			await updateMergeReadyStatus(event.repo, state, stackName, clonePath);
 			break;

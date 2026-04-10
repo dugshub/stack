@@ -17,6 +17,43 @@ const LOG_FILE = join(STACKS_DIR, 'daemon.log');
 const CONFIG_FILE = join(STACKS_DIR, 'server.config.json');
 const DEFAULT_PORT = 7654;
 
+function formatLogEntry(entry: {
+	timestamp: string;
+	level: string;
+	message: string;
+	stack?: string;
+	category?: string;
+	indent?: boolean;
+}): string {
+	const time = theme.muted(entry.timestamp.slice(11, 19));
+	const stackTag = entry.stack ? theme.stack(` ${entry.stack}`) : '';
+	const bar = entry.indent ? theme.muted('│ ') : '';
+
+	// Category-based prefix (direction indicators)
+	if (entry.category) {
+		const { prefix, color } = {
+			webhook: { prefix: '←', color: theme.accent },
+			git: { prefix: '$', color: theme.warning },
+			api: { prefix: '→', color: theme.pr },
+		}[entry.category] ?? { prefix: ' ', color: theme.muted };
+
+		const msg = entry.level === 'error'
+			? theme.error(entry.message)
+			: color(entry.message);
+		return `${time} ${bar}${color(prefix)}${stackTag} ${msg}\n`;
+	}
+
+	// Level-based prefix (status messages)
+	const { prefix, color } = {
+		success: { prefix: '+', color: theme.success },
+		error: { prefix: '!', color: theme.error },
+		warn: { prefix: '?', color: theme.warning },
+		info: { prefix: ' ', color: (s: string) => s },
+	}[entry.level] ?? { prefix: ' ', color: (s: string) => s };
+
+	return `${time} ${bar}${color(prefix)}${stackTag} ${color(entry.message)}\n`;
+}
+
 export class DaemonCommand extends Command {
 	static override paths = [['daemon']];
 
@@ -209,11 +246,9 @@ export class DaemonCommand extends Command {
 							level: string;
 							message: string;
 							stack?: string;
+							category?: string;
 						};
-						const prefix = { info: ' ', success: '+', error: '!', warn: '?' }[entry.level] ?? ' ';
-						const time = entry.timestamp.slice(11, 19);
-						const stackTag = entry.stack ? ` [${entry.stack}]` : '';
-						process.stdout.write(`${theme.muted(time)} [${prefix}]${stackTag} ${entry.message}\n`);
+						process.stdout.write(formatLogEntry(entry));
 					} catch {
 						// Skip malformed lines
 					}

@@ -78,7 +78,7 @@ async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
 		return;
 	}
 
-	// ── Cascade: rebase → push → retarget → auto-merge ──
+	// ── Cascade: rebase → push → retarget ──
 	const I = true; // indent flag for cascade block
 
 	const clonePath = await ensureClone(repoUrl(repo), repoName(repo));
@@ -119,27 +119,6 @@ async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
 	log('info', `gh pr edit #${nextBranch.pr} --base ${stack.trunk}`, stackName, 'api', I);
 	await ghAsync('pr', 'edit', String(nextBranch.pr), '--base', stack.trunk);
 	log('success', `Retargeted #${nextBranch.pr} to ${stack.trunk}`, stackName, undefined, I);
-
-	// Enable auto-merge on next PR
-	log('info', `gh pr merge #${nextBranch.pr} --auto --squash`, stackName, 'api', I);
-	const mergeResult = await ghAsync('pr', 'merge', String(nextBranch.pr), '--auto', '--squash');
-	if (mergeResult.ok) {
-		log('success', `Auto-merge enabled on #${nextBranch.pr}`, stackName, undefined, I);
-	} else {
-		log('error', `Failed to enable auto-merge on #${nextBranch.pr}: ${mergeResult.stderr}`, stackName, undefined, I);
-	}
-}
-
-async function handleAutoMergeDisabled(repo: string, prNumber: number, reason: string): Promise<void> {
-	const state = loadStackStateForRepo(repo);
-	if (!state) return;
-
-	const found = findStackForPR(state, prNumber);
-	if (!found) return;
-
-	log('error',
-		`Auto-merge disabled on #${prNumber}: ${reason} — cascade stalled. Run \`st merge --all\` to restart.`,
-		found.stackName);
 }
 
 // --- Webhook handler ---
@@ -201,14 +180,6 @@ async function handleWebhook(
 		return new Response('ok');
 	}
 
-	// Auto-merge disabled — log error about stalled cascade
-	if (event.type === 'auto_merge_disabled') {
-		log('info', `pull_request: auto-merge disabled on #${event.prNumber}`, undefined, 'webhook');
-		handleAutoMergeDisabled(event.repo, event.prNumber, event.reason).catch((err) => {
-			log('error', `Auto-merge disabled handler failed: ${err}`);
-		});
-		return new Response('ok');
-	}
 
 	return new Response('ok');
 }

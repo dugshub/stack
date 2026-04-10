@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- PR attribution now says "Managed by stack CLI" linking to dugshub/stack (replaces Claude Code branding)
+- `st submit --ready` staggers `gh pr ready` calls by 2s so Slack notifications arrive in stack order
+- Custom help renderer with alias support (`st submit -h` and `st stack submit -h` show the same output)
+- Structured daemon log formatting: categories (`←` webhook, `$` git, `→` api), color, indentation for cascade ops
+- Daemon no longer auto-merges after restacking — merging is always the user's decision
+
 ## 0.6.6
 
 - Stack checks (`stack/merge-ready`, `stack/rebase-status`) now show as pending (yellow) instead of failure (red) — stops scaring reviewers

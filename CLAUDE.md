@@ -33,6 +33,13 @@ No test suite exists yet. Verify changes with `st submit --dry-run`.
 - `comment.ts` — Stack navigation comment generation for PRs.
 - `ui.ts` — Terminal output helpers.
 
+## Versioning & Changelog
+
+- **Patch bump** (0.7.0 → 0.7.1) for most changes worth mentioning — features, fixes, improvements.
+- **Minor bump** (0.7.x → 0.8.0) reserved for themed milestone batches.
+- Bug-only fixes can skip a version bump.
+- When bumping, update both `package.json` version and `CHANGELOG.md`. The changelog is shown to users on `st update`.
+
 ## Key Design Decisions
 
 - All git/gh operations use `Bun.spawnSync` (synchronous) — no async anywhere.

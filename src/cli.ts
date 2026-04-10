@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { Builtins, Cli, Command } from 'clipanion';
+import { Builtins, Cli, Command, type CommandClass } from 'clipanion';
 import { showDashboard } from './lib/dashboard.js';
 import * as git from './lib/git.js';
+import { renderHelp } from './lib/help.js';
 import { theme } from './lib/theme.js';
 import * as ui from './lib/ui.js';
 import { checkForUpdate, currentVersion } from './lib/version.js';
+
+type AnyCommandClass = CommandClass;
 
 const cli = new Cli({
   binaryLabel: 'st',
@@ -105,6 +108,87 @@ function showFirstRun(): never {
   process.exit(0);
 }
 
+interface HelpLookupResult {
+	definition: ReturnType<typeof cli.definitions>[number];
+	aliases: string[];
+}
+
+/**
+ * Find the Definition for a command given its CLI args (without -h/--help).
+ * Handles aliases by trying all registered command paths.
+ * Returns the definition and any alias usage strings.
+ */
+function findHelpDefinition(cliInstance: typeof cli, argsWithoutHelp: string[]): HelpLookupResult | null {
+	const defs = cliInstance.definitions();
+
+	// Helper: given a command class, return its Definition and alias usage strings
+	function resolveFromClass(commandClass: AnyCommandClass): HelpLookupResult | null {
+		const def = cliInstance.definition(commandClass);
+		if (!def) return null;
+
+		// Build aliases from the command's static paths
+		const allPaths = commandClass.paths ?? [];
+		const aliases: string[] = [];
+		for (const pathSegments of allPaths) {
+			const usagePath = `st ${pathSegments.join(' ')}`;
+			// Skip the canonical path (shown in Usage already)
+			if (usagePath === def.path) continue;
+			// Build an alias usage string that mirrors the canonical usage
+			// Replace the path portion in def.usage with this alias
+			const canonicalPath = def.path.replace(/^st /, '');
+			const aliasPath = pathSegments.join(' ');
+			const aliasUsage = def.usage.replace(canonicalPath, aliasPath);
+			aliases.push(aliasUsage);
+		}
+		return { definition: def, aliases };
+	}
+
+	// Direct match against definition path (e.g., "st stack check")
+	const pathKey = `st ${argsWithoutHelp.join(' ')}`;
+
+	// Access internal registrations map (typed loosely to avoid clipanion's abstract class issues)
+	type RegistrationMap = Map<AnyCommandClass, unknown>;
+	const registrations = (cliInstance as unknown as { registrations: RegistrationMap }).registrations;
+
+	// Try to find the matching command class from registrations
+	for (const [commandClass] of registrations) {
+		const allPaths = commandClass.paths ?? [];
+		for (const pathSegments of allPaths) {
+			if (`st ${pathSegments.join(' ')}` === pathKey) {
+				return resolveFromClass(commandClass);
+			}
+		}
+	}
+
+	// Try to process the command to resolve aliases
+	try {
+		const command = cliInstance.process({ input: argsWithoutHelp });
+		const commandClass = command.constructor as AnyCommandClass;
+		return resolveFromClass(commandClass);
+	} catch {
+		// Commands with required positional args will throw when called bare.
+		// Try matching "st stack <arg>" and "st branch <arg>" for aliases
+		const firstArg = argsWithoutHelp[0];
+		const secondArg = argsWithoutHelp[1];
+
+		for (const group of ['stack', 'branch']) {
+			const groupedKey = secondArg
+				? `st ${group} ${firstArg} ${secondArg}`
+				: `st ${group} ${firstArg}`;
+			for (const [commandClass] of registrations) {
+				const allPaths = commandClass.paths ?? [];
+				for (const pathSegments of allPaths) {
+					if (`st ${pathSegments.join(' ')}` === groupedKey) {
+						return resolveFromClass(commandClass);
+					}
+				}
+			}
+		}
+	}
+
+	return null;
+}
+
 // `st --ai [command]` — plain-text docs for LLMs
 if (args.includes('--ai')) {
   const { printAiDocs } = await import('./lib/ai-docs.js');
@@ -159,6 +243,18 @@ if (!skipDaemon) {
     const { ensureDaemon } = await import('./server/lifecycle.js');
     await ensureDaemon();
   } catch { /* daemon start failed — non-fatal, commands still work */ }
+}
+
+// Intercept `-h` / `--help` on any command to render custom help
+if (args.some((a) => a === '-h' || a === '--help')) {
+	const argsWithoutHelp = args.filter((a) => a !== '-h' && a !== '--help');
+	if (argsWithoutHelp.length > 0) {
+		const result = findHelpDefinition(cli, argsWithoutHelp);
+		if (result) {
+			renderHelp(result.definition, { aliases: result.aliases });
+			process.exit(0);
+		}
+	}
 }
 
 // Check for updates after command runs (non-blocking)

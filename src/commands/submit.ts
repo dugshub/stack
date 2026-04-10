@@ -539,7 +539,7 @@ export class SubmitCommand extends Command {
 
 	private generatePrBody(branchIndex: number, totalBranches: number, stackName: string): string {
 		const position = `PR ${branchIndex + 1} of ${totalBranches}`;
-		return `**Stack:** \`${stackName}\` (${position})\n\n---\n*🤖 Generated with [Claude Code](https://claude.com/claude-code)*`;
+		return `**Stack:** \`${stackName}\` (${position})\n\n---\n*Managed by [stack CLI](https://github.com/dugshub/stack)*`;
 	}
 
 	private deriveTitle(branchName: string): string {

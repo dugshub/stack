@@ -46,7 +46,7 @@ function buildAgent(context: {
 
 ---
 **Stack:** \`${context.stackName}\` (${context.position})
-*Generated with [Claude Code](https://claude.com/claude-code)*`,
+*Managed by [stack CLI](https://github.com/dugshub/stack)*`,
 		},
 	};
 }

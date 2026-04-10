@@ -194,7 +194,9 @@ export class MergeCommand extends Command {
 					ui.info('Merge cancelled. Mark PRs as ready first.');
 					return 2;
 				}
-				for (const b of draftBranches) {
+				for (let i = 0; i < draftBranches.length; i++) {
+					const b = draftBranches[i]!;
+					if (i > 0) Bun.sleepSync(2000);
 					gh.prReady(b.pr as number);
 					ui.success(`Marked #${b.pr} as ready for review`);
 				}

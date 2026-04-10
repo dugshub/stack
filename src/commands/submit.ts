@@ -490,13 +490,16 @@ export class SubmitCommand extends Command {
 
 		// Mark PRs as ready if --ready flag is set
 		if (this.ready) {
+			let readyCount = 0;
 			for (const branch of stack.branches) {
 				if (branch.pr != null) {
 					const details = prDetailsMap.get(branch.pr);
 					// Only call ready on PRs that are drafts (new PRs are always drafts)
 					if (!details || details.isDraft) {
 						try {
+							if (readyCount > 0) Bun.sleepSync(2000);
 							gh.prReady(branch.pr);
+							readyCount++;
 							ui.success(`Marked #${branch.pr} as ready for review`);
 						} catch {
 							ui.warn(`Could not mark #${branch.pr} as ready`);

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+- `st restack` from top of stack (or single-branch stacks) now cascades to dependent stacks instead of exiting with "nothing to restack"
+- Daemon merge cascade updates state file before pushing, fixing race where `stack/rebase-status` check got stuck on `pending`
+
 ## 0.7.0
 
 - PR attribution now says "Managed by stack CLI" linking to dugshub/stack (replaces Claude Code branding)

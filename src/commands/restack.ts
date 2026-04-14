@@ -54,9 +54,14 @@ export class RestackCommand extends Command {
 		// Determine fromIndex: position.index if on a branch, -1 to restack all from bottom
 		const fromIndex = position?.index ?? -1;
 
-		// Nothing to restack if we're at the top
+		// Nothing to restack internally if we're at the top, but still cascade to dependents
 		if (position && position.isTop) {
-			ui.info('Already at top of stack -- nothing to restack.');
+			const dependents = findDependentStacks(state, resolvedName);
+			if (this.cascade && dependents.length > 0) {
+				await this.cascadeDependentStacks(state, resolvedName, this.cascade, new Set());
+			} else {
+				ui.info('Already at top of stack -- nothing to restack.');
+			}
 			return 0;
 		}
 

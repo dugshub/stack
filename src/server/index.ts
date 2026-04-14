@@ -7,7 +7,7 @@ import { log, setForeground, addLogClient, removeLogClient } from './log.js';
 import { acquireLock, releaseLock, isStackLocked, activeLockCount, listActiveLocks } from './locks.js';
 import { startTunnel, stopTunnel, isTunnelRunning, getTunnelRestartCount } from './tunnel.js';
 import type { DaemonConfig } from './types.js';
-import { handlePushEvent, handlePRMergedEvent, loadStackStateForRepo, findStackForPR } from './stack-checks.js';
+import { handlePushEvent, handlePRMergedEvent, loadStackStateForRepo, findStackForPR, saveStackStateForRepo } from './stack-checks.js';
 import { ghAsync } from './spawn.js';
 import { parseWebhook, verifySignature } from './webhook.js';
 import { registerRepo, unregisterRepo, syncWebhooks } from './webhook-manager.js';
@@ -97,6 +97,13 @@ async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
 		return;
 	}
 	log('success', `Rebased ${nextBranch.name} onto ${stack.trunk}`, stackName, undefined, I);
+
+	// Update state before push so the push webhook handler reads correct parent info.
+	// Get the post-rebase SHA from the bare clone (rebase updated the ref in place).
+	const postRebaseSha = await getBranchSha(clonePath, nextBranch.name);
+	stack.branches.splice(branchIndex, 1);
+	nextBranch.tip = postRebaseSha;
+	saveStackStateForRepo(repo, state);
 
 	log('info', `git push --force-with-lease ${nextBranch.name} (${preSha.slice(0, 7)})`, stackName, 'git', I);
 	const pushResult = await pushBranch(clonePath, nextBranch.name, preSha);

@@ -12,7 +12,7 @@
  * 5. Update merge-ready status for all PRs in the stack
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ensureClone, fetchClone } from './clone.js';
@@ -43,7 +43,7 @@ interface BranchPosition {
 /** Find the stack state file for a given repo (e.g. "owner/repo").
  *  Scans all state files and matches on the `repo` field, which is the
  *  canonical full name stored by the CLI. */
-export function loadStackStateForRepo(fullRepoName: string): StackFile | null {
+function findStateFile(fullRepoName: string): { state: StackFile; filePath: string } | null {
 	const stacksDir = join(homedir(), '.claude', 'stacks');
 	let files: string[];
 	try {
@@ -54,16 +54,30 @@ export function loadStackStateForRepo(fullRepoName: string): StackFile | null {
 	for (const file of files) {
 		if (!file.endsWith('.json') || file === 'merge-jobs.json' || file === 'server.config.json') continue;
 		try {
-			const text = readFileSync(join(stacksDir, file), 'utf-8');
+			const filePath = join(stacksDir, file);
+			const text = readFileSync(filePath, 'utf-8');
 			const state = JSON.parse(text) as StackFile;
 			if (state.repo === fullRepoName) {
-				return state;
+				return { state, filePath };
 			}
 		} catch {
 			continue;
 		}
 	}
 	return null;
+}
+
+export function loadStackStateForRepo(fullRepoName: string): StackFile | null {
+	return findStateFile(fullRepoName)?.state ?? null;
+}
+
+/** Write state back to disk. Atomic: tmp file + rename. */
+export function saveStackStateForRepo(fullRepoName: string, state: StackFile): void {
+	const found = findStateFile(fullRepoName);
+	if (!found) return;
+	const tmpPath = `${found.filePath}.tmp`;
+	writeFileSync(tmpPath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+	renameSync(tmpPath, found.filePath);
 }
 
 function findBranchInStack(

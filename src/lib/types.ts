@@ -1,6 +1,7 @@
 export interface StackConfig {
 	describe?: boolean;
 	describeHintDismissed?: boolean;
+	commentDepth?: number;
 }
 
 export interface StackFile {

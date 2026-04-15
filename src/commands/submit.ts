@@ -1,6 +1,6 @@
 import { Command, Option } from "clipanion";
 import { descriptionToTitle, parseBranchName } from "../lib/branch.js";
-import { generateComment } from "../lib/comment.js";
+import { collectNeighborChain, generateComment, type NeighborContext } from "../lib/comment.js";
 import * as gh from "../lib/gh.js";
 import * as git from "../lib/git.js";
 import {
@@ -9,7 +9,7 @@ import {
 	MutationBatch,
 } from "../lib/graphql.js";
 import { resolveStack } from "../lib/resolve.js";
-import { loadAndRefreshState, saveState, stackParents } from "../lib/state.js";
+import { findDependentStacks, loadAndRefreshState, primaryParent, saveState, stackParents } from "../lib/state.js";
 import { theme } from "../lib/theme.js";
 import type { PrStatus } from "../lib/types.js";
 import { saveSnapshot } from "../lib/undo.js";
@@ -400,6 +400,60 @@ export class SubmitCommand extends Command {
 		}
 
 		// Phase 6: Execute updates + comments (one mutation)
+
+		// Gather neighbor stack data for multi-stack PR comments
+		const commentDepth = state.config?.commentDepth ?? 3;
+		const neighborPrNumbers: number[] = [];
+		{
+			const visited = new Set<string>([stackName]);
+			// Walk upstream
+			let walkName = stackName;
+			for (let level = 0; level < commentDepth; level++) {
+				const walkStack = state.stacks[walkName];
+				if (!walkStack) break;
+				const parent = primaryParent(walkStack);
+				if (!parent || visited.has(parent.stack)) break;
+				visited.add(parent.stack);
+				const parentStack = state.stacks[parent.stack];
+				if (!parentStack) break;
+				for (const b of parentStack.branches) {
+					if (b.pr != null) neighborPrNumbers.push(b.pr);
+				}
+				walkName = parent.stack;
+			}
+			// Walk downstream via BFS
+			let queue = [stackName];
+			for (let level = 0; level < commentDepth; level++) {
+				const nextQueue: string[] = [];
+				for (const name of queue) {
+					const dependents = findDependentStacks(state, name);
+					for (const dep of dependents) {
+						if (visited.has(dep.name)) continue;
+						visited.add(dep.name);
+						for (const b of dep.stack.branches) {
+							if (b.pr != null) neighborPrNumbers.push(b.pr);
+						}
+						nextQueue.push(dep.name);
+					}
+				}
+				if (nextQueue.length === 0) break;
+				queue = nextQueue;
+			}
+		}
+
+		// Fetch neighbor PR statuses and merge into prStatuses
+		const neighborStatuses = neighborPrNumbers.length > 0 ? gh.prViewBatch(neighborPrNumbers) : new Map<number, PrStatus>();
+		for (const [num, status] of neighborStatuses) {
+			prStatuses.set(num, status);
+		}
+
+		// Build neighbor context
+		const chainResult = collectNeighborChain(state, stackName, prStatuses, commentDepth);
+		const neighborCtx: NeighborContext = {
+			neighbors: [...chainResult.downstream, ...chainResult.upstream],
+			rootTrunk: chainResult.rootTrunk,
+		};
+
 		const updateBatch = new MutationBatch(repoNodeId);
 		const baseUpdates: Array<{ pr: number; base: string; alias: string }> = [];
 		const commentUpdates: Array<{ pr: number; alias: string }> = [];
@@ -424,7 +478,7 @@ export class SubmitCommand extends Command {
 			}
 
 			// Comment — skip if identical
-			const comment = generateComment(stack, branch.pr, prStatuses, repoUrl);
+			const comment = generateComment(stack, branch.pr, prStatuses, repoUrl, neighborCtx);
 			if (existing?.botComment?.body === comment) {
 				// Comment identical — skip silently
 			} else if (existing?.botComment) {

@@ -48,6 +48,18 @@ export function statusText(pr: PrStatus | null): string {
 	return 'Review';
 }
 
+export function statusTextForEmoji(emoji: StatusEmoji): string {
+	switch (emoji) {
+		case '\u2B1C': return 'No PR';
+		case '\u2705': return 'Approved';
+		case '\u274C': return 'Closed';
+		case '\uD83D\uDD28': return 'Draft';
+		case '\uD83D\uDD04': return 'Changes';
+		case '\uD83D\uDC40': return 'Review';
+		default: return '';
+	}
+}
+
 export function checksEmoji(pr: PrStatus | null): string {
 	if (!pr || pr.checksStatus == null) return '';
 	if (pr.checksStatus === 'SUCCESS') return '✅';

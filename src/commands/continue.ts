@@ -3,7 +3,7 @@ import * as p from '@clack/prompts';
 import { Command } from 'clipanion';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
-import { findActiveStack, findDependentStacks, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, findDependentStacks, loadAndRefreshState, loadState, primaryParent, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { StackFile } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -151,7 +151,7 @@ export class ContinueCommand extends Command {
 				continue;
 			}
 
-			const depBranch = depStack.dependsOn?.branch ?? depStack.trunk;
+			const depBranch = primaryParent(depStack)?.branch ?? depStack.trunk;
 			process.stderr.write('\n');
 			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
 

@@ -3,7 +3,7 @@ import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
-import { findActiveStack, findDependentStacks, loadAndRefreshState, saveState } from '../lib/state.js';
+import { findActiveStack, findDependentStacks, loadAndRefreshState, primaryParent, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
@@ -161,7 +161,7 @@ export class ModifyCommand extends Command {
 			if (visited.has(depName)) continue;
 			if (depStack.restackState != null) continue;
 
-			const depBranch = depStack.dependsOn?.branch ?? depStack.trunk;
+			const depBranch = primaryParent(depStack)?.branch ?? depStack.trunk;
 			process.stderr.write('\n');
 			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
 

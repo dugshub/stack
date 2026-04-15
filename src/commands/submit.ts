@@ -9,7 +9,7 @@ import {
 	MutationBatch,
 } from "../lib/graphql.js";
 import { resolveStack } from "../lib/resolve.js";
-import { loadAndRefreshState, saveState } from "../lib/state.js";
+import { loadAndRefreshState, saveState, stackParents } from "../lib/state.js";
 import { theme } from "../lib/theme.js";
 import type { PrStatus } from "../lib/types.js";
 import { saveSnapshot } from "../lib/undo.js";
@@ -58,6 +58,12 @@ export class SubmitCommand extends Command {
 		}
 
 		const { stackName: resolvedName, stack, position } = resolved;
+
+		if (stackParents(stack).length > 1) {
+			ui.warn(
+				"Multi-parent stack: only the primary parent is reflected in PR bases and stack comment (phase 1 limitation).",
+			);
+		}
 
 		if (this.dryRun) {
 			return this.showDryRun(stack, resolvedName);

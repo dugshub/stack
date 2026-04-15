@@ -5,7 +5,7 @@ import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { Stack } from '../lib/types.js';
+import type { Stack, StackParent } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class CreateCommand extends Command {
@@ -55,6 +55,10 @@ export class CreateCommand extends Command {
 
   base = Option.String('--base,-b', {
     description: 'Base branch to build on (creates a dependent stack). Use "." for current branch.',
+  });
+
+  alsoBase = Option.Array('--also-base', {
+    description: 'Additional parent branches to join via merge commit (diamond stack).',
   });
 
   name: string | undefined;
@@ -138,7 +142,16 @@ export class CreateCommand extends Command {
     }
 
     const trunk = baseResult.trunk ?? git.defaultBranch();
-    const dependsOn = baseResult.dependsOn;
+    const secondaries = baseResult.secondaries ?? [];
+    const secondaryBranches = baseResult.secondaryBranches ?? [];
+
+    // Build dependsOn array (primary first, then secondaries)
+    let dependsOnArr: StackParent[] | undefined;
+    if (baseResult.primary || secondaries.length > 0) {
+      dependsOnArr = [];
+      if (baseResult.primary) dependsOnArr.push(baseResult.primary);
+      dependsOnArr.push(...secondaries);
+    }
 
     if (baseResult.baseTip) {
       // Dependent stack: create branch at base tip
@@ -146,6 +159,35 @@ export class CreateCommand extends Command {
       git.checkout(branchName);
     } else {
       git.createBranch(branchName);
+    }
+
+    // Octopus merge when --also-base is given. On conflict we abort, delete
+    // the half-made branch, and write no state.
+    if (secondaryBranches.length > 0) {
+      const mergeArgs = ['merge', '--no-ff', ...secondaryBranches];
+      const mergeResult = git.tryRun(...mergeArgs);
+      if (!mergeResult.ok) {
+        // Abort the in-progress merge (best-effort) and clean up the branch.
+        git.tryRun('merge', '--abort');
+        try {
+          git.checkout(trunk);
+        } catch {
+          // Fall back to default branch if trunk checkout fails.
+          try {
+            git.checkout(git.defaultBranch());
+          } catch {
+            // Swallow — we still want to report the original error.
+          }
+        }
+        git.tryRun('branch', '-D', branchName);
+        ui.error(
+          `Octopus merge conflicted joining ${secondaryBranches.join(', ')} into ${trunk}. No branch or state written.`,
+        );
+        if (mergeResult.stderr) {
+          ui.info(mergeResult.stderr);
+        }
+        return 1;
+      }
     }
 
     const tip = git.revParse('HEAD');
@@ -163,16 +205,18 @@ export class CreateCommand extends Command {
       updated: now,
       restackState: null,
     };
-    if (dependsOn) {
-      stackEntry.dependsOn = dependsOn;
+    if (dependsOnArr && dependsOnArr.length > 0) {
+      stackEntry.dependsOn = dependsOnArr;
     }
     state.stacks[name] = stackEntry;
     state.currentStack = name;
     saveState(state);
 
     ui.success(`Created stack ${theme.stack(name)} with branch ${theme.branch(branchName)}`);
-    if (dependsOn) {
-      ui.info(`  Depends on: ${theme.stack(dependsOn.stack)} (${theme.branch(dependsOn.branch)})`);
+    if (dependsOnArr && dependsOnArr.length > 0) {
+      for (const p of dependsOnArr) {
+        ui.info(`  Depends on: ${theme.stack(p.stack)} (${theme.branch(p.branch)})`);
+      }
     }
 
     // First-time repo settings check
@@ -298,7 +342,13 @@ export class CreateCommand extends Command {
 
     // Build branch entries
     const trunk = baseResult.trunk ?? git.defaultBranch();
-    const dependsOn = baseResult.dependsOn;
+    const secondaries = baseResult.secondaries ?? [];
+    let dependsOnArr: StackParent[] | undefined;
+    if (baseResult.primary || secondaries.length > 0) {
+      dependsOnArr = [];
+      if (baseResult.primary) dependsOnArr.push(baseResult.primary);
+      dependsOnArr.push(...secondaries);
+    }
 
     const branchEntries = branches.map((branch, i) => {
       const tip = git.revParse(branch);
@@ -320,16 +370,18 @@ export class CreateCommand extends Command {
       updated: now,
       restackState: null,
     };
-    if (dependsOn) {
-      stackEntry.dependsOn = dependsOn;
+    if (dependsOnArr && dependsOnArr.length > 0) {
+      stackEntry.dependsOn = dependsOnArr;
     }
     state.stacks[name] = stackEntry;
     state.currentStack = name;
     saveState(state);
 
     ui.success(`Created stack ${theme.stack(name)} with ${branches.length} branches`);
-    if (dependsOn) {
-      ui.info(`  Depends on: ${theme.stack(dependsOn.stack)} (${theme.branch(dependsOn.branch)})`);
+    if (dependsOnArr && dependsOnArr.length > 0) {
+      for (const p of dependsOnArr) {
+        ui.info(`  Depends on: ${theme.stack(p.stack)} (${theme.branch(p.branch)})`);
+      }
     }
     for (let i = 0; i < branchEntries.length; i++) {
       const entry = branchEntries[i];
@@ -343,10 +395,18 @@ export class CreateCommand extends Command {
   private resolveBase(state: ReturnType<typeof loadState>): {
     trunk?: string;
     baseTip?: string;
-    dependsOn?: { stack: string; branch: string };
+    /** Primary parent (if --base resolved inside a tracked stack). */
+    primary?: StackParent;
+    /** Secondary parents from --also-base. */
+    secondaries?: StackParent[];
+    /** Resolved branch names for --also-base (same order). */
+    secondaryBranches?: string[];
     error?: string;
   } {
     if (!this.base) {
+      if (this.alsoBase && this.alsoBase.length > 0) {
+        return { error: '--also-base requires --base' };
+      }
       return {};
     }
 
@@ -362,21 +422,44 @@ export class CreateCommand extends Command {
     const baseTip = git.revParse(baseBranch);
 
     // Scan all stacks to find which stack owns the base branch
-    let dependsOn: { stack: string; branch: string } | undefined;
-    for (const [stackName, stack] of Object.entries(state.stacks)) {
-      for (const branch of stack.branches) {
-        if (branch.name === baseBranch) {
-          dependsOn = { stack: stackName, branch: baseBranch };
-          break;
+    const findOwner = (branchName: string): StackParent | undefined => {
+      for (const [stackName, stack] of Object.entries(state.stacks)) {
+        for (const branch of stack.branches) {
+          if (branch.name === branchName) {
+            return { stack: stackName, branch: branchName };
+          }
         }
       }
-      if (dependsOn) break;
+      return undefined;
+    };
+
+    const primary = findOwner(baseBranch);
+
+    // Resolve secondaries from --also-base
+    const secondaries: StackParent[] = [];
+    const secondaryBranches: string[] = [];
+    for (const raw of this.alsoBase ?? []) {
+      const name = raw === '.' ? git.currentBranch() : raw;
+      const verify = git.tryRun('rev-parse', '--verify', name);
+      if (!verify.ok) {
+        return { error: `Also-base branch "${name}" does not exist` };
+      }
+      const owner = findOwner(name);
+      if (!owner) {
+        return {
+          error: `Also-base branch "${name}" is not tracked in any stack`,
+        };
+      }
+      secondaries.push(owner);
+      secondaryBranches.push(name);
     }
 
     return {
       trunk: baseBranch,
       baseTip,
-      dependsOn,
+      primary,
+      secondaries,
+      secondaryBranches,
     };
   }
 }

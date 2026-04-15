@@ -10,9 +10,14 @@ export interface StackFile {
   config?: StackConfig;
 }
 
+export interface StackParent {
+  stack: string;
+  branch: string;
+}
+
 export interface Stack {
   trunk: string;
-  dependsOn?: { stack: string; branch: string };
+  dependsOn?: StackParent[];
   branches: Branch[];
   created: string;
   updated: string;

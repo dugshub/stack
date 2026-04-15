@@ -5,7 +5,7 @@ import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
-import { findActiveStack, findDependentStacks, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, findDependentStacks, loadAndRefreshState, loadState, primaryParent, saveState, stackParents } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { RestackState, StackFile } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -45,6 +45,11 @@ export class RestackCommand extends Command {
 		}
 
 		const { stackName: resolvedName, stack, position } = resolved;
+
+		if (stackParents(stack).length > 1) {
+			ui.error('Multi-parent stacks cannot be restacked yet — coming in phase 2.');
+			return 2;
+		}
 
 		if (stack.restackState) {
 			ui.error('A restack is already in progress. Use `st continue` or `st abort`.');
@@ -160,7 +165,7 @@ export class RestackCommand extends Command {
 				continue;
 			}
 
-			const depBranch = depStack.dependsOn?.branch ?? depStack.trunk;
+			const depBranch = primaryParent(depStack)?.branch ?? depStack.trunk;
 			process.stderr.write('\n');
 			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
 

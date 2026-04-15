@@ -1,7 +1,7 @@
 import Table from 'cli-table3';
 import { buildReport } from './stack-report.js';
 import { theme } from './theme.js';
-import type { CheckResult, PrStatus, Stack, StackPosition, StatusEmoji } from './types.js';
+import type { CheckResult, PrStatus, Stack, StackParent, StackPosition, StatusEmoji } from './types.js';
 
 function hyperlink(text: string, url: string): string {
 	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
@@ -198,6 +198,8 @@ export interface GraphBranchNode {
 	prStatus: PrStatus | null;
 	isCurrent: boolean;
 	dependents: GraphStackNode[];
+	/** Names of multi-parent stacks that fork into this branch as a secondary parent. */
+	joinPointers?: string[];
 }
 
 export interface GraphStackNode {
@@ -209,6 +211,8 @@ export interface GraphStackNode {
 	expanded: boolean;
 	branches?: GraphBranchNode[];
 	children?: GraphStackNode[];
+	/** Non-primary parents for multi-parent (join) stacks. */
+	joinParents?: StackParent[];
 }
 
 export function statusRank(emoji: StatusEmoji): number {
@@ -244,10 +248,12 @@ export const DOT_TRUNK = '\u25C7';    // ◇
 export const DOT_STACK = '\u25CF';    // ●
 export const DOT_BRANCH = '\u25CB';   // ○
 export const DOT_CURRENT = '\u25C9';  // ◉
+export const DOT_JOIN = '\u25C6';     // ◆ multi-parent stack node
 export const PIPE = '\u2502';         // │
 export const FORK_MID = '\u251C';     // ├
 export const FORK_END = '\u2570';     // ╰
 export const DASH = '\u2500';         // ─
+export const DASH_DASHED = '\u254C';  // ╌
 
 export function renderStackGraph(
 	roots: Array<{ trunk: string; stacks: GraphStackNode[] }>,
@@ -285,7 +291,8 @@ function renderOneStack(node: GraphStackNode, prefix: string, isLast: boolean, n
 	const connector = isLast ? `${FORK_END}${DASH}` : `${FORK_MID}${DASH}`;
 	const continueLine = isLast ? '  ' : `${PIPE} `;
 
-	const dot = theme.stack(DOT_STACK);
+	const isJoin = !!node.joinParents && node.joinParents.length > 0;
+	const dot = isJoin ? theme.stack(DOT_JOIN) : theme.stack(DOT_STACK);
 	// Pad plain text BEFORE applying theme (ANSI codes break padEnd)
 	const namePadded = !node.expanded && nameW ? node.name.padEnd(nameW) : node.name;
 	const nameStr = node.isCurrent ? theme.stack(namePadded) : namePadded;
@@ -295,6 +302,12 @@ function renderOneStack(node: GraphStackNode, prefix: string, isLast: boolean, n
 		const sText = statusText(statusFromEmoji(node.aggregateStatus));
 		const countPad = countW ? countLabel.padEnd(countW) : countLabel;
 		suffix = `   ${theme.muted(countPad)}   ${node.aggregateStatus} ${sText}`;
+	}
+	if (isJoin && node.joinParents) {
+		const parentLabels = node.joinParents
+			.map((p) => `${p.stack}/${p.branch}`)
+			.join(', ');
+		suffix = `${suffix}   ${theme.muted(`\u21B5 joins ${parentLabels}`)}`;
 	}
 	const marker = node.isCurrent && !node.expanded
 		? `  ${theme.accent('\u2190 you are here')}`
@@ -349,6 +362,16 @@ function renderExpandedBranches(branches: GraphBranchNode[], prefix: string): vo
 		process.stderr.write(
 			`${prefix}${theme.muted(connector)} ${dot} ${branchName}  ${prStr}  ${emoji} ${textPadded}${marker}\n`,
 		);
+
+		// Dashed pointer lines for multi-parent join references
+		if (branch.joinPointers && branch.joinPointers.length > 0) {
+			const ptrPrefix = `${prefix}${theme.muted(continueLine)}`;
+			for (const joinStackName of branch.joinPointers) {
+				process.stderr.write(
+					`${ptrPrefix}${theme.muted(`${DASH_DASHED}${DASH_DASHED}\u2192 joined into `)}${theme.stack(joinStackName)}\n`,
+				);
+			}
+		}
 
 		if (branch.dependents.length > 0) {
 			const depPrefix = `${prefix}${theme.muted(continueLine)}`;

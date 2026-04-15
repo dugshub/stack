@@ -1,6 +1,11 @@
 import { Command, Option } from 'clipanion';
 import { fetchAllPrStatuses } from '../lib/pr-status.js';
-import { findActiveStack, findDependentStacks, loadAndRefreshState } from '../lib/state.js';
+import {
+	findActiveStack,
+	findDependentStacks,
+	loadAndRefreshState,
+	stackParents,
+} from '../lib/state.js';
 import { findCommonPrefix } from '../lib/stack-report.js';
 import type { Branch, PrStatus, Stack, StackFile } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
@@ -81,7 +86,7 @@ export function buildGraph(
 	// Group root stacks (not dependent on another stack) by trunk
 	const trunkGroups = new Map<string, Array<{ name: string; stack: Stack }>>();
 	for (const [name, stack] of Object.entries(state.stacks)) {
-		if (stack.dependsOn?.stack) continue;
+		if (stackParents(stack).length > 0) continue;
 		const trunk = stack.trunk;
 		let group = trunkGroups.get(trunk);
 		if (!group) {
@@ -127,18 +132,44 @@ export function buildStackNode(
 	// Find dependent stacks that fork from branches in this stack
 	const dependents = findDependentStacks(state, stackName);
 
-	// Build a map: branch name -> dependent stack nodes that fork from it
+	// Build a map: branch name -> dependent stack nodes that fork from it.
+	// For multi-parent dependents, register under the PRIMARY parent only,
+	// and record a dashed pointer under each SECONDARY parent.
 	const forkMap = new Map<string, GraphStackNode[]>();
+	const pointerMap = new Map<string, string[]>(); // branch -> join stack names
 	for (const { name: depName, stack: depStack } of dependents) {
-		const forkBranch = depStack.dependsOn?.branch ?? '';
-		let list = forkMap.get(forkBranch);
+		const parents = stackParents(depStack);
+		if (parents.length === 0) continue;
+		const primary = parents[0]!;
+		const depNode = buildStackNode(
+			state,
+			depName,
+			depStack,
+			currentStackName,
+			currentBranchName,
+			prStatuses,
+			expandAll,
+		);
+		let list = forkMap.get(primary.branch);
 		if (!list) {
 			list = [];
-			forkMap.set(forkBranch, list);
+			forkMap.set(primary.branch, list);
 		}
-		list.push(
-			buildStackNode(state, depName, depStack, currentStackName, currentBranchName, prStatuses, expandAll),
-		);
+		list.push(depNode);
+
+		for (let p = 1; p < parents.length; p++) {
+			const secondary = parents[p]!;
+			// Only register a pointer if the secondary parent lives in the
+			// stack we're currently rendering. Cross-stack secondary parents
+			// will be picked up by the forkMap of their owning stack.
+			if (secondary.stack !== stackName) continue;
+			let ptrs = pointerMap.get(secondary.branch);
+			if (!ptrs) {
+				ptrs = [];
+				pointerMap.set(secondary.branch, ptrs);
+			}
+			ptrs.push(depName);
+		}
 	}
 
 	// Compute common prefix for short branch names
@@ -151,6 +182,7 @@ export function buildStackNode(
 		? stack.branches.map((b: Branch) => {
 			const pr = b.pr != null ? (prStatuses.get(b.pr) ?? null) : null;
 			const shortName = prefix ? b.name.slice(prefix.length) : b.name;
+			const joinPointers = pointerMap.get(b.name);
 			return {
 				name: b.name,
 				shortName,
@@ -158,16 +190,34 @@ export function buildStackNode(
 				prStatus: pr,
 				isCurrent: b.name === currentBranchName,
 				dependents: forkMap.get(b.name) ?? [],
+				joinPointers,
 			};
 		})
 		: undefined;
 
 	// For collapsed view, collect all dependents into a flat children array
+	// (dedupe by name — a join stack will appear once per parent).
 	const children = expanded
 		? undefined
-		: dependents.map(({ name: depName, stack: depStack }) =>
-			buildStackNode(state, depName, depStack, currentStackName, currentBranchName, prStatuses, expandAll),
+		: Array.from(
+			new Map(
+				dependents.map(({ name: depName, stack: depStack }) => [
+					depName,
+					buildStackNode(
+						state,
+						depName,
+						depStack,
+						currentStackName,
+						currentBranchName,
+						prStatuses,
+						expandAll,
+					),
+				]),
+			).values(),
 		);
+
+	const parents = stackParents(stack);
+	const joinParents = parents.length > 1 ? parents.slice(1) : undefined;
 
 	return {
 		name: stackName,
@@ -178,19 +228,26 @@ export function buildStackNode(
 		expanded,
 		branches,
 		children,
+		joinParents,
 	};
 }
 
 export function collectChain(state: StackFile, startStack: string): Set<string> {
 	const chain = new Set<string>();
+	const seen = new Set<string>();
 
-	// Walk up ancestors
-	let current: string | undefined = startStack;
-	while (current) {
-		chain.add(current);
-		const stack: Stack | undefined = state.stacks[current];
-		current = stack?.dependsOn?.stack;
+	// Walk up ancestors across all parents (multi-parent aware)
+	function walkUp(name: string) {
+		if (seen.has(name)) return;
+		seen.add(name);
+		chain.add(name);
+		const stack: Stack | undefined = state.stacks[name];
+		const parents = stack?.dependsOn ?? [];
+		for (const p of parents) {
+			walkUp(p.stack);
+		}
 	}
+	walkUp(startStack);
 
 	// Walk down descendants recursively
 	function walkDown(name: string) {

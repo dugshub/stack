@@ -4,7 +4,7 @@ import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
 import { resolveStack } from '../lib/resolve.js';
-import { loadAndRefreshState, saveState } from '../lib/state.js';
+import { loadAndRefreshState, primaryParent, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -54,14 +54,15 @@ export class SyncCommand extends Command {
 
     // 2. Auto-convert dependent stack if trunk branch was merged or deleted from remote
     let trunkChanged = false;
-    if (stack.dependsOn) {
+    const primary = primaryParent(stack);
+    if (primary) {
       let trunkMerged = !git.hasRemoteRef(stack.trunk);
 
       // Even if the remote ref still exists, check if the trunk branch's PR was merged
       if (!trunkMerged) {
-        const parentStack = state.stacks[stack.dependsOn.stack];
+        const parentStack = state.stacks[primary.stack];
         const parentBranch = parentStack?.branches.find(
-          (b) => b.name === stack.dependsOn!.branch,
+          (b) => b.name === primary.branch,
         );
         if (parentBranch?.pr != null) {
           const prStatus = gh.prView(parentBranch.pr);

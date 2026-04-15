@@ -3,7 +3,7 @@ import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { resolveStack } from '../lib/resolve.js';
-import { loadAndRefreshState, saveState } from '../lib/state.js';
+import { loadAndRefreshState, saveState, stackParents } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import type { PrStatus } from '../lib/types.js';
 import { saveSnapshot } from '../lib/undo.js';
@@ -51,7 +51,7 @@ export class DeleteCommand extends Command {
 
     // Warn if other stacks depend on this one
     const dependentStacks = Object.entries(state.stacks)
-      .filter(([, s]) => s.dependsOn?.stack === stackName)
+      .filter(([, s]) => stackParents(s).some((p) => p.stack === stackName))
       .map(([name]) => name);
     if (dependentStacks.length > 0) {
       ui.warn(

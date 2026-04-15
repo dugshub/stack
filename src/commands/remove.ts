@@ -2,7 +2,7 @@ import { Command, Option } from 'clipanion';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { resolveStack } from '../lib/resolve.js';
-import { loadAndRefreshState, saveState } from '../lib/state.js';
+import { loadAndRefreshState, saveState, stackParents } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
@@ -85,7 +85,7 @@ export class RemoveCommand extends Command {
 
 		// Warn if other stacks depend on this branch
 		const dependentStacks = Object.entries(state.stacks)
-			.filter(([, s]) => s.dependsOn?.branch === target.name)
+			.filter(([, s]) => stackParents(s).some((p) => p.branch === target.name))
 			.map(([name]) => name);
 		if (dependentStacks.length > 0) {
 			ui.warn(

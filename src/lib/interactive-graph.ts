@@ -12,6 +12,8 @@ import {
 	DOT_STACK,
 	DOT_BRANCH,
 	DOT_CURRENT,
+	DOT_JOIN,
+	DASH_DASHED,
 	PIPE,
 	FORK_MID,
 	FORK_END,
@@ -121,7 +123,8 @@ function flattenOneStack(
 	const connector = isLast ? `${FORK_END}${DASH}` : `${FORK_MID}${DASH}`;
 	const continueLine = isLast ? '  ' : `${PIPE} `;
 
-	const dot = theme.stack(DOT_STACK);
+	const isJoin = !!node.joinParents && node.joinParents.length > 0;
+	const dot = isJoin ? theme.stack(DOT_JOIN) : theme.stack(DOT_STACK);
 	const namePadded = !node.expanded && nameW ? node.name.padEnd(nameW) : node.name;
 	const nameStr = node.isCurrent ? theme.stack(namePadded) : namePadded;
 	let suffix = '';
@@ -130,6 +133,12 @@ function flattenOneStack(
 		const sText = statusText(statusFromEmojiStr(node.aggregateStatus));
 		const countPad = countW ? countLabel.padEnd(countW) : countLabel;
 		suffix = `   ${theme.muted(countPad)}   ${node.aggregateStatus} ${sText}`;
+	}
+	if (isJoin && node.joinParents) {
+		const parentLabels = node.joinParents
+			.map((p) => `${p.stack}/${p.branch}`)
+			.join(', ');
+		suffix = `${suffix}   ${theme.muted(`\u21B5 joins ${parentLabels}`)}`;
 	}
 	const marker = node.isCurrent && !node.expanded
 		? `  ${theme.accent('\u2190 you are here')}`
@@ -201,6 +210,16 @@ function flattenExpandedBranches(
 			pr: branch.pr ?? undefined,
 			isCurrent,
 		}));
+
+		// Dashed "joined into" pointer lines for secondary-parent branches.
+		if (branch.joinPointers && branch.joinPointers.length > 0) {
+			const ptrPrefix = `${prefix}${theme.muted(continueLine)}`;
+			for (const joinStackName of branch.joinPointers) {
+				lines.push(line(
+					`${ptrPrefix}${theme.muted(`${DASH_DASHED}${DASH_DASHED}\u2192 joined into `)}${theme.stack(joinStackName)}`,
+				));
+			}
+		}
 
 		if (branch.dependents.length > 0) {
 			const depPrefix = `${prefix}${theme.muted(continueLine)}`;

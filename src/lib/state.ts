@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as git from './git.js';
-import type { Stack, StackFile, StackPosition } from './types.js';
+import type { Stack, StackFile, StackParent, StackPosition } from './types.js';
 
 export function getStackDir(): string {
   return join(homedir(), '.claude', 'stacks');
@@ -22,6 +22,13 @@ export function loadState(): StackFile {
     if (data.currentStack === undefined) {
       data.currentStack = null;
     }
+    // Migrate legacy dependsOn: { stack, branch } -> [{ stack, branch }]
+    for (const stack of Object.values(data.stacks)) {
+      const raw = (stack as unknown as { dependsOn?: unknown }).dependsOn;
+      if (raw && !Array.isArray(raw) && typeof raw === 'object') {
+        stack.dependsOn = [raw as StackParent];
+      }
+    }
     return data;
   } catch {
     return {
@@ -37,8 +44,41 @@ export function saveState(state: StackFile): void {
   const dir = getStackDir();
   mkdirSync(dir, { recursive: true });
   const tmpPath = `${filePath}.tmp`;
-  writeFileSync(tmpPath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+  // Collapse single-element dependsOn arrays to the legacy object shape on
+  // disk so older builds keep reading state files we write (phase 1 of the
+  // multi-parent migration). Arrays with 2+ parents are written as-is.
+  const serializable: StackFile = {
+    ...state,
+    stacks: Object.fromEntries(
+      Object.entries(state.stacks).map(([name, stack]) => {
+        if (stack.dependsOn && stack.dependsOn.length === 1) {
+          const { dependsOn, ...rest } = stack;
+          return [
+            name,
+            {
+              ...rest,
+              dependsOn: dependsOn[0] as unknown as StackParent[],
+            },
+          ];
+        }
+        if (stack.dependsOn && stack.dependsOn.length === 0) {
+          const { dependsOn: _ignored, ...rest } = stack;
+          return [name, rest as Stack];
+        }
+        return [name, stack];
+      }),
+    ),
+  };
+  writeFileSync(tmpPath, `${JSON.stringify(serializable, null, 2)}\n`, 'utf-8');
   renameSync(tmpPath, filePath);
+}
+
+export function stackParents(stack: Stack): StackParent[] {
+  return stack.dependsOn ?? [];
+}
+
+export function primaryParent(stack: Stack): StackParent | undefined {
+  return stack.dependsOn?.[0];
 }
 
 export function getHistoryFilePath(): string {
@@ -99,7 +139,7 @@ export function findDependentStacks(
 ): Array<{ name: string; stack: Stack }> {
   const result: Array<{ name: string; stack: Stack }> = [];
   for (const [name, stack] of Object.entries(state.stacks)) {
-    if (stack.dependsOn?.stack === stackName) {
+    if (stack.dependsOn?.some((p) => p.stack === stackName)) {
       result.push({ name, stack });
     }
   }

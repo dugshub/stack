@@ -56,10 +56,11 @@ export function buildReport(
 	});
 
 	let dependsOn: StackReport['dependsOn'];
-	if (stack.dependsOn) {
-		const parsed = parseBranchName(stack.dependsOn.branch);
+	const primary = stack.dependsOn?.[0];
+	if (primary) {
+		const parsed = parseBranchName(primary.branch);
 		dependsOn = {
-			stack: stack.dependsOn.stack,
+			stack: primary.stack,
 			pos: parsed ? `#${parsed.index}` : '',
 		};
 	}

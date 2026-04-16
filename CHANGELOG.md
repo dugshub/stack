@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1
+
+- `st comment` command to preview stack navigation comment markdown without posting to GitHub
+- Multi-stack PR comment rendering — comments now show upstream and downstream stacks in the chain, not just the current stack's branches
+
 ## 0.8.0
 
 - `st restack` from top of stack (or single-branch stacks) now cascades to dependent stacks instead of exiting with "nothing to restack"

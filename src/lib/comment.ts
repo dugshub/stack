@@ -242,7 +242,7 @@ export function generateComment(
     const nameHtml = section.isCurrentStack
       ? `<b>${section.name}</b>`
       : section.name;
-    const stackMarker = section.isCurrentStack ? '  \u25C0 current stack' : '';
+    const stackMarker = section.isCurrentStack ? '  \uD83D\uDC48 <b>you are here</b>' : '';
     lines.push(`${stackIndent}${FORK_END}${DASH} ${DOT_STACK} ${nameHtml}${stackMarker}`);
 
     const branchIndent = stackIndent + '   ';
@@ -268,7 +268,7 @@ export function generateComment(
       }
 
       const statusPart = `${b.statusEmoji} ${b.statusText}`;
-      const marker = b.isCurrentPr ? '  \u25C0 this PR' : '';
+      const marker = b.isCurrentPr ? '  \uD83D\uDC48 <b>this PR</b>' : '';
 
       lines.push(`${branchIndent}${connector} ${dot} ${paddedName}  ${prPart}  ${statusPart}${marker}`);
     }

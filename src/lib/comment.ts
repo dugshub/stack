@@ -1,5 +1,6 @@
 import { parseBranchName } from './branch.js';
 import { buildReport } from './stack-report.js';
+import { findCommonPrefix } from './stack-report.js';
 import { findDependentStacks, primaryParent } from './state.js';
 import type { PrStatus, Stack, StackFile, StatusEmoji } from './types.js';
 import { aggregateStatusEmoji, statusEmoji, statusTextForEmoji } from './ui.js';
@@ -7,7 +8,17 @@ import { aggregateStatusEmoji, statusEmoji, statusTextForEmoji } from './ui.js';
 /** Marker used to identify stack navigation comments posted by the bot. */
 export const COMMENT_MARKER = '### PR Stack';
 
+// Tree-drawing characters (matching CLI graph)
+const DOT_STACK = '\u25CF';    // ●
+const DOT_BRANCH = '\u25CB';   // ○
+const DOT_CURRENT = '\u25C9';  // ◉
+const DOT_TRUNK = '\u25C7';    // ◇
+const FORK_MID = '\u251C';     // ├
+const FORK_END = '\u2570';     // ╰
+const DASH = '\u2500';         // ─
+
 export interface NeighborBranch {
+  shortName: string;
   pr: number | null;
   prUrl: string | null;
   title: string;
@@ -56,9 +67,11 @@ export function collectNeighborChain(
     if (!parentStack || visited.has(parent.stack)) break;
     visited.add(parent.stack);
 
+    const prefix = findCommonPrefix(parentStack.branches.map(b => b.name));
     const neighborBranches: NeighborBranch[] = parentStack.branches.map(b => {
       const pr = b.pr != null ? prStatuses.get(b.pr) ?? null : null;
       return {
+        shortName: prefix ? b.name.slice(prefix.length) : b.name,
         pr: b.pr,
         prUrl: b.pr != null ? `${repoUrl}/pull/${b.pr}` : null,
         title: pr?.title ?? '',
@@ -90,9 +103,11 @@ export function collectNeighborChain(
         if (visited.has(dep.name)) continue;
         visited.add(dep.name);
 
+        const prefix = findCommonPrefix(dep.stack.branches.map(b => b.name));
         const neighborBranches: NeighborBranch[] = dep.stack.branches.map(b => {
           const pr = b.pr != null ? prStatuses.get(b.pr) ?? null : null;
           return {
+            shortName: prefix ? b.name.slice(prefix.length) : b.name,
             pr: b.pr,
             prUrl: b.pr != null ? `${repoUrl}/pull/${b.pr}` : null,
             title: pr?.title ?? '',
@@ -120,6 +135,21 @@ export function collectNeighborChain(
   return { upstream, downstream, rootTrunk };
 }
 
+interface TreeSection {
+  name: string;
+  isCurrentStack: boolean;
+  branches: TreeBranch[];
+}
+
+interface TreeBranch {
+  shortName: string;
+  pr: number | null;
+  prUrl: string | null;
+  statusEmoji: string;
+  statusText: string;
+  isCurrentPr: boolean;
+}
+
 export function generateComment(
   stack: Stack,
   currentPrNumber: number,
@@ -132,7 +162,6 @@ export function generateComment(
   // Extract stack name from prefix or fall back to parsing a branch
   let stackLabel = '';
   if (report.prefix) {
-    // e.g. "dugshub/test-mergedown/" -> "test-mergedown"
     const segments = report.prefix.replace(/\/$/, '').split('/');
     stackLabel = segments.length >= 2 ? (segments[1] ?? '') : (segments[0] ?? '');
   }
@@ -141,72 +170,113 @@ export function generateComment(
     stackLabel = parsed?.stack ?? '';
   }
 
-  const lines: string[] = [];
+  // Build sections: upstream (deepest ancestor first) → current → downstream
+  const sections: TreeSection[] = [];
+  const upstreamNeighbors = neighborCtx?.neighbors.filter(n => n.direction === 'upstream') ?? [];
+  const downstreamNeighbors = neighborCtx?.neighbors.filter(n => n.direction === 'downstream') ?? [];
 
+  // Upstream reversed so deepest ancestor renders first (top of tree)
+  for (const neighbor of [...upstreamNeighbors].reverse()) {
+    sections.push({
+      name: neighbor.name,
+      isCurrentStack: false,
+      branches: neighbor.branches.map(nb => ({
+        shortName: nb.shortName,
+        pr: nb.pr,
+        prUrl: nb.prUrl,
+        statusEmoji: nb.status,
+        statusText: statusTextForEmoji(nb.status),
+        isCurrentPr: false,
+      })),
+    });
+  }
+
+  // Current stack
+  sections.push({
+    name: stackLabel,
+    isCurrentStack: true,
+    branches: report.rows.map(row => ({
+      shortName: row.shortName,
+      pr: row.pr,
+      prUrl: row.prUrl,
+      statusEmoji: row.status,
+      statusText: row.statusText,
+      isCurrentPr: row.isCurrent,
+    })),
+  });
+
+  // Downstream
+  for (const neighbor of downstreamNeighbors) {
+    sections.push({
+      name: neighbor.name,
+      isCurrentStack: false,
+      branches: neighbor.branches.map(nb => ({
+        shortName: nb.shortName,
+        pr: nb.pr,
+        prUrl: nb.prUrl,
+        statusEmoji: nb.status,
+        statusText: statusTextForEmoji(nb.status),
+        isCurrentPr: false,
+      })),
+    });
+  }
+
+  // Determine trunk
+  const trunk = neighborCtx?.rootTrunk ?? report.trunk;
+
+  // Render tree
+  const lines: string[] = [];
   const header = stackLabel
     ? `${COMMENT_MARKER} \`${stackLabel}\``
     : COMMENT_MARKER;
   lines.push(header);
   lines.push('');
-  lines.push('| Status | PR | Title |');
-  lines.push('|--------|-----|-------|');
+  lines.push('<pre>');
+  lines.push(`${DOT_TRUNK} ${trunk}`);
 
-  // Downstream neighbor rows (outermost first, so reverse the array)
-  const downstreamNeighbors = neighborCtx?.neighbors.filter(n => n.direction === 'downstream') ?? [];
-  if (downstreamNeighbors.length > 0) {
-    const reversed = [...downstreamNeighbors].reverse();
-    for (const neighbor of reversed) {
-      // Header row for the neighbor stack
-      lines.push(`| | **\u2196 \`${neighbor.name}\`** | |`);
-      // Render individual branch rows (top of stack first)
-      for (let i = neighbor.branches.length - 1; i >= 0; i--) {
-        const nb = neighbor.branches[i]!;
-        const statusCell = `${nb.status} ${statusTextForEmoji(nb.status)}`;
-        const prLink = nb.pr != null ? `[#${nb.pr}](${nb.prUrl})` : '';
-        lines.push(`| ${statusCell} | \u00A0\u00A0\u00A0${prLink} | ${nb.title} |`);
+  let stackIndent = '';
+  for (let s = 0; s < sections.length; s++) {
+    const section = sections[s]!;
+
+    // Stack header
+    const nameHtml = section.isCurrentStack
+      ? `<b>${section.name}</b>`
+      : section.name;
+    lines.push(`${stackIndent}${FORK_END}${DASH} ${DOT_STACK} ${nameHtml}`);
+
+    const branchIndent = stackIndent + '   ';
+
+    // Column widths for alignment
+    const nameW = Math.max(4, ...section.branches.map(b => b.shortName.length));
+    const prW = Math.max(0, ...section.branches.map(b => b.pr != null ? `#${b.pr}`.length : 0));
+
+    for (let i = 0; i < section.branches.length; i++) {
+      const b = section.branches[i]!;
+      const isLast = i === section.branches.length - 1;
+      const connector = isLast ? `${FORK_END}${DASH}` : `${FORK_MID}${DASH}`;
+      const dot = b.isCurrentPr ? DOT_CURRENT : DOT_BRANCH;
+      const paddedName = b.shortName.padEnd(nameW);
+
+      let prPart = '';
+      if (b.pr != null && b.prUrl) {
+        const prText = `#${b.pr}`;
+        const padded = prText.padEnd(prW);
+        prPart = `<a href="${b.prUrl}">${padded}</a>`;
+      } else {
+        prPart = ''.padEnd(prW);
       }
+
+      const statusPart = `${b.statusEmoji} ${b.statusText}`;
+      const marker = b.isCurrentPr ? '  \u25C0 this PR' : '';
+
+      lines.push(`${branchIndent}${connector} ${dot} ${paddedName}  ${prPart}  ${statusPart}${marker}`);
     }
+
+    // Next section indents under the last branch
+    stackIndent = branchIndent + '   ';
   }
 
-  // Render top-of-stack first (reverse order)
-  for (let i = report.rows.length - 1; i >= 0; i--) {
-    const row = report.rows[i]!;
-
-    const prLink = row.pr != null
-      ? `[#${row.pr}](${row.prUrl})`
-      : '';
-    const pointer = row.isCurrent ? ' \u{1F448}' : '';
-
-    const statusCell = `${row.status} ${row.statusText}`;
-    const prCell = row.isCurrent ? `**${prLink}**` : prLink;
-    const titleCell = row.isCurrent ? `**${row.title}**${pointer}` : row.title;
-
-    lines.push(`| ${statusCell} | ${prCell} | ${titleCell} |`);
-  }
-
-  // Upstream neighbors + trunk row
-  const upstreamNeighbors = neighborCtx?.neighbors.filter(n => n.direction === 'upstream') ?? [];
-  if (upstreamNeighbors.length > 0) {
-    // Render upstream neighbors (immediate parent first, then deeper ancestors)
-    for (const neighbor of upstreamNeighbors) {
-      // Header row for the neighbor stack
-      lines.push(`| | **\u21B3 \`${neighbor.name}\`** | |`);
-      // Render individual branch rows (top of stack first)
-      for (let i = neighbor.branches.length - 1; i >= 0; i--) {
-        const nb = neighbor.branches[i]!;
-        const statusCell = `${nb.status} ${statusTextForEmoji(nb.status)}`;
-        const prLink = nb.pr != null ? `[#${nb.pr}](${nb.prUrl})` : '';
-        lines.push(`| ${statusCell} | \u00A0\u00A0\u00A0${prLink} | ${nb.title} |`);
-      }
-    }
-    // Then render trunk using rootTrunk from neighbor context
-    lines.push(`| | \`${neighborCtx!.rootTrunk}\` | |`);
-  } else if (report.dependsOn) {
-    lines.push(`| | \u21B3 \`${report.dependsOn.stack}\`${report.dependsOn.pos} | |`);
-  } else {
-    lines.push(`| | \`${report.trunk}\` | |`);
-  }
-
+  lines.push('</pre>');
   lines.push('');
   lines.push('<sub>Managed by <a href="https://github.com/dugshub/stack">stack CLI</a></sub>');
 

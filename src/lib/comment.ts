@@ -7,11 +7,19 @@ import { aggregateStatusEmoji, statusEmoji, statusTextForEmoji } from './ui.js';
 /** Marker used to identify stack navigation comments posted by the bot. */
 export const COMMENT_MARKER = '### PR Stack';
 
+export interface NeighborBranch {
+  pr: number | null;
+  prUrl: string | null;
+  title: string;
+  status: StatusEmoji;
+}
+
 export interface NeighborStack {
   name: string;
   branchCount: number;
   aggregateStatus: StatusEmoji;
   direction: 'upstream' | 'downstream';
+  branches: NeighborBranch[];
 }
 
 export interface NeighborContext {
@@ -30,6 +38,7 @@ export function collectNeighborChain(
   currentStackName: string,
   prStatuses: Map<number, PrStatus>,
   depth: number = 3,
+  repoUrl: string = '',
 ): NeighborChainResult {
   const upstream: NeighborStack[] = [];
   const downstream: NeighborStack[] = [];
@@ -47,9 +56,16 @@ export function collectNeighborChain(
     if (!parentStack || visited.has(parent.stack)) break;
     visited.add(parent.stack);
 
-    const emojis = parentStack.branches.map(b =>
-      statusEmoji(b.pr != null ? prStatuses.get(b.pr) ?? null : null),
-    );
+    const neighborBranches: NeighborBranch[] = parentStack.branches.map(b => {
+      const pr = b.pr != null ? prStatuses.get(b.pr) ?? null : null;
+      return {
+        pr: b.pr,
+        prUrl: b.pr != null ? `${repoUrl}/pull/${b.pr}` : null,
+        title: pr?.title ?? '',
+        status: statusEmoji(pr),
+      };
+    });
+    const emojis = neighborBranches.map(b => b.status);
     const agg = aggregateStatusEmoji(emojis);
 
     upstream.push({
@@ -57,6 +73,7 @@ export function collectNeighborChain(
       branchCount: parentStack.branches.length,
       aggregateStatus: agg,
       direction: 'upstream',
+      branches: neighborBranches,
     });
 
     rootTrunk = parentStack.trunk;
@@ -73,9 +90,16 @@ export function collectNeighborChain(
         if (visited.has(dep.name)) continue;
         visited.add(dep.name);
 
-        const emojis = dep.stack.branches.map(b =>
-          statusEmoji(b.pr != null ? prStatuses.get(b.pr) ?? null : null),
-        );
+        const neighborBranches: NeighborBranch[] = dep.stack.branches.map(b => {
+          const pr = b.pr != null ? prStatuses.get(b.pr) ?? null : null;
+          return {
+            pr: b.pr,
+            prUrl: b.pr != null ? `${repoUrl}/pull/${b.pr}` : null,
+            title: pr?.title ?? '',
+            status: statusEmoji(pr),
+          };
+        });
+        const emojis = neighborBranches.map(b => b.status);
         const agg = aggregateStatusEmoji(emojis);
 
         downstream.push({
@@ -83,6 +107,7 @@ export function collectNeighborChain(
           branchCount: dep.stack.branches.length,
           aggregateStatus: agg,
           direction: 'downstream',
+          branches: neighborBranches,
         });
 
         nextQueue.push(dep.name);
@@ -131,9 +156,15 @@ export function generateComment(
   if (downstreamNeighbors.length > 0) {
     const reversed = [...downstreamNeighbors].reverse();
     for (const neighbor of reversed) {
-      const branchLabel = neighbor.branchCount === 1 ? '1 branch' : `${neighbor.branchCount} branches`;
-      const statusCell = `${neighbor.aggregateStatus} ${statusTextForEmoji(neighbor.aggregateStatus)}`;
-      lines.push(`| ${statusCell} | \u2196 \`${neighbor.name}\` | ${branchLabel} |`);
+      // Header row for the neighbor stack
+      lines.push(`| | **\u2196 \`${neighbor.name}\`** | |`);
+      // Render individual branch rows (top of stack first)
+      for (let i = neighbor.branches.length - 1; i >= 0; i--) {
+        const nb = neighbor.branches[i]!;
+        const statusCell = `${nb.status} ${statusTextForEmoji(nb.status)}`;
+        const prLink = nb.pr != null ? `[#${nb.pr}](${nb.prUrl})` : '';
+        lines.push(`| ${statusCell} | \u00A0\u00A0\u00A0${prLink} | ${nb.title} |`);
+      }
     }
   }
 
@@ -156,11 +187,17 @@ export function generateComment(
   // Upstream neighbors + trunk row
   const upstreamNeighbors = neighborCtx?.neighbors.filter(n => n.direction === 'upstream') ?? [];
   if (upstreamNeighbors.length > 0) {
-    // Render upstream neighbors (immediate parent first)
+    // Render upstream neighbors (immediate parent first, then deeper ancestors)
     for (const neighbor of upstreamNeighbors) {
-      const branchLabel = neighbor.branchCount === 1 ? '1 branch' : `${neighbor.branchCount} branches`;
-      const statusCell = `${neighbor.aggregateStatus} ${statusTextForEmoji(neighbor.aggregateStatus)}`;
-      lines.push(`| ${statusCell} | \u21B3 \`${neighbor.name}\` | ${branchLabel} |`);
+      // Header row for the neighbor stack
+      lines.push(`| | **\u21B3 \`${neighbor.name}\`** | |`);
+      // Render individual branch rows (top of stack first)
+      for (let i = neighbor.branches.length - 1; i >= 0; i--) {
+        const nb = neighbor.branches[i]!;
+        const statusCell = `${nb.status} ${statusTextForEmoji(nb.status)}`;
+        const prLink = nb.pr != null ? `[#${nb.pr}](${nb.prUrl})` : '';
+        lines.push(`| ${statusCell} | \u00A0\u00A0\u00A0${prLink} | ${nb.title} |`);
+      }
     }
     // Then render trunk using rootTrunk from neighbor context
     lines.push(`| | \`${neighborCtx!.rootTrunk}\` | |`);

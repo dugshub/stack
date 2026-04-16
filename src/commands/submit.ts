@@ -448,7 +448,7 @@ export class SubmitCommand extends Command {
 		}
 
 		// Build neighbor context
-		const chainResult = collectNeighborChain(state, stackName, prStatuses, commentDepth);
+		const chainResult = collectNeighborChain(state, stackName, prStatuses, commentDepth, repoUrl);
 		const neighborCtx: NeighborContext = {
 			neighbors: [...chainResult.downstream, ...chainResult.upstream],
 			rootTrunk: chainResult.rootTrunk,

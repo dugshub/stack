@@ -242,7 +242,8 @@ export function generateComment(
     const nameHtml = section.isCurrentStack
       ? `<b>${section.name}</b>`
       : section.name;
-    lines.push(`${stackIndent}${FORK_END}${DASH} ${DOT_STACK} ${nameHtml}`);
+    const stackMarker = section.isCurrentStack ? '  \u25C0 current stack' : '';
+    lines.push(`${stackIndent}${FORK_END}${DASH} ${DOT_STACK} ${nameHtml}${stackMarker}`);
 
     const branchIndent = stackIndent + '   ';
 

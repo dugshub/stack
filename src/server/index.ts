@@ -7,8 +7,17 @@ import { log, setForeground, addLogClient, removeLogClient } from './log.js';
 import { acquireLock, releaseLock, isStackLocked, activeLockCount, listActiveLocks } from './locks.js';
 import { startTunnel, stopTunnel, isTunnelRunning, getTunnelRestartCount } from './tunnel.js';
 import type { DaemonConfig } from './types.js';
-import { handlePushEvent, handlePRMergedEvent, loadStackStateForRepo, findStackForPR, saveStackStateForRepo } from './stack-checks.js';
-import { ghAsync } from './spawn.js';
+import {
+	handlePushEvent,
+	handlePRMergedEvent,
+	loadStackStateForRepo,
+	findStackForPR,
+	saveStackStateForRepo,
+	findDependentStacks,
+	parentsOf,
+	type StackFile,
+} from './stack-checks.js';
+import { ghAsync, gitAsync } from './spawn.js';
 import { parseWebhook, verifySignature } from './webhook.js';
 import { registerRepo, unregisterRepo, syncWebhooks } from './webhook-manager.js';
 
@@ -60,19 +69,30 @@ async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
 
 	log('info', `PR #${prNumber} merged in stack "${stackName}" — cascading...`, stackName);
 
+	// Capture merged-branch context BEFORE any state mutation. These stay
+	// valid after the splice below and are used by `cascadeToDependents`.
+	const mergedBranch = stack.branches[branchIndex];
+	const oldBase = mergedBranch?.tip;
+	const mergedName = mergedBranch?.name;
+	const parentTrunk = stack.trunk;
+
 	// Find remaining unmerged branches after this one
 	const remaining = stack.branches.slice(branchIndex + 1);
 	if (remaining.length === 0) {
 		log('success', `Stack "${stackName}" fully merged`, stackName);
+		if (oldBase && mergedName) {
+			try {
+				await cascadeToDependents(repo, state, stackName, mergedName, oldBase, parentTrunk);
+			} catch (err) {
+				log('error', `Dependent cascade failed: ${err}`, stackName);
+			}
+		}
 		return;
 	}
 
 	const nextBranch = remaining[0];
 	if (!nextBranch?.pr) return;
 
-	// Get the merged branch's tip for rebase exclusion
-	const mergedBranch = stack.branches[branchIndex];
-	const oldBase = mergedBranch?.tip;
 	if (!oldBase) {
 		log('error', 'Missing branch tip for rebase — cannot cascade', stackName);
 		return;
@@ -126,6 +146,255 @@ async function handlePRMerged(repo: string, prNumber: number): Promise<void> {
 	log('info', `gh pr edit #${nextBranch.pr} --base ${stack.trunk}`, stackName, 'api', I);
 	await ghAsync('pr', 'edit', String(nextBranch.pr), '--base', stack.trunk);
 	log('success', `Retargeted #${nextBranch.pr} to ${stack.trunk}`, stackName, undefined, I);
+
+	if (mergedName) {
+		try {
+			await cascadeToDependents(repo, state, stackName, mergedName, oldBase, parentTrunk);
+		} catch (err) {
+			log('error', `Dependent cascade failed: ${err}`, stackName);
+		}
+	}
+}
+
+/**
+ * After handling the in-stack cascade for a merged PR, find every stack that
+ * depends on the merged branch and rebase its first branch onto the parent's
+ * trunk (then cascade through the rest of that stack).
+ *
+ * Phase-1 scope: single-parent dependents only. Multi-parent (diamond)
+ * dependents are logged and skipped — user recovers with `st sync`.
+ */
+async function cascadeToDependents(
+	repo: string,
+	state: StackFile,
+	parentStackName: string,
+	mergedBranchName: string,
+	mergedBranchTip: string,
+	parentTrunk: string,
+): Promise<void> {
+	const dependents = findDependentStacks(state, parentStackName, mergedBranchName);
+	if (dependents.length === 0) return;
+
+	const I = true;
+	const clonePath = await ensureClone(repoUrl(repo), repoName(repo));
+	// In the fully-merged path we short-circuited before fetching. Fetch once
+	// here to cover that case — fetchClone is serialised per clone path.
+	log('info', `git fetch origin`, parentStackName, 'git', I);
+	await fetchClone(clonePath);
+
+	for (const { stackName: depName, stack: depStack } of dependents) {
+		// Phase-1: skip diamond dependents.
+		if (parentsOf(depStack).length > 1) {
+			log(
+				'warn',
+				`Dependent stack "${depName}" has multiple parents — skipping (run \`st sync\` manually).`,
+				depName,
+			);
+			continue;
+		}
+
+		if (isStackLocked(depName)) {
+			log('info', `Stack "${depName}" locked by CLI — skipping dependent sync`, depName);
+			continue;
+		}
+
+		const firstBranch = depStack.branches[0];
+		if (!firstBranch) {
+			log('warn', `Dependent "${depName}" has no branches — skipping`, depName);
+			continue;
+		}
+
+		log(
+			'info',
+			`Cascading to dependent stack "${depName}" — rebasing ${firstBranch.name} onto ${parentTrunk}`,
+			depName,
+		);
+
+		const preSha = await getBranchSha(clonePath, firstBranch.name);
+
+		// Resolve the effective `oldBase` for rebase --onto. Prefer the
+		// stored `mergedBranchTip`; if it's not an ancestor of the
+		// dependent's first branch (state drift), fall back to the
+		// `merge-base parentTrunk firstBranch`.
+		let effectiveOldBase = mergedBranchTip;
+		const ancestor = await gitAsync(
+			['merge-base', '--is-ancestor', mergedBranchTip, firstBranch.name],
+			{ cwd: clonePath },
+		);
+		if (!ancestor.ok) {
+			const mbRes = await gitAsync(
+				['merge-base', parentTrunk, firstBranch.name],
+				{ cwd: clonePath },
+			);
+			if (mbRes.ok && mbRes.stdout.trim()) {
+				effectiveOldBase = mbRes.stdout.trim();
+				log(
+					'warn',
+					`Stored tip ${mergedBranchTip.slice(0, 7)} not on ${firstBranch.name} — falling back to merge-base ${effectiveOldBase.slice(0, 7)}`,
+					depName,
+					undefined,
+					I,
+				);
+			}
+		}
+
+		log(
+			'info',
+			`git rebase --onto ${parentTrunk} ${effectiveOldBase.slice(0, 7)} ${firstBranch.name}`,
+			depName,
+			'git',
+			I,
+		);
+		const rebase = await rebaseInWorktree(clonePath, {
+			branch: firstBranch.name,
+			onto: parentTrunk,
+			oldBase: effectiveOldBase,
+		});
+		if (!rebase.ok) {
+			log('error', `Rebase failed for ${firstBranch.name}: ${rebase.error}`, depName, undefined, I);
+			continue;
+		}
+		log('success', `Rebased ${firstBranch.name} onto ${parentTrunk}`, depName, undefined, I);
+
+		// Update state first so any follow-up webhook reads the new parent.
+		const postSha = await getBranchSha(clonePath, firstBranch.name);
+		const parentTrunkSha = await getBranchSha(clonePath, parentTrunk);
+		firstBranch.tip = postSha;
+		firstBranch.parentTip = parentTrunkSha;
+		depStack.trunk = parentTrunk;
+		// Remove the merged-parent entry from dependsOn; save collapses shapes.
+		const remainingParents = parentsOf(depStack).filter(
+			(p) => !(p.stack === parentStackName && p.branch === mergedBranchName),
+		);
+		if (remainingParents.length === 0) {
+			delete depStack.dependsOn;
+		} else {
+			depStack.dependsOn = remainingParents;
+		}
+		saveStackStateForRepo(repo, state);
+
+		log(
+			'info',
+			`git push --force-with-lease ${firstBranch.name} (${preSha.slice(0, 7)})`,
+			depName,
+			'git',
+			I,
+		);
+		const push = await pushBranch(clonePath, firstBranch.name, preSha);
+		if (!push.ok) {
+			log('error', `Push failed for ${firstBranch.name}: ${push.error}`, depName, undefined, I);
+			continue;
+		}
+		const newSha = await getBranchSha(clonePath, firstBranch.name);
+		log(
+			'success',
+			`Pushed ${firstBranch.name} (${preSha.slice(0, 7)} → ${newSha.slice(0, 7)})`,
+			depName,
+			undefined,
+			I,
+		);
+
+		// rebase-status success
+		log(
+			'info',
+			`POST statuses/${newSha.slice(0, 7)} — rebase-status=success`,
+			depName,
+			'api',
+			I,
+		);
+		await ghAsync(
+			'api',
+			`repos/${repo}/statuses/${newSha}`,
+			'-f',
+			'state=success',
+			'-f',
+			'context=stack/rebase-status',
+			'-f',
+			`description=Rebased on ${parentTrunk}`,
+		);
+
+		// Retarget first branch's PR to the new trunk.
+		if (firstBranch.pr) {
+			log('info', `gh pr edit #${firstBranch.pr} --base ${parentTrunk}`, depName, 'api', I);
+			await ghAsync('pr', 'edit', String(firstBranch.pr), '--base', parentTrunk);
+			log('success', `Retargeted #${firstBranch.pr} to ${parentTrunk}`, depName, undefined, I);
+		}
+
+		// Cascade through the rest of depStack's branches. For branch at
+		// index `i`, the correct `--onto` exclusion SHA is the PARENT's
+		// (prev's) OLD tip — the commit prev was at BEFORE we rebased it.
+		// Seed the map with firstBranch's pre-rebase SHA and each
+		// subsequent branch's stored (pre-cascade) tip.
+		const oldTips = new Map<string, string>();
+		oldTips.set(firstBranch.name, preSha);
+		for (let i = 1; i < depStack.branches.length; i++) {
+			const b = depStack.branches[i];
+			if (!b) continue;
+			if (b.tip) {
+				oldTips.set(b.name, b.tip);
+			} else {
+				const sha = await getBranchSha(clonePath, b.name).catch(() => '');
+				if (sha) oldTips.set(b.name, sha);
+			}
+		}
+
+		for (let i = 1; i < depStack.branches.length; i++) {
+			const b = depStack.branches[i];
+			const prev = depStack.branches[i - 1];
+			if (!b || !prev) continue;
+			const oldPrevTip = oldTips.get(prev.name); // PREVIOUS branch's OLD tip
+			if (!oldPrevTip) {
+				log(
+					'warn',
+					`No old tip recorded for ${prev.name} — skipping cascade at this link`,
+					depName,
+				);
+				break;
+			}
+			const bPre = await getBranchSha(clonePath, b.name);
+			log(
+				'info',
+				`git rebase --onto ${prev.name} ${oldPrevTip.slice(0, 7)} ${b.name}`,
+				depName,
+				'git',
+				I,
+			);
+			const r = await rebaseInWorktree(clonePath, {
+				branch: b.name,
+				onto: prev.name,
+				oldBase: oldPrevTip,
+			});
+			if (!r.ok) {
+				log('error', `Rebase failed for ${b.name}: ${r.error}`, depName, undefined, I);
+				break;
+			}
+			const postBSha = await getBranchSha(clonePath, b.name);
+			const newPrevTip = await getBranchSha(clonePath, prev.name);
+			b.tip = postBSha;
+			b.parentTip = newPrevTip;
+			saveStackStateForRepo(repo, state);
+			log('info', `git push --force-with-lease ${b.name}`, depName, 'git', I);
+			const rp = await pushBranch(clonePath, b.name, bPre);
+			if (!rp.ok) {
+				log('error', `Push failed for ${b.name}: ${rp.error}`, depName, undefined, I);
+				break;
+			}
+			// rebase-status success (branch is on top of its new parent)
+			const sha = await getBranchSha(clonePath, b.name);
+			await ghAsync(
+				'api',
+				`repos/${repo}/statuses/${sha}`,
+				'-f',
+				'state=success',
+				'-f',
+				'context=stack/rebase-status',
+				'-f',
+				`description=Rebased on ${prev.name}`,
+			);
+		}
+
+		log('success', `Dependent stack "${depName}" synced onto ${parentTrunk}`, depName);
+	}
 }
 
 // --- Webhook handler ---
@@ -338,6 +607,16 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 				const writer = writable.getWriter();
 				addLogClient(writer);
 
+				// Emit a keepalive comment every 30s so idle connections
+				// don't get closed by the server's idleTimeout (120s) or
+				// any intermediary proxy.
+				const keepaliveBytes = new TextEncoder().encode(': keepalive\n\n');
+				const keepalive = setInterval(() => {
+					writer.write(keepaliveBytes).catch(() => {
+						clearInterval(keepalive);
+					});
+				}, 30_000);
+
 				if (stackFilter) {
 					const filteredWriter = new Proxy(writer, {
 						get(target, prop) {
@@ -357,11 +636,13 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 					addLogClient(filteredWriter as WritableStreamDefaultWriter);
 
 					req.signal.addEventListener('abort', () => {
+						clearInterval(keepalive);
 						removeLogClient(filteredWriter as WritableStreamDefaultWriter);
 						writer.close().catch(() => {});
 					});
 				} else {
 					req.signal.addEventListener('abort', () => {
+						clearInterval(keepalive);
 						removeLogClient(writer);
 						writer.close().catch(() => {});
 					});

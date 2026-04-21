@@ -67,8 +67,13 @@ export function collectNeighborChain(
     if (!parentStack || visited.has(parent.stack)) break;
     visited.add(parent.stack);
 
-    const prefix = findCommonPrefix(parentStack.branches.map(b => b.name));
-    const neighborBranches: NeighborBranch[] = parentStack.branches.map(b => {
+    const withPr = parentStack.branches.filter(b => b.pr != null);
+    rootTrunk = parentStack.trunk;
+    currentName = parent.stack;
+    if (withPr.length === 0) continue;
+
+    const prefix = findCommonPrefix(withPr.map(b => b.name));
+    const neighborBranches: NeighborBranch[] = withPr.map(b => {
       const pr = b.pr != null ? prStatuses.get(b.pr) ?? null : null;
       return {
         shortName: prefix ? b.name.slice(prefix.length) : b.name,
@@ -83,14 +88,11 @@ export function collectNeighborChain(
 
     upstream.push({
       name: parent.stack,
-      branchCount: parentStack.branches.length,
+      branchCount: withPr.length,
       aggregateStatus: agg,
       direction: 'upstream',
       branches: neighborBranches,
     });
-
-    rootTrunk = parentStack.trunk;
-    currentName = parent.stack;
   }
 
   // Walk downstream via BFS using findDependentStacks
@@ -102,9 +104,13 @@ export function collectNeighborChain(
       for (const dep of dependents) {
         if (visited.has(dep.name)) continue;
         visited.add(dep.name);
+        nextQueue.push(dep.name);
 
-        const prefix = findCommonPrefix(dep.stack.branches.map(b => b.name));
-        const neighborBranches: NeighborBranch[] = dep.stack.branches.map(b => {
+        const withPr = dep.stack.branches.filter(b => b.pr != null);
+        if (withPr.length === 0) continue;
+
+        const prefix = findCommonPrefix(withPr.map(b => b.name));
+        const neighborBranches: NeighborBranch[] = withPr.map(b => {
           const pr = b.pr != null ? prStatuses.get(b.pr) ?? null : null;
           return {
             shortName: prefix ? b.name.slice(prefix.length) : b.name,
@@ -119,13 +125,11 @@ export function collectNeighborChain(
 
         downstream.push({
           name: dep.name,
-          branchCount: dep.stack.branches.length,
+          branchCount: withPr.length,
           aggregateStatus: agg,
           direction: 'downstream',
           branches: neighborBranches,
         });
-
-        nextQueue.push(dep.name);
       }
     }
     if (nextQueue.length === 0) break;
@@ -191,18 +195,20 @@ export function generateComment(
     });
   }
 
-  // Current stack
+  // Current stack — drop branches without PRs (nothing to navigate to)
   sections.push({
     name: stackLabel,
     isCurrentStack: true,
-    branches: report.rows.map(row => ({
-      shortName: row.shortName,
-      pr: row.pr,
-      prUrl: row.prUrl,
-      statusEmoji: row.status,
-      statusText: row.statusText,
-      isCurrentPr: row.isCurrent,
-    })),
+    branches: report.rows
+      .filter(row => row.pr != null)
+      .map(row => ({
+        shortName: row.shortName,
+        pr: row.pr,
+        prUrl: row.prUrl,
+        statusEmoji: row.status,
+        statusText: row.statusText,
+        isCurrentPr: row.isCurrent,
+      })),
   });
 
   // Downstream

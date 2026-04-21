@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+
+- Daemon now cascades to **dependent stacks** on PR merge. When a PR merges, any stack whose `dependsOn` references the merged branch is automatically rebased onto the parent's trunk, pushed, and retargeted — no more manual `st sync` on downstream stacks
+- `st daemon attach` no longer drops out on idle — SSE log stream emits a keepalive every 30s to survive the server's idle timeout
+- Stack navigation comments no longer include branches or stacks that have no PR — nothing to link to, so they're dropped from the rendered tree
+
 ## 0.8.1
 
 - `st comment` command to preview stack navigation comment markdown without posting to GitHub

@@ -23,15 +23,52 @@ import type { WebhookEvent } from './types.js';
 const CHECK_CONTEXT = 'stack/rebase-status';
 const MERGE_READY_CONTEXT = 'stack/merge-ready';
 
-interface StackFile {
+export interface StackParent {
+	stack: string;
+	branch: string;
+}
+
+export interface StackFile {
 	repo: string;
 	stacks: Record<
 		string,
 		{
 			trunk: string;
-			branches: Array<{ name: string; pr: number | null; tip: string | null }>;
+			dependsOn?: StackParent | StackParent[];
+			branches: Array<{
+				name: string;
+				pr: number | null;
+				tip: string | null;
+				parentTip?: string | null;
+			}>;
 		}
 	>;
+}
+
+/** Normalise dependsOn to an array regardless of on-disk shape. */
+export function parentsOf(stack: StackFile['stacks'][string]): StackParent[] {
+	const d = stack.dependsOn;
+	if (!d) return [];
+	return Array.isArray(d) ? d : [d];
+}
+
+/** Find stacks whose dependsOn references the given (stackName, branchName). */
+export function findDependentStacks(
+	state: StackFile,
+	parentStackName: string,
+	parentBranchName: string,
+): Array<{ stackName: string; stack: StackFile['stacks'][string] }> {
+	const out: Array<{ stackName: string; stack: StackFile['stacks'][string] }> = [];
+	for (const [stackName, stack] of Object.entries(state.stacks)) {
+		if (
+			parentsOf(stack).some(
+				(p) => p.stack === parentStackName && p.branch === parentBranchName,
+			)
+		) {
+			out.push({ stackName, stack });
+		}
+	}
+	return out;
 }
 
 interface BranchPosition {
@@ -71,12 +108,34 @@ export function loadStackStateForRepo(fullRepoName: string): StackFile | null {
 	return findStateFile(fullRepoName)?.state ?? null;
 }
 
-/** Write state back to disk. Atomic: tmp file + rename. */
+/** Write state back to disk. Atomic: tmp file + rename.
+ *
+ * Collapses `dependsOn` on write to match the CLI's `saveState`:
+ * - 0 parents -> omit `dependsOn`
+ * - 1 parent  -> write as object (legacy shape, so older CLIs keep reading)
+ * - 2+ parents -> write as array
+ */
 export function saveStackStateForRepo(fullRepoName: string, state: StackFile): void {
 	const found = findStateFile(fullRepoName);
 	if (!found) return;
+	const serializable = {
+		...state,
+		stacks: Object.fromEntries(
+			Object.entries(state.stacks).map(([name, s]) => {
+				const parents = parentsOf(s);
+				if (parents.length === 0) {
+					const { dependsOn: _drop, ...rest } = s;
+					return [name, rest];
+				}
+				if (parents.length === 1) {
+					return [name, { ...s, dependsOn: parents[0] }];
+				}
+				return [name, { ...s, dependsOn: parents }];
+			}),
+		),
+	};
 	const tmpPath = `${found.filePath}.tmp`;
-	writeFileSync(tmpPath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+	writeFileSync(tmpPath, `${JSON.stringify(serializable, null, 2)}\n`, 'utf-8');
 	renameSync(tmpPath, found.filePath);
 }
 

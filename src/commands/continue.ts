@@ -1,12 +1,8 @@
-import { isatty } from 'node:tty';
-import * as p from '@clack/prompts';
 import { Command } from 'clipanion';
 import * as git from '../lib/git.js';
-import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
-import { findActiveStack, findDependentStacks, loadAndRefreshState, loadState, primaryParent, saveState } from '../lib/state.js';
+import { cascadeDependentStacks, cascadeRebase } from '../lib/rebase.js';
+import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { StackFile } from '../lib/types.js';
-import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
 
 export class ContinueCommand extends Command {
@@ -122,110 +118,11 @@ export class ContinueCommand extends Command {
 			ui.success(
 				`Restacked remaining branches in "${stackName}"`,
 			);
-			await this.cascadeDependentStacks(state, stackName, true, new Set());
+			await cascadeDependentStacks(state, stackName, true, new Set());
 			// Return to the original branch (after dependent cascades which may move HEAD)
 			git.checkout(originalBranch);
 		}
 
 		return cascadeResult.ok ? 0 : 1;
-	}
-
-	private async cascadeDependentStacks(
-		state: StackFile,
-		stackName: string,
-		cascade: boolean,
-		visited: Set<string>,
-	): Promise<void> {
-		visited.add(stackName);
-		const dependents = findDependentStacks(state, stackName);
-		if (dependents.length === 0) return;
-
-		for (const { name: depName, stack: depStack } of dependents) {
-			if (visited.has(depName)) {
-				ui.warn(`Circular dependency detected: "${depName}" already visited, skipping.`);
-				continue;
-			}
-
-			if (depStack.restackState != null) {
-				ui.warn(`Restack already in progress on "${depName}", skipping.`);
-				continue;
-			}
-
-			const depBranch = primaryParent(depStack)?.branch ?? depStack.trunk;
-			process.stderr.write('\n');
-			ui.info(`Stack "${depName}" depends on "${stackName}" (via ${theme.branch(depBranch)})`);
-
-			if (!cascade) {
-				ui.info(`Tip: Run ${theme.command(`st restack -s ${depName}`)} to update it.`);
-				continue;
-			}
-
-			if (isatty(2)) {
-				const confirmed = await p.confirm({
-					message: `Restack dependent stack "${depName}"?`,
-					initialValue: true,
-				});
-				if (p.isCancel(confirmed) || !confirmed) {
-					continue;
-				}
-			}
-
-			saveSnapshot('restack');
-
-			const oldTips: Record<string, string> = {};
-			for (const branch of depStack.branches) {
-				const tip = branch.tip ?? git.revParse(branch.name);
-				oldTips[branch.name] = tip;
-			}
-
-			const worktreeMap = git.worktreeList();
-
-			if (depStack.branches.length > 0) {
-				const firstBranch = depStack.branches[0];
-				if (firstBranch) {
-					ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}...`);
-					const result = rebaseBranch({
-						branch: firstBranch,
-						parentRef: depStack.trunk,
-						fallbackOldBase: oldTips[firstBranch.name],
-						worktreeMap,
-					});
-					if (result.ok) {
-						if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
-						ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
-					} else {
-						depStack.restackState = { fromIndex: -1, currentIndex: 0, oldTips };
-						saveState(state);
-						ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}`);
-						if (result.conflicts.length > 0) {
-							ui.info('Conflicting files:');
-							for (const file of result.conflicts) {
-								ui.info(`  ${file}`);
-							}
-						}
-						ui.info(`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`);
-						return;
-					}
-				}
-			}
-
-			const cascadeResult = cascadeRebase({
-				state,
-				stack: depStack,
-				fromIndex: -1,
-				startIndex: 1,
-				worktreeMap,
-				oldTips,
-			});
-
-			if (cascadeResult.ok) {
-				ui.success(
-					`Restacked ${cascadeResult.rebased + (depStack.branches.length > 0 ? 1 : 0)} branches in "${depName}"`,
-				);
-				await this.cascadeDependentStacks(state, depName, cascade, visited);
-			} else {
-				return;
-			}
-		}
 	}
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- `st stack base <new-base>` (flat alias `st base`) re-parents an existing stack onto a different base branch — move from `main` to `develop`, turn a standalone stack into a dependent one, or swap which stack a dependent builds on. Updates the first PR's base on GitHub before the local rebase so conflicts don't leave PRs pointing at the old base; cascades to downstream dependent stacks.
+
 ## 0.9.0
 
 - Daemon now cascades to **dependent stacks** on PR merge. When a PR merges, any stack whose `dependsOn` references the merged branch is automatically rebased onto the parent's trunk, pushed, and retargeted — no more manual `st sync` on downstream stacks

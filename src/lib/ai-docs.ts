@@ -105,6 +105,26 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'When you amend a commit on a mid-stack branch, downstream branches become stale. Restack rebases each downstream branch onto its updated parent, preserving the stack chain. If a rebase conflict occurs, resolve it and run `st continue`.',
 	},
+	base: {
+		description: 'Change the stack’s base branch (re-parent)',
+		group: 'stack',
+		flags: [
+			'<new-base>       New base: a branch name, "." for current branch, or a branch inside another stack',
+			'--stack,-s       Target stack by name',
+			'--dry-run        Show the re-parent plan without mutating',
+			'--cascade        Cascade rebase to dependent stacks (default on)',
+			'--no-cascade     Skip cascading to dependent stacks',
+		],
+		examples: [
+			'st base main',
+			'st base develop',
+			'st base user/other-stack/3-final',
+			'st base .',
+			'st base --dry-run main',
+		],
+		details:
+			'Re-parents an existing stack onto a different base branch. The inverse of `st create --base` at creation time. Updates `stack.trunk` (and `dependsOn` when the new base belongs to another stack), rebases every branch in the stack onto the new base, updates the first branch’s PR base on GitHub, and cascades to dependent stacks. Rejects cycles, self-reference, multi-parent stacks (phase 1), and in-progress restacks. On conflict, resolve and run `st continue`.',
+	},
 	check: {
 		description: 'Run a command on every branch in the stack',
 		group: 'stack',

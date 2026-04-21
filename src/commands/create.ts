@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
+import { resolveBase } from '../lib/base-resolver.js';
 import { parseBranchName, toKebabCase, validateStackName } from '../lib/branch.js';
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
@@ -135,7 +136,7 @@ export class CreateCommand extends Command {
     const branchName = `${user}/${name}/1-${desc}`;
 
     // Resolve --base flag for dependent stack
-    const baseResult = this.resolveBase(state);
+    const baseResult = resolveBase({ state, base: this.base, alsoBase: this.alsoBase });
     if (baseResult.error) {
       ui.error(baseResult.error);
       return 2;
@@ -334,7 +335,7 @@ export class CreateCommand extends Command {
     }
 
     // Resolve --base flag for dependent stack
-    const baseResult = this.resolveBase(state);
+    const baseResult = resolveBase({ state, base: this.base, alsoBase: this.alsoBase });
     if (baseResult.error) {
       ui.error(baseResult.error);
       return 2;
@@ -392,74 +393,4 @@ export class CreateCommand extends Command {
     return 0;
   }
 
-  private resolveBase(state: ReturnType<typeof loadState>): {
-    trunk?: string;
-    baseTip?: string;
-    /** Primary parent (if --base resolved inside a tracked stack). */
-    primary?: StackParent;
-    /** Secondary parents from --also-base. */
-    secondaries?: StackParent[];
-    /** Resolved branch names for --also-base (same order). */
-    secondaryBranches?: string[];
-    error?: string;
-  } {
-    if (!this.base) {
-      if (this.alsoBase && this.alsoBase.length > 0) {
-        return { error: '--also-base requires --base' };
-      }
-      return {};
-    }
-
-    // Resolve "." to current branch
-    const baseBranch = this.base === '.' ? git.currentBranch() : this.base;
-
-    // Validate base branch exists
-    const verifyResult = git.tryRun('rev-parse', '--verify', baseBranch);
-    if (!verifyResult.ok) {
-      return { error: `Base branch "${baseBranch}" does not exist` };
-    }
-
-    const baseTip = git.revParse(baseBranch);
-
-    // Scan all stacks to find which stack owns the base branch
-    const findOwner = (branchName: string): StackParent | undefined => {
-      for (const [stackName, stack] of Object.entries(state.stacks)) {
-        for (const branch of stack.branches) {
-          if (branch.name === branchName) {
-            return { stack: stackName, branch: branchName };
-          }
-        }
-      }
-      return undefined;
-    };
-
-    const primary = findOwner(baseBranch);
-
-    // Resolve secondaries from --also-base
-    const secondaries: StackParent[] = [];
-    const secondaryBranches: string[] = [];
-    for (const raw of this.alsoBase ?? []) {
-      const name = raw === '.' ? git.currentBranch() : raw;
-      const verify = git.tryRun('rev-parse', '--verify', name);
-      if (!verify.ok) {
-        return { error: `Also-base branch "${name}" does not exist` };
-      }
-      const owner = findOwner(name);
-      if (!owner) {
-        return {
-          error: `Also-base branch "${name}" is not tracked in any stack`,
-        };
-      }
-      secondaries.push(owner);
-      secondaryBranches.push(name);
-    }
-
-    return {
-      trunk: baseBranch,
-      baseTip,
-      primary,
-      secondaries,
-      secondaryBranches,
-    };
-  }
 }

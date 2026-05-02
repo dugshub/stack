@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+- Fix: webhook URL drift is now propagated to GitHub. Previously, when an existing webhook was found, the daemon PATCHed only the events array — never `config.url` — so changes to `publicUrl` or `tunnel.hostname` between runs left GitHub delivering to a dead URL. The PATCH now includes the full config (url, content_type, secret), and drift is logged when detected
+
 ## 0.9.1
 
 - `st stack base <new-base>` (flat alias `st base`) re-parents an existing stack onto a different base branch — move from `main` to `develop`, turn a standalone stack into a dependent one, or swap which stack a dependent builds on. Updates the first PR's base on GitHub before the local rebase so conflicts don't leave PRs pointing at the old base; cascades to downstream dependent stacks.

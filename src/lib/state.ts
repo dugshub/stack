@@ -44,23 +44,12 @@ export function saveState(state: StackFile): void {
   const dir = getStackDir();
   mkdirSync(dir, { recursive: true });
   const tmpPath = `${filePath}.tmp`;
-  // Collapse single-element dependsOn arrays to the legacy object shape on
-  // disk so older builds keep reading state files we write (phase 1 of the
-  // multi-parent migration). Arrays with 2+ parents are written as-is.
+  // Always serialise dependsOn as an array. Empty arrays are dropped. The
+  // read-time migration handles legacy object shape from older builds.
   const serializable: StackFile = {
     ...state,
     stacks: Object.fromEntries(
       Object.entries(state.stacks).map(([name, stack]) => {
-        if (stack.dependsOn && stack.dependsOn.length === 1) {
-          const { dependsOn, ...rest } = stack;
-          return [
-            name,
-            {
-              ...rest,
-              dependsOn: dependsOn[0] as unknown as StackParent[],
-            },
-          ];
-        }
         if (stack.dependsOn && stack.dependsOn.length === 0) {
           const { dependsOn: _ignored, ...rest } = stack;
           return [name, rest as Stack];

@@ -1,7 +1,8 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Command } from 'clipanion';
 import * as git from '../lib/git.js';
 import { loadAndRefreshState, loadState, saveState } from '../lib/state.js';
-import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
 export class AbortCommand extends Command {
@@ -45,8 +46,19 @@ export class AbortCommand extends Command {
 			? worktreeMap.get(currentBranch.name)
 			: undefined;
 
-		// Run git rebase --abort
-		if (worktreePath) {
+		if (restackState.joinState) {
+			const js = restackState.joinState;
+			const gitDirResult = git.tryRun('rev-parse', '--git-dir');
+			const gitDir = gitDirResult.ok ? gitDirResult.stdout : '.git';
+			if (existsSync(join(gitDir, 'MERGE_HEAD'))) {
+				git.tryRun('merge', '--abort');
+			}
+			if (existsSync(join(gitDir, 'CHERRY_PICK_HEAD'))) {
+				git.tryRun('cherry-pick', '--abort');
+			}
+			git.tryRun('checkout', js.branchName);
+			git.tryRun('reset', '--hard', js.oldJoinTip);
+		} else if (worktreePath) {
 			Bun.spawnSync(['git', 'rebase', '--abort'], {
 				stdout: 'pipe',
 				stderr: 'pipe',

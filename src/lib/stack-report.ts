@@ -20,7 +20,10 @@ export interface StackRow {
 export interface StackReport {
 	prefix: string;
 	trunk: string;
+	/** First parent, kept for backwards compatibility with existing renderers. */
 	dependsOn?: { stack: string; pos: string };
+	/** All parents (primary + secondaries) for diamond stacks. */
+	dependsOnAll?: Array<{ stack: string; pos: string }>;
 	rows: StackRow[];
 }
 
@@ -56,16 +59,17 @@ export function buildReport(
 	});
 
 	let dependsOn: StackReport['dependsOn'];
-	const primary = stack.dependsOn?.[0];
-	if (primary) {
-		const parsed = parseBranchName(primary.branch);
-		dependsOn = {
-			stack: primary.stack,
-			pos: parsed ? `#${parsed.index}` : '',
-		};
+	let dependsOnAll: StackReport['dependsOnAll'];
+	const parents = stack.dependsOn ?? [];
+	if (parents.length > 0) {
+		dependsOnAll = parents.map((p) => {
+			const parsed = parseBranchName(p.branch);
+			return { stack: p.stack, pos: parsed ? `#${parsed.index}` : '' };
+		});
+		dependsOn = dependsOnAll[0];
 	}
 
-	return { prefix, trunk: stack.trunk, dependsOn, rows };
+	return { prefix, trunk: stack.trunk, dependsOn, dependsOnAll, rows };
 }
 
 export function findCommonPrefix(names: string[]): string {

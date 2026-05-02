@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.5
+
+- Diamond stacks work end-to-end: create, restack, continue/abort on conflict, submit, merge — same daily loop as a linear stack
+- `st create --base <B> --also-base <C>` records per-parent tips and the merge SHA so the join branch can be re-rebased without walking history
+- `st restack` re-creates the merge commit when a parent tip moves (reset to primary → re-merge secondaries → replay commits on top) and cascades through downstream branches
+- `st continue` distinguishes the `merging` phase from the `replaying` phase of a diamond conflict and finalises state correctly
+- `st abort` unwinds an in-progress merge or cherry-pick and resets the join branch to its pre-restack tip
+- `st modify` cascades through diamond dependents — amending a commit in an upstream stack automatically re-rolls a diamond's merge
+- `st submit` opens the PR against the primary parent (no more "phase 1 limitation" warning)
+- `st graph` lists every parent for a diamond in the trunk header (`(→ feat#2 + feat-alt#1)`)
+- `Stack.dependsOn` is always serialised as an array; read-time migration from the legacy object shape is preserved
+
 ## 0.9.4
 
 - `st daemon repo` — manage which repos the daemon watches and clean up orphan webhooks. `add <owner/repo>`, `remove <owner/repo>`, `list`, and `doctor [--clean]`. Doctor surfaces hooks the daemon recognizes as its own but isn't tracking; `--clean` deletes them via the GitHub API. Closes the gap surfaced by the orphan-detection log line in 0.9.3

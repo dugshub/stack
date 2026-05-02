@@ -30,12 +30,31 @@ export interface Branch {
   tip: string | null;
   pr: number | null;
   parentTip: string | null;  // Parent's tip SHA when this branch was last rebased/created
+  /** Join branch only: map of parent-branch-name → tip at last join-rebase. */
+  parentTips?: Record<string, string>;
+  /** Join branch only: SHA of the octopus/merge commit itself. */
+  joinMergeSha?: string;
+}
+
+export interface JoinRestackState {
+  branchName: string;
+  phase: 'merging' | 'replaying';
+  /** Branch HEAD before the restart (pre-rebase tip of the join branch). */
+  oldJoinTip: string;
+  /** Pre-restack merge commit SHA. */
+  oldMergeSha: string;
+  /** Filled once the re-merge completes. */
+  newMergeSha?: string;
+  /** New tips we're targeting (by parent branch name). */
+  parentTipsAtStart: Record<string, string>;
 }
 
 export interface RestackState {
   fromIndex: number;
   currentIndex: number;
   oldTips: Record<string, string>;
+  /** Set while a diamond join-branch rebase is in progress. */
+  joinState?: JoinRestackState;
 }
 
 export interface PrStatus {

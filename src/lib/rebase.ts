@@ -1,9 +1,9 @@
 import { isatty } from 'node:tty';
 import * as p from '@clack/prompts';
 import * as git from './git.js';
-import { findDependentStacks, primaryParent, saveState } from './state.js';
+import { findDependentStacks, primaryParent, saveState, stackParents } from './state.js';
 import { theme } from './theme.js';
-import type { Branch, RestackState, Stack, StackFile } from './types.js';
+import type { Branch, Stack, StackFile } from './types.js';
 import * as ui from './ui.js';
 import { saveSnapshot } from './undo.js';
 
@@ -55,6 +55,123 @@ export function rebaseBranch(opts: RebaseBranchOpts): RebaseBranchResult {
 	return result;
 }
 
+interface RebaseJoinResult {
+	ok: boolean;
+	conflicts?: string[];
+	phase?: 'merging' | 'replaying';
+	skipped?: boolean;
+}
+
+function findMergeSha(branchName: string): string | null {
+	const result = git.tryRun(
+		'log',
+		'--first-parent',
+		'--merges',
+		'-n',
+		'1',
+		'--format=%H',
+		branchName,
+	);
+	if (!result.ok || !result.stdout) return null;
+	return result.stdout;
+}
+
+export function rebaseJoinBranch(
+	state: StackFile,
+	stack: Stack,
+	branch: Branch,
+): RebaseJoinResult {
+	const parents = stackParents(stack);
+	if (parents.length < 2) {
+		ui.error(`${theme.branch(branch.name)} is not a join branch`);
+		return { ok: false };
+	}
+	const primary = parents[0]!;
+	const secondaries = parents.slice(1);
+
+	const newTips: Record<string, string> = {};
+	for (const p of parents) {
+		newTips[p.branch] = git.revParse(p.branch);
+	}
+	const oldTips = branch.parentTips ?? {};
+
+	const moved = parents.some((p) => newTips[p.branch] !== oldTips[p.branch]);
+	if (!moved) {
+		return { ok: true, skipped: true };
+	}
+
+	const oldJoinTip = git.revParse(branch.name);
+	const oldMergeSha =
+		branch.joinMergeSha ?? findMergeSha(branch.name) ?? oldJoinTip;
+
+	git.checkout(branch.name);
+	const resetResult = git.tryRun('reset', '--hard', newTips[primary.branch]!);
+	if (!resetResult.ok) {
+		ui.error(`Failed to reset ${theme.branch(branch.name)} to primary parent tip`);
+		return { ok: false };
+	}
+
+	// Save partial state before the merge so a conflict lands resumable.
+	const baseRestackState = stack.restackState ?? {
+		fromIndex: -1,
+		currentIndex: 0,
+		oldTips: {},
+	};
+	stack.restackState = {
+		...baseRestackState,
+		joinState: {
+			branchName: branch.name,
+			phase: 'merging',
+			oldJoinTip,
+			oldMergeSha,
+			parentTipsAtStart: newTips,
+		},
+	};
+	saveState(state);
+
+	const mergeArgs = [
+		'merge',
+		'--no-ff',
+		'-m',
+		'Merge parents for diamond stack',
+		...secondaries.map((s) => newTips[s.branch]!),
+	];
+	const mergeResult = git.tryRun(...mergeArgs);
+	if (!mergeResult.ok) {
+		const conflicts = mergeResult.stdout
+			.split('\n')
+			.filter((l) => l.startsWith('CONFLICT'));
+		return { ok: false, conflicts, phase: 'merging' };
+	}
+
+	const newMergeSha = git.revParse('HEAD');
+
+	if (oldJoinTip !== oldMergeSha) {
+		stack.restackState = {
+			...stack.restackState!,
+			joinState: {
+				...stack.restackState!.joinState!,
+				phase: 'replaying',
+				newMergeSha,
+			},
+		};
+		saveState(state);
+		const cp = git.tryRun('cherry-pick', `${oldMergeSha}..${oldJoinTip}`);
+		if (!cp.ok) {
+			const conflicts = cp.stdout
+				.split('\n')
+				.filter((l) => l.startsWith('CONFLICT'));
+			return { ok: false, conflicts, phase: 'replaying' };
+		}
+	}
+
+	branch.tip = git.revParse(branch.name);
+	branch.parentTips = newTips;
+	branch.joinMergeSha = newMergeSha;
+	branch.parentTip = newTips[primary.branch]!;
+	return { ok: true };
+}
+
 interface CascadeOpts {
 	state: StackFile;
 	stack: Stack;
@@ -78,6 +195,50 @@ export function cascadeRebase(opts: CascadeOpts): CascadeResult {
 	for (let i = startIndex; i < stack.branches.length; i++) {
 		const branch = stack.branches[i];
 		if (!branch) continue;
+
+		// Diamond handling for i === 0: join-branch rebase.
+		if (i === 0 && stackParents(stack).length > 1) {
+			ui.info(
+				`Rebasing join branch ${theme.branch(branch.name)} onto parents...`,
+			);
+			const joinResult = rebaseJoinBranch(state, stack, branch);
+			if (joinResult.ok) {
+				if (!joinResult.skipped) {
+					if (branch.tip) oldTips[branch.name] = branch.tip;
+					rebased++;
+					saveState(state);
+					ui.success(`Rebased ${theme.branch(branch.name)}`);
+				} else {
+					ui.info(
+						`No parent tips moved for ${theme.branch(branch.name)} — skipping`,
+					);
+				}
+				continue;
+			}
+			if (stack.restackState) {
+				stack.restackState.fromIndex = fromIndex;
+				stack.restackState.currentIndex = i;
+			}
+			saveState(state);
+			ui.error(
+				`Conflict during ${joinResult.phase ?? 'merging'} of ${theme.branch(branch.name)}`,
+			);
+			if (joinResult.conflicts && joinResult.conflicts.length > 0) {
+				ui.info('Conflicting files:');
+				for (const file of joinResult.conflicts) {
+					ui.info(`  ${file}`);
+				}
+			}
+			ui.info(
+				`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`,
+			);
+			return {
+				ok: false,
+				rebased,
+				conflictBranch: branch.name,
+				conflicts: joinResult.conflicts,
+			};
+		}
 
 		const parentBranch = stack.branches[i - 1];
 		const parentRef = parentBranch?.name ?? stack.trunk;
@@ -197,47 +358,18 @@ export async function cascadeDependentStacks(
 
 		const worktreeMap = git.worktreeList();
 
-		if (depStack.branches.length > 0) {
-			const firstBranch = depStack.branches[0];
-			if (firstBranch) {
-				ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}...`);
-				const result = rebaseBranch({
-					branch: firstBranch,
-					parentRef: depStack.trunk,
-					fallbackOldBase: oldTips[firstBranch.name],
-					worktreeMap,
-				});
-				if (result.ok) {
-					if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
-					ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
-				} else {
-					depStack.restackState = { fromIndex: -1, currentIndex: 0, oldTips };
-					saveState(state);
-					ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}`);
-					if (result.conflicts.length > 0) {
-						ui.info('Conflicting files:');
-						for (const file of result.conflicts) {
-							ui.info(`  ${file}`);
-						}
-					}
-					ui.info(`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`);
-					return;
-				}
-			}
-		}
-
 		const cascadeResult = cascadeRebase({
 			state,
 			stack: depStack,
 			fromIndex: -1,
-			startIndex: 1,
+			startIndex: 0,
 			worktreeMap,
 			oldTips,
 		});
 
 		if (cascadeResult.ok) {
 			ui.success(
-				`Restacked ${cascadeResult.rebased + (depStack.branches.length > 0 ? 1 : 0)} branches in "${depName}"`,
+				`Restacked ${cascadeResult.rebased} branches in "${depName}"`,
 			);
 			await cascadeDependentStacks(state, depName, cascade, visited);
 		} else {

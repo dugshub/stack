@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Command } from 'clipanion';
 import * as git from '../lib/git.js';
 import { cascadeDependentStacks, cascadeRebase } from '../lib/rebase.js';
-import { findActiveStack, loadAndRefreshState, loadState, saveState } from '../lib/state.js';
+import { findActiveStack, loadAndRefreshState, loadState, saveState, stackParents } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
@@ -51,6 +53,111 @@ export class ContinueCommand extends Command {
 		}
 
 		const restackState = stack.restackState;
+
+		// Handle in-progress join-branch rebase (phase 'merging' or 'replaying').
+		if (restackState.joinState) {
+			const js = restackState.joinState;
+			const joinBranch = stack.branches.find((b) => b.name === js.branchName);
+			if (!joinBranch) {
+				ui.error(`Could not find join branch ${js.branchName}`);
+				return 2;
+			}
+
+			const gitDirResult = git.tryRun('rev-parse', '--git-dir');
+			const gitDir = gitDirResult.ok ? gitDirResult.stdout : '.git';
+
+			if (js.phase === 'merging') {
+				if (existsSync(join(gitDir, 'MERGE_HEAD'))) {
+					const commitResult = Bun.spawnSync(
+						['git', 'commit', '--no-edit'],
+						{
+							stdout: 'pipe',
+							stderr: 'pipe',
+							env: { ...process.env, GIT_EDITOR: 'true' },
+						},
+					);
+					if (commitResult.exitCode !== 0) {
+						ui.error(
+							'Failed to finalize merge. Resolve remaining conflicts and try again.',
+						);
+						ui.info(commitResult.stderr.toString());
+						return 1;
+					}
+				}
+				js.newMergeSha = git.revParse('HEAD');
+
+				if (js.oldJoinTip !== js.oldMergeSha) {
+					js.phase = 'replaying';
+					saveState(state);
+					const cp = git.tryRun(
+						'cherry-pick',
+						`${js.oldMergeSha}..${js.oldJoinTip}`,
+					);
+					if (!cp.ok) {
+						const conflicts = cp.stdout
+							.split('\n')
+							.filter((l) => l.startsWith('CONFLICT'));
+						saveState(state);
+						ui.error(`Conflict during replay of ${theme.branch(joinBranch.name)}`);
+						if (conflicts.length > 0) {
+							ui.info('Conflicting files:');
+							for (const f of conflicts) ui.info(`  ${f}`);
+						}
+						ui.info(
+							`Resolve conflicts, stage files, then run ${theme.command('st continue')}.`,
+						);
+						return 1;
+					}
+				}
+			} else if (js.phase === 'replaying') {
+				const cp = git.tryRun('cherry-pick', '--continue');
+				if (!cp.ok) {
+					if (existsSync(join(gitDir, 'CHERRY_PICK_HEAD'))) {
+						ui.error(
+							'cherry-pick --continue failed. Resolve remaining conflicts and try again.',
+						);
+						ui.info(cp.stderr);
+						return 1;
+					}
+				}
+			}
+
+			const primary = stackParents(stack)[0];
+			joinBranch.tip = git.revParse(joinBranch.name);
+			joinBranch.parentTips = js.parentTipsAtStart;
+			joinBranch.joinMergeSha = js.newMergeSha ?? git.revParse('HEAD');
+			if (primary) {
+				joinBranch.parentTip = js.parentTipsAtStart[primary.branch] ?? null;
+			}
+			restackState.oldTips[joinBranch.name] = joinBranch.tip;
+			restackState.joinState = undefined;
+			restackState.currentIndex = 1;
+			saveState(state);
+			ui.success(`Rebased ${theme.branch(joinBranch.name)}`);
+
+			const worktreeMap = git.worktreeList();
+			const cascadeResult = cascadeRebase({
+				state,
+				stack,
+				fromIndex: restackState.fromIndex,
+				startIndex: restackState.currentIndex,
+				worktreeMap,
+				oldTips: restackState.oldTips,
+			});
+
+			if (cascadeResult.ok) {
+				ui.success(`Restacked remaining branches in "${stackName}"`);
+				await cascadeDependentStacks(state, stackName, true, new Set());
+				try {
+					git.checkout(originalBranch);
+				} catch {
+					// ignore
+				}
+			}
+
+			return cascadeResult.ok ? 0 : 1;
+		}
+
 		const currentBranch = stack.branches[restackState.currentIndex];
 		if (!currentBranch) {
 			ui.error('Could not determine current restack branch');

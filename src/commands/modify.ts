@@ -2,8 +2,8 @@ import { isatty } from 'node:tty';
 import * as p from '@clack/prompts';
 import { Command, Option } from 'clipanion';
 import * as git from '../lib/git.js';
-import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
-import { findActiveStack, findDependentStacks, loadAndRefreshState, primaryParent, saveState } from '../lib/state.js';
+import { cascadeRebase } from '../lib/rebase.js';
+import { findActiveStack, findDependentStacks, loadAndRefreshState, primaryParent } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import { saveSnapshot } from '../lib/undo.js';
 import * as ui from '../lib/ui.js';
@@ -182,41 +182,18 @@ export class ModifyCommand extends Command {
 
 			const worktreeMap = git.worktreeList();
 
-			if (depStack.branches.length > 0) {
-				const firstBranch = depStack.branches[0];
-				if (firstBranch) {
-					ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(depStack.trunk)}...`);
-					const result = rebaseBranch({
-						branch: firstBranch,
-						parentRef: depStack.trunk,
-						fallbackOldBase: oldTips[firstBranch.name],
-						worktreeMap,
-					});
-					if (result.ok) {
-						if (firstBranch.tip) oldTips[firstBranch.name] = firstBranch.tip;
-						ui.success(`Rebased ${theme.branch(firstBranch.name)}`);
-					} else {
-						depStack.restackState = { fromIndex: -1, currentIndex: 0, oldTips };
-						saveState(state);
-						ui.error(`Conflict rebasing ${theme.branch(firstBranch.name)}`);
-						ui.info(`Resolve conflicts, then run ${theme.command('st continue')}.`);
-						return;
-					}
-				}
-			}
-
 			const cascadeResult = cascadeRebase({
 				state,
 				stack: depStack,
 				fromIndex: -1,
-				startIndex: 1,
+				startIndex: 0,
 				worktreeMap,
 				oldTips,
 			});
 
 			if (cascadeResult.ok) {
 				ui.success(
-					`Restacked ${cascadeResult.rebased + (depStack.branches.length > 0 ? 1 : 0)} branches in "${depName}"`,
+					`Restacked ${cascadeResult.rebased} branches in "${depName}"`,
 				);
 				await this.cascadeDependentStacks(state, depName, visited);
 			}

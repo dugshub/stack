@@ -6,7 +6,7 @@ import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { findActiveStack, loadState, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
-import type { Stack, StackParent } from '../lib/types.js';
+import type { Branch, Stack, StackParent } from '../lib/types.js';
 import * as ui from '../lib/ui.js';
 
 export class CreateCommand extends Command {
@@ -199,9 +199,21 @@ export class CreateCommand extends Command {
       state.repo = gh.repoFullName();
     }
     const now = new Date().toISOString();
+    const firstBranch: Branch = { name: branchName, tip, pr: null, parentTip };
+    // Diamond: record per-parent tips and the merge SHA so the join branch can
+    // be re-rebased later without walking history.
+    if (secondaryBranches.length > 0) {
+      const parentTips: Record<string, string> = {};
+      parentTips[trunk] = parentTip;
+      for (const s of secondaryBranches) {
+        parentTips[s] = git.revParse(s);
+      }
+      firstBranch.parentTips = parentTips;
+      firstBranch.joinMergeSha = tip;
+    }
     const stackEntry: Stack = {
       trunk,
-      branches: [{ name: branchName, tip, pr: null, parentTip }],
+      branches: [firstBranch],
       created: now,
       updated: now,
       restackState: null,

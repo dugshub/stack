@@ -97,7 +97,12 @@ export function stackTree(
 
 	// Trunk header
 	let trunkLabel = report.trunk;
-	if (report.dependsOn) {
+	if (report.dependsOnAll && report.dependsOnAll.length > 0) {
+		const parts = report.dependsOnAll
+			.map((p) => `${p.stack}${p.pos}`)
+			.join(' + ');
+		trunkLabel = `${report.trunk} (\u2192 ${parts})`;
+	} else if (report.dependsOn) {
 		trunkLabel = `${report.trunk} (\u2192 ${report.dependsOn.stack}${report.dependsOn.pos})`;
 	}
 	const trunkLine = ` ${theme.muted('\u2191'.padEnd(numW))}${gap}${theme.muted(trunkLabel)}`;

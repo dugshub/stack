@@ -184,7 +184,7 @@ export interface DaemonStatusInfo {
 	pid: number | null;
 	port: number;
 	uptime: number | null;
-	tunnel: { running: boolean; hostname: string; restarts: number } | null;
+	tunnel: { mode: 'named' | 'quick'; running: boolean; url: string | null; restarts: number } | null;
 	repos: string[];
 	activeLocks: number;
 }

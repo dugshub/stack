@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.6
+
+- Quick-tunnel mode (`st daemon setup --quick`) — zero-config public URL via trycloudflare.com; webhook URL re-synced on each daemon start.
+
 ## 0.9.5
 
 - Diamond stacks work end-to-end: create, restack, continue/abort on conflict, submit, merge — same daily loop as a linear stack

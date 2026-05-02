@@ -59,7 +59,7 @@ async function listHooks(repo: string): Promise<GitHubHook[] | null> {
 	}
 }
 
-function saveConfig(config: DaemonConfig): void {
+export function saveConfig(config: DaemonConfig): void {
 	mkdirSync(join(homedir(), '.claude', 'stacks'), { recursive: true });
 	writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
@@ -187,7 +187,7 @@ export async function ensureWebhook(
 export async function syncWebhooks(config: DaemonConfig): Promise<void> {
 	const webhookUrl = config.publicUrl
 		? `${config.publicUrl}/webhooks/github`
-		: config.tunnel
+		: config.tunnel && config.tunnel.mode === 'named'
 			? `https://${config.tunnel.hostname}/webhooks/github`
 			: null;
 
@@ -213,7 +213,7 @@ export async function registerRepo(
 
 	const webhookUrl = config.publicUrl
 		? `${config.publicUrl}/webhooks/github`
-		: config.tunnel
+		: config.tunnel && config.tunnel.mode === 'named'
 			? `https://${config.tunnel.hostname}/webhooks/github`
 			: null;
 

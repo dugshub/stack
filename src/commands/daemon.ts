@@ -9,6 +9,7 @@ import {
 	startDaemon,
 	stopDaemon,
 } from '../server/lifecycle.js';
+import type { TunnelConfig } from '../server/types.js';
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
@@ -79,6 +80,10 @@ export class DaemonCommand extends Command {
 		description: 'Filter logs by stack name (for attach subcommand)',
 	});
 
+	quickTunnel = Option.Boolean('--quick', false, {
+		description: 'Use a free trycloudflare.com quick tunnel (no Cloudflare account needed)',
+	});
+
 	async execute(): Promise<number> {
 		switch (this.action) {
 			case 'start':
@@ -112,9 +117,13 @@ export class DaemonCommand extends Command {
 
 			// Show tunnel info if configured
 			try {
-				const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')) as { tunnel?: { hostname: string } };
-				if (config.tunnel?.hostname) {
-					ui.info(`Tunnel: https://${config.tunnel.hostname}`);
+				const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')) as { tunnel?: TunnelConfig };
+				if (config.tunnel) {
+					if (config.tunnel.mode === 'named') {
+						ui.info(`Tunnel: https://${config.tunnel.hostname}`);
+					} else {
+						ui.info('Tunnel: quick (URL pending)');
+					}
 				}
 			} catch { /* ignore */ }
 
@@ -158,10 +167,11 @@ export class DaemonCommand extends Command {
 			process.stderr.write(`  Uptime:  ${uptimeStr}\n`);
 		}
 		if (info.tunnel) {
-			const tunnelStatus = info.tunnel.running
+			const status = info.tunnel.running
 				? theme.success('connected')
-				: theme.error('disconnected');
-			process.stderr.write(`  Tunnel:  ${tunnelStatus} (${info.tunnel.hostname})\n`);
+				: theme.error('down');
+			const urlPart = info.tunnel.url ?? '(URL pending)';
+			process.stderr.write(`  Tunnel:  ${status} ${info.tunnel.mode} ${urlPart}\n`);
 			if (info.tunnel.restarts > 0) {
 				process.stderr.write(`  Restarts: ${info.tunnel.restarts}\n`);
 			}
@@ -286,15 +296,28 @@ export class DaemonCommand extends Command {
 		config.webhooks = config.webhooks ?? {};
 		config.repos = config.repos ?? [];
 
-		// Detect tunnel config
-		const tunnelConfigPath = join(homedir(), '.cloudflared', 'config-stack.yml');
-		if (existsSync(tunnelConfigPath) && !config.tunnel) {
-			config.tunnel = {
-				configPath: tunnelConfigPath,
-				hostname: 'stack.dugsapps.com',
-			};
-			config.publicUrl = 'https://stack.dugsapps.com';
-			ui.success('Detected Cloudflare tunnel configuration');
+		// Tunnel config: explicit --quick wins; otherwise auto-detect named.
+		if (this.quickTunnel) {
+			if (!Bun.which('cloudflared')) {
+				ui.error('cloudflared not found on PATH. Install it first:');
+				ui.info('  brew install cloudflared');
+				ui.info('  # or: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/');
+				return 2;
+			}
+			config.tunnel = { mode: 'quick' };
+			delete config.publicUrl;
+			ui.success('Configured quick tunnel (trycloudflare.com)');
+		} else {
+			const tunnelConfigPath = join(homedir(), '.cloudflared', 'config-stack.yml');
+			if (existsSync(tunnelConfigPath) && !config.tunnel) {
+				config.tunnel = {
+					mode: 'named',
+					configPath: tunnelConfigPath,
+					hostname: 'stack.dugsapps.com',
+				};
+				config.publicUrl = 'https://stack.dugsapps.com';
+				ui.success('Detected Cloudflare tunnel configuration');
+			}
 		}
 
 		writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
@@ -309,9 +332,13 @@ export class DaemonCommand extends Command {
 		ui.success('Daemon configuration saved');
 		ui.info(`  Config: ${CONFIG_FILE}`);
 		ui.info(`  Port: ${config.port}`);
-		if (config.tunnel) {
-			const tunnel = config.tunnel as { hostname: string };
-			ui.info(`  Tunnel: https://${tunnel.hostname}`);
+		const tunnel = config.tunnel as TunnelConfig | undefined;
+		if (tunnel) {
+			if (tunnel.mode === 'named') {
+				ui.info(`  Tunnel: https://${tunnel.hostname}`);
+			} else {
+				ui.info('  Tunnel: quick (URL assigned at daemon start)');
+			}
 		}
 		process.stderr.write('\n');
 		return 0;

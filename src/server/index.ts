@@ -19,7 +19,7 @@ import {
 } from './stack-checks.js';
 import { ghAsync, gitAsync } from './spawn.js';
 import { parseWebhook, verifySignature } from './webhook.js';
-import { registerRepo, unregisterRepo, syncWebhooks, findAllOrphans, deleteHook } from './webhook-manager.js';
+import { registerRepo, unregisterRepo, syncWebhooks, findAllOrphans, deleteHook, saveConfig } from './webhook-manager.js';
 
 const daemonStartTime = Date.now();
 let daemonToken: string | null = null;
@@ -531,11 +531,17 @@ function loadDaemonConfig(): DaemonConfig {
 	try {
 		const text = readFileSync(configPath, 'utf-8');
 		const raw = JSON.parse(text) as Record<string, unknown>;
+		// Back-compat: legacy tunnel `{ configPath, hostname }` (no `mode`) → named.
+		let tunnel = raw.tunnel as DaemonConfig['tunnel'] | undefined;
+		if (tunnel && !('mode' in tunnel)) {
+			const legacy = tunnel as unknown as { configPath: string; hostname: string };
+			tunnel = { mode: 'named', configPath: legacy.configPath, hostname: legacy.hostname };
+		}
 		const config: DaemonConfig = {
 			port: (raw.port as number) ?? 7654,
 			webhookSecret: (raw.webhookSecret as string) ?? '',
 			publicUrl: raw.publicUrl as string | undefined,
-			tunnel: raw.tunnel as DaemonConfig['tunnel'],
+			tunnel,
 			webhooks: (raw.webhooks as Record<string, number>) ?? {},
 			repos: (raw.repos as string[]) ?? [],
 		};
@@ -590,8 +596,9 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 					uptime: Date.now() - daemonStartTime,
 					tunnel: cfg.tunnel
 						? {
+								mode: cfg.tunnel.mode,
 								running: isTunnelRunning(),
-								hostname: cfg.tunnel.hostname,
+								url: cfg.publicUrl ?? null,
 								restarts: getTunnelRestartCount(),
 							}
 						: null,
@@ -782,15 +789,23 @@ if (import.meta.main) {
 	const config = loadDaemonConfig();
 	const server = startServer(config);
 
-	// Start tunnel if configured
+	// Start tunnel if configured. The callback fires once cloudflared has
+	// reported a public URL — for named mode that's immediate; for quick mode
+	// it's after stderr-banner parse. Webhook sync is deferred until then so
+	// GitHub gets PATCHed with the live URL, not a stale one.
 	if (config.tunnel) {
-		startTunnel(config);
+		const onUrlReady = (publicUrl: string): void => {
+			config.publicUrl = publicUrl;
+			saveConfig(config);
+			syncWebhooks(config).catch((err) => log('error', `Webhook sync failed: ${err}`));
+		};
+		startTunnel(config, onUrlReady);
+	} else {
+		// No tunnel — sync once with whatever publicUrl is in config (probably none)
+		syncWebhooks(config).catch((err) => {
+			log('error', `Webhook sync failed: ${err}`);
+		});
 	}
-
-	// Sync webhooks for all watched repos (fire-and-forget)
-	syncWebhooks(config).catch((err) => {
-		log('error', `Webhook sync failed: ${err}`);
-	});
 
 	// Graceful shutdown
 	const shutdown = (): void => {

@@ -13,10 +13,9 @@ export type WebhookEvent =
 			headSha: string;
 	  };
 
-export interface TunnelConfig {
-	configPath: string;
-	hostname: string;
-}
+export type TunnelConfig =
+	| { mode: 'named'; configPath: string; hostname: string }
+	| { mode: 'quick' };
 
 export interface DaemonConfig {
 	port: number;

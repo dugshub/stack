@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.4
+
+- `st daemon repo` — manage which repos the daemon watches and clean up orphan webhooks. `add <owner/repo>`, `remove <owner/repo>`, `list`, and `doctor [--clean]`. Doctor surfaces hooks the daemon recognizes as its own but isn't tracking; `--clean` deletes them via the GitHub API. Closes the gap surfaced by the orphan-detection log line in 0.9.3
+
 ## 0.9.3
 
 - Fix: daemon now reconciles webhooks against GitHub instead of trusting the local config blindly. On startup (and when registering a repo), if no hook ID is cached the daemon lists `/repos/{repo}/hooks` and adopts any hook matching its signature (URL path `/webhooks/github`, JSON content type, exact event set). Multiple matches are logged as orphans for opt-in cleanup. This stops orphan hooks accumulating after `server.config.json` wipes or laptop swaps

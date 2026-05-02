@@ -19,7 +19,7 @@ import {
 } from './stack-checks.js';
 import { ghAsync, gitAsync } from './spawn.js';
 import { parseWebhook, verifySignature } from './webhook.js';
-import { registerRepo, unregisterRepo, syncWebhooks } from './webhook-manager.js';
+import { registerRepo, unregisterRepo, syncWebhooks, findAllOrphans, deleteHook } from './webhook-manager.js';
 
 const daemonStartTime = Date.now();
 let daemonToken: string | null = null;
@@ -680,6 +680,30 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 			// List active locks
 			if (url.pathname === '/api/locks' && req.method === 'GET') {
 				return Response.json({ locks: listActiveLocks() });
+			}
+
+			// Doctor — list/clean orphan webhooks across all registered repos
+			if (url.pathname === '/api/repos/doctor' && req.method === 'POST') {
+				const body = (await req.json().catch(() => ({}))) as { clean?: boolean };
+				const orphans = await findAllOrphans(cfg);
+				let deleted = 0;
+				if (body.clean) {
+					for (const o of orphans) {
+						const ok = await deleteHook(o.repo, o.hookId);
+						if (ok) deleted++;
+					}
+				}
+				return Response.json({ orphans, deleted });
+			}
+
+			// List registered repos with current hook IDs
+			if (url.pathname === '/api/repos' && req.method === 'GET') {
+				return Response.json({
+					repos: cfg.repos.map((r) => ({
+						repo: r,
+						hookId: cfg.webhooks[r] ?? null,
+					})),
+				});
 			}
 
 			// Register repo

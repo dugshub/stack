@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3
+
+- Fix: daemon now reconciles webhooks against GitHub instead of trusting the local config blindly. On startup (and when registering a repo), if no hook ID is cached the daemon lists `/repos/{repo}/hooks` and adopts any hook matching its signature (URL path `/webhooks/github`, JSON content type, exact event set). Multiple matches are logged as orphans for opt-in cleanup. This stops orphan hooks accumulating after `server.config.json` wipes or laptop swaps
+
 ## 0.9.2
 
 - Fix: webhook URL drift is now propagated to GitHub. Previously, when an existing webhook was found, the daemon PATCHed only the events array — never `config.url` — so changes to `publicUrl` or `tunnel.hostname` between runs left GitHub delivering to a dead URL. The PATCH now includes the full config (url, content_type, secret), and drift is logged when detected

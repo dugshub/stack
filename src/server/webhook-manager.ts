@@ -14,6 +14,37 @@ function saveConfig(config: DaemonConfig): void {
 	writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
+/**
+ * PATCH the GitHub-side hook so its config (url, content_type, secret) and
+ * events match the daemon's current state. Sending `config` replaces the
+ * whole config object on GitHub's side — that's the documented behavior of
+ * PATCH /repos/{owner}/{repo}/hooks/{hook_id}, and it's the only way to
+ * propagate URL changes when publicUrl/tunnel.hostname drifts between runs.
+ */
+async function patchHookConfig(
+	repo: string,
+	hookId: number,
+	webhookUrl: string,
+	secret: string,
+): Promise<boolean> {
+	const patchPayload = JSON.stringify({
+		config: { url: webhookUrl, content_type: 'json', secret },
+		events: WEBHOOK_EVENTS,
+	});
+	const tmpPatchFile = join(homedir(), '.claude', 'stacks', `webhook-patch-${Date.now()}.json`);
+	writeFileSync(tmpPatchFile, patchPayload, 'utf-8');
+	const result = await ghAsync(
+		'api', `repos/${repo}/hooks/${hookId}`,
+		'--method', 'PATCH',
+		'--input', tmpPatchFile,
+	);
+	try { unlinkSync(tmpPatchFile); } catch { /* ignore */ }
+	if (!result.ok) {
+		log('error', `Webhook PATCH failed for ${repo} (id ${hookId}): ${result.stderr}`);
+	}
+	return result.ok;
+}
+
 export async function ensureWebhook(
 	repo: string,
 	webhookUrl: string,
@@ -23,20 +54,16 @@ export async function ensureWebhook(
 	// Check if we already have a webhook ID for this repo
 	const existingId = config.webhooks[repo];
 	if (existingId) {
-		// Verify webhook still exists and has correct events
-		const check = await ghAsync('api', `repos/${repo}/hooks/${existingId}`, '--jq', '.id');
+		// Verify webhook still exists; fetch its current url so we can log drift
+		const check = await ghAsync('api', `repos/${repo}/hooks/${existingId}`, '--jq', '.config.url');
 		if (check.ok) {
-			// Patch to ensure correct events
-			const patchPayload = JSON.stringify({ events: WEBHOOK_EVENTS });
-			const tmpPatchFile = join(homedir(), '.claude', 'stacks', `webhook-patch-${Date.now()}.json`);
-			writeFileSync(tmpPatchFile, patchPayload, 'utf-8');
-			await ghAsync(
-				'api', `repos/${repo}/hooks/${existingId}`,
-				'--method', 'PATCH',
-				'--input', tmpPatchFile,
-			);
-			try { unlinkSync(tmpPatchFile); } catch { /* ignore */ }
-			// Even if patch fails, webhook exists
+			const currentUrl = check.stdout.trim();
+			if (currentUrl && currentUrl !== webhookUrl) {
+				log('info', `Webhook url drift for ${repo}: ${currentUrl} -> ${webhookUrl}`);
+			}
+			// PATCH to ensure config (url/content_type/secret) and events are current.
+			// Even if patch fails, webhook exists — return its ID.
+			await patchHookConfig(repo, existingId, webhookUrl, secret);
 			return existingId;
 		}
 		// Webhook was deleted externally — fall through to create

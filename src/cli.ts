@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Builtins, Cli, Command, type CommandClass } from 'clipanion';
 import { showDashboard } from './lib/dashboard.js';
@@ -257,6 +257,18 @@ if (args.some((a) => a === '-h' || a === '--help')) {
 	}
 }
 
+// Nudge if the bundled `stack` skill isn't installed in this project.
+// Skipped for commands where the message would be noise (init itself, meta commands).
+function checkSkillInstalled(): string | null {
+  const skipForCommands = ['init', 'update', 'completions', '_complete', 'login', 'logout', 'help', 'version', '--help', '-h', '--version', '-v', '--ai'];
+  if (args.some((a) => skipForCommands.includes(a))) return null;
+  const repo = git.tryRun('rev-parse', '--show-toplevel');
+  if (!repo.ok) return null;
+  const skillPath = join(repo.stdout, '.claude', 'skills', 'stack', 'SKILL.md');
+  if (existsSync(skillPath)) return null;
+  return `Stack skill not installed in this project. Run ${theme.command('st init')} to give Claude Code stack awareness here.`;
+}
+
 // Check for updates after command runs (non-blocking)
 const exitCode = await cli.run(args);
 process.stderr.write('\n');
@@ -265,5 +277,9 @@ if (args[0] !== 'update') {
   if (updateMsg) {
     process.stderr.write(`\n${theme.warning(updateMsg)}\n`);
   }
+}
+const skillMsg = checkSkillInstalled();
+if (skillMsg) {
+  process.stderr.write(`\n${theme.muted(skillMsg)}\n`);
 }
 process.exit(exitCode);

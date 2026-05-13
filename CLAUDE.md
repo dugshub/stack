@@ -40,6 +40,17 @@ No test suite exists yet. Verify changes with `st submit --dry-run`.
 - Bug-only fixes can skip a version bump.
 - When bumping, update both `package.json` version and `CHANGELOG.md`. The changelog is shown to users on `st update`.
 
+## Shipped Skills
+
+`.claude/skills/stack/SKILL.md` and `.claude/skills/stack-management/SKILL.md` are **shipped artifacts** — `st init` copies them into the consumer project's `.claude/skills/` (see `src/commands/init.ts`). Treat them like public API docs.
+
+**Rule:** any change to a command's user-facing surface — new command, renamed/removed command or alias, new/renamed/removed flag, changed default, changed output shape (especially `st status --json`) — must update the relevant skill in the same PR.
+
+- Command surface changes → update `.claude/skills/stack/SKILL.md` (command reference + workflows).
+- `st status --json` shape changes → update `.claude/skills/stack-management/SKILL.md` (JSON output fields section).
+
+The CLI nudges users at the end of every invocation when the skill isn't installed in their project, so out-of-date skills are highly visible.
+
 ## Key Design Decisions
 
 - All git/gh operations use `Bun.spawnSync` (synchronous) — no async anywhere.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.7
+
+- `st` now nudges users to run `st init` at the end of every invocation when the bundled `stack` skill isn't installed in the project's `.claude/skills/`. Keeps the shipped Claude Code skill discoverable instead of relying on users finding `st init` on their own. Skipped for meta commands (`init`, `update`, `login`/`logout`, `completions`, help/version, `--ai`) where the message would be noise.
+
 ## 0.9.6
 
 - Quick-tunnel mode (`st daemon setup --quick`) — zero-config public URL via trycloudflare.com; webhook URL re-synced on each daemon start.

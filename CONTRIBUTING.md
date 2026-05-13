@@ -38,6 +38,7 @@ Titles are derived from branch names automatically:
 1. Create `src/commands/<name>.ts`
 2. Export a class extending `Command`
 3. Register in `src/cli.ts`
+4. **Update `.claude/skills/stack/SKILL.md`** — the skill is shipped via `st init` and must stay in sync with the CLI's surface (commands, flags, defaults). Any rename, removal, or new flag is a skill change too.
 
 ## Testing Changes
 

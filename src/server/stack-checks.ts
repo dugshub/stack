@@ -12,7 +12,7 @@
  * 5. Update merge-ready status for all PRs in the stack
  */
 
-import { readdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ensureClone, fetchClone } from './clone.js';
@@ -88,20 +88,32 @@ function findStateFile(fullRepoName: string): { state: StackFile; filePath: stri
 	} catch {
 		return null;
 	}
+	// Multiple files can carry the same `repo` slug — e.g. an empty husk left by
+	// the pre-0.9.8 worktree keying alongside the canonical file. Collect all
+	// matches and prefer one with non-empty `stacks` so a husk never shadows real
+	// data (tiebreak: most recently modified).
+	let best: { state: StackFile; filePath: string; stackCount: number; mtime: number } | null = null;
 	for (const file of files) {
 		if (!file.endsWith('.json') || file === 'merge-jobs.json' || file === 'server.config.json') continue;
 		try {
 			const filePath = join(stacksDir, file);
 			const text = readFileSync(filePath, 'utf-8');
 			const state = JSON.parse(text) as StackFile;
-			if (state.repo === fullRepoName) {
-				return { state, filePath };
+			if (state.repo !== fullRepoName) continue;
+			const stackCount = Object.keys(state.stacks ?? {}).length;
+			const mtime = statSync(filePath).mtimeMs;
+			if (
+				!best ||
+				(stackCount > 0 && best.stackCount === 0) ||
+				(stackCount > 0 === best.stackCount > 0 && mtime > best.mtime)
+			) {
+				best = { state, filePath, stackCount, mtime };
 			}
 		} catch {
 			continue;
 		}
 	}
-	return null;
+	return best ? { state: best.state, filePath: best.filePath } : null;
 }
 
 export function loadStackStateForRepo(fullRepoName: string): StackFile | null {

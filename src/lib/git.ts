@@ -1,3 +1,5 @@
+import { basename, dirname, resolve } from 'node:path';
+
 interface RunResult {
   ok: boolean;
   stdout: string;
@@ -248,18 +250,54 @@ export function deleteBranch(
   tryRun('branch', '-d', branch);
 }
 
-export function repoBasename(): string {
-  const root = run('rev-parse', '--show-toplevel');
-  const parts = root.split('/');
-  const name = parts[parts.length - 1];
+/**
+ * Stable per-repo key for stack state. Derived from the *shared* object store
+ * (`--git-common-dir`), not the working-tree path, so every worktree of one repo
+ * resolves to the same key — worktrees share refs and objects, so their stack
+ * state is one coherent thing. `--git-common-dir` points at the main repo's
+ * `.git` from any worktree; its parent directory is the repo root.
+ *
+ * For the main checkout this equals the old `basename(--show-toplevel)`, so
+ * existing state files keep their names. Separate clones have distinct common
+ * dirs and so stay isolated (their SHAs aren't valid in each other's stores).
+ */
+export function repoKey(): string {
+  let commonDir: string;
+  const abs = tryRun('rev-parse', '--path-format=absolute', '--git-common-dir');
+  if (abs.ok && abs.stdout.length > 0) {
+    commonDir = abs.stdout;
+  } else {
+    // Fallback for git < 2.31 (no --path-format): resolve the possibly-relative
+    // path against the current directory.
+    commonDir = resolve(process.cwd(), run('rev-parse', '--git-common-dir'));
+  }
+  const name = basename(dirname(commonDir));
   if (!name) {
-    throw new Error('Could not determine repo basename');
+    throw new Error('Could not determine repo key');
   }
   return name;
 }
 
 export function repoRoot(): string {
   return run('rev-parse', '--show-toplevel');
+}
+
+/**
+ * Best-effort `owner/repo` slug parsed from the `origin` remote URL, matching
+ * the `nameWithOwner` format stored in `StackFile.repo`. Offline (no `gh` call).
+ * Returns null if there's no origin or the URL can't be parsed.
+ */
+export function originSlug(): string | null {
+  const r = tryRun('remote', 'get-url', 'origin');
+  if (!r.ok || r.stdout.length === 0) return null;
+  const url = r.stdout
+    .trim()
+    .replace(/\.git$/, '')
+    .replace(/^git@[^:]+:/, '') // ssh: git@host:owner/repo
+    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\//, ''); // https://host/owner/repo
+  const parts = url.split('/').filter((p) => p.length > 0);
+  if (parts.length < 2) return null;
+  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
 }
 
 /** Parse `git diff --numstat` output for staged+unstaged changes. */

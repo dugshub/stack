@@ -58,6 +58,16 @@ if (needsRepo && !git.tryRun('rev-parse', '--show-toplevel').ok) {
   process.exit(2);
 }
 
+// Fold any pre-0.9.8 worktree-keyed state into the repo's canonical file, so
+// stacks are shared across all worktrees. No-op in the main checkout; safe and
+// idempotent. Excluded for non-repo/meta commands via the `needsRepo` gate.
+if (needsRepo) {
+  try {
+    const { migrateWorktreeState } = await import('./lib/state.js');
+    migrateWorktreeState();
+  } catch { /* migration is best-effort — never block a command */ }
+}
+
 // Show help text
 function showHelp(): never {
   const v = currentVersion();

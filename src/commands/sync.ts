@@ -52,6 +52,18 @@ export class SyncCommand extends Command {
     ui.info('Fetching from origin...');
     git.fetch();
 
+    // Did the trunk advance on the remote since we last rebased onto it?
+    // The stack's recorded base point is branch 0's parentTip (trunk tip at last rebase).
+    // Capture this BEFORE the dependent-stack block below, which can mutate stack.trunk.
+    let trunkMoved = false;
+    {
+      const firstBranch = stack.branches[0];
+      if (firstBranch?.parentTip && git.hasRemoteRef(stack.trunk)) {
+        const remoteTrunkTip = git.revParse(`origin/${stack.trunk}`);
+        trunkMoved = remoteTrunkTip !== firstBranch.parentTip;
+      }
+    }
+
     // 2. Auto-convert dependent stack if trunk branch was merged or deleted from remote
     let trunkChanged = false;
     const primary = primaryParent(stack);
@@ -100,20 +112,27 @@ export class SyncCommand extends Command {
       }
     }
 
-    if (mergedIndices.length === 0 && !trunkChanged) {
+    if (mergedIndices.length === 0 && !trunkChanged && !trunkMoved) {
       // Still refresh statuses even if nothing to sync
       gh.updateMergeReadyStatuses(state.repo, stack.branches, stack.trunk);
       ui.info('Nothing to sync — no merged PRs.');
       return 0;
     }
 
-    ui.info(`Found ${mergedIndices.length} merged PR(s).`);
+    if (mergedIndices.length > 0) {
+      ui.info(`Found ${mergedIndices.length} merged PR(s).`);
+    }
+
+    // Trunk-only sync: trunk advanced on remote but no PR merged.
+    if (trunkMoved && mergedIndices.length === 0 && !trunkChanged) {
+      ui.info(`Trunk ${theme.branch(stack.trunk)} advanced — rebasing stack onto it.`);
+    }
 
     // Check if ALL are merged
     const allMerged = mergedIndices.length === stack.branches.length;
 
     // 3. Pass 1: Retarget ALL unmerged branches' PRs to their new parent (before deletions!)
-    if (!allMerged) {
+    if (!allMerged && mergedIndices.length > 0) {
       const mergedSet = new Set(mergedIndices);
 
       // Check for non-contiguous merges
@@ -379,9 +398,15 @@ export class SyncCommand extends Command {
     // Update merge-ready statuses
     gh.updateMergeReadyStatuses(state.repo, stack.branches, stack.trunk);
 
-    ui.success(
-      `Synced stack ${theme.stack(resolvedName)}: removed ${mergedIndices.length} merged, ${stack.branches.length} remaining`,
-    );
+    if (mergedIndices.length > 0) {
+      ui.success(
+        `Synced stack ${theme.stack(resolvedName)}: removed ${mergedIndices.length} merged, ${stack.branches.length} remaining`,
+      );
+    } else {
+      ui.success(
+        `Synced stack ${theme.stack(resolvedName)}: rebased ${stack.branches.length} branches onto ${theme.branch(stack.trunk)}`,
+      );
+    }
     return 0;
   }
 }

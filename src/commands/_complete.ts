@@ -52,7 +52,7 @@ export class CompleteCommand extends Command {
 
 	private loadStateQuiet(): any {
 		try {
-			const repoName = git.repoBasename();
+			const repoName = git.repoKey();
 			const filePath = join(homedir(), '.claude', 'stacks', `${repoName}.json`);
 			return JSON.parse(readFileSync(filePath, 'utf-8'));
 		} catch {

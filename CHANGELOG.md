@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.9
+
+- Stack state is now shared across all git worktrees of a repo. State is keyed by the shared object store (`git rev-parse --git-common-dir`) instead of the working-tree path, so running `st` from a worktree sees the same stacks as the main checkout — work the same stack from several worktrees simultaneously. Previously each worktree silently got its own divorced state file named after the worktree directory.
+- Existing orphan state files left by the old keying are migrated automatically on first run inside a worktree: their stacks are folded into the repo's canonical file (canonical copies win on name collision) and the orphan is archived (`<name>.json.migrated-<timestamp>`). Guarded by repo identity, so an unrelated repo whose name happens to match a worktree directory is never touched.
+- Separate *clones* of a repo stay isolated (their commits don't share an object store), which is intentional — see `RESEARCH.md` for the logical-vs-physical state model and the deferred account/remote sharing tier.
+- Daemon hardening: when multiple state files carry the same repo slug, the daemon now prefers the one with real stacks so a leftover empty file can't shadow live data.
+
 ## 0.9.8
 
 - `st sync` now rebases your stack when the trunk advanced on the remote, not only when a PR merged — no more manual `git pull` + `st restack`.

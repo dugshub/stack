@@ -16,7 +16,7 @@ st create <name> -d <desc>     Create stack with first branch
 st branch insert --after N -d  Add branch at position
 st submit                      Push + create/update all PRs
 st submit --ready              Mark drafts as ready for review
-st sync                        Clean up after merges on GitHub
+st sync                        Fetch, pull trunk, remove merged branches, rebase remaining
 st merge --all                 Merge entire stack bottom-up
 st restack                     Cascade rebase after mid-stack edit
 st modify                      Amend current branch + restack
@@ -72,7 +72,7 @@ st submit --ready              Mark all PRs as ready for review
 st submit --describe           Generate AI PR descriptions
 st submit --update             Regenerate descriptions for existing PRs
 st submit --dry-run            Preview without pushing
-st sync                        Fetch, remove merged branches, rebase remaining
+st sync                        Fetch, pull trunk, remove merged branches, rebase remaining
 st sync -s <stack>             Sync a specific stack
 ```
 
@@ -254,9 +254,17 @@ st submit                      # re-push and update remaining PRs
 
 ### Branch got out of sync
 ```bash
-st restack                     # cascade rebase from the bottom
+st restack                     # mid-stack edit drift: cascade rebase from the bottom
 st submit                      # push updated branches
 ```
+Use `st restack` for mid-stack edit drift (you amended a lower branch). Use `st sync` when the trunk moved on the remote — see below.
+
+### Trunk moved on `main`
+```bash
+st sync                        # fetches, fast-forwards trunk, rebases stack onto it
+st submit                      # push the rebased branches
+```
+`st sync` now rebases your stack when the trunk advanced on the remote, even when no PR in the stack merged — no manual `git pull` + `st restack` needed.
 
 ### Dependent stack's base was merged
 ```bash

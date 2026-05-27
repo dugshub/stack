@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.8
+
+- `st sync` now rebases your stack when the trunk advanced on the remote, not only when a PR merged — no more manual `git pull` + `st restack`.
+
 ## 0.9.7
 
 - `st` now nudges users to run `st init` at the end of every invocation when the bundled `stack` skill isn't installed in the project's `.claude/skills/`. Keeps the shipped Claude Code skill discoverable instead of relying on users finding `st init` on their own. Skipped for meta commands (`init`, `update`, `login`/`logout`, `completions`, help/version, `--ai`) where the message would be noise.

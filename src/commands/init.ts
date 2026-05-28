@@ -1,5 +1,5 @@
 import { Command } from 'clipanion';
-import { existsSync, mkdirSync, copyFileSync } from 'fs';
+import { existsSync, cpSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import * as git from '../lib/git.js';
 import { theme } from '../lib/theme.js';
@@ -25,7 +25,7 @@ export class InitCommand extends Command {
 		const projectRoot = result.stdout;
 
 		const skillsDir = join(projectRoot, '.claude', 'skills');
-		const targets = ['stack', 'stack-management'];
+		const targets = ['stack'];
 
 		// Find where the bundled skills live (relative to this source file)
 		const cliDir = dirname(dirname(import.meta.dir));
@@ -33,32 +33,40 @@ export class InitCommand extends Command {
 
 		if (!existsSync(bundledSkillsDir)) {
 			// Fallback: try to find skills relative to the resolved package
-			ui.error('Could not find bundled skills. Try reinstalling: bun install -g git+ssh://git@github.com/dugshub/stack.git');
+			ui.error('Could not find bundled skills. Try reinstalling: bun install -g git+https://github.com/dugshub/stack.git');
 			return 2;
 		}
 
 		let installed = 0;
-		let skipped = 0;
 
 		for (const skill of targets) {
 			const srcDir = join(bundledSkillsDir, skill);
 			const destDir = join(skillsDir, skill);
 			const srcFile = join(srcDir, 'SKILL.md');
-			const destFile = join(destDir, 'SKILL.md');
 
 			if (!existsSync(srcFile)) {
-				ui.warn(`Bundled skill ${theme.accent(skill)} not found at ${srcFile}`);
+				ui.warn(`Bundled skill ${theme.accent(skill)} not found at ${srcDir}`);
 				continue;
 			}
 
-			if (existsSync(destFile)) {
+			if (existsSync(destDir)) {
 				ui.info(`${theme.accent(skill)} already installed, updating...`);
 			}
 
-			mkdirSync(destDir, { recursive: true });
-			copyFileSync(srcFile, destFile);
+			// Copy the whole skill directory (SKILL.md + references/) so the
+			// progressive-disclosure files reach the consumer project, not just
+			// SKILL.md.
+			cpSync(srcDir, destDir, { recursive: true });
 			ui.success(`Installed ${theme.accent(skill)} skill`);
 			installed++;
+		}
+
+		// Retire the old auto-loader skill if a previous `st init` installed it —
+		// its job (report stack position) is now folded into the `stack` skill.
+		const legacyDir = join(skillsDir, 'stack-management');
+		if (existsSync(legacyDir)) {
+			rmSync(legacyDir, { recursive: true, force: true });
+			ui.info(`Removed retired ${theme.accent('stack-management')} skill (folded into ${theme.accent('stack')}).`);
 		}
 
 		if (installed > 0) {

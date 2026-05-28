@@ -1,305 +1,78 @@
 ---
 name: stack
-description: Manage PR stacks — create, track, submit, restack, sync, merge, split, navigate, undo, and more. Use when user mentions stacks, stacked PRs, restack, stack submit, merge, split, or branch dependencies.
-argument-hint: [create|track|submit|restack|sync|merge|split|nav|status|absorb|undo|delete|remove|check|graph|modify|config|login|pop|fold|continue|abort|daemon|update|init]
+description: Manage PR stacks with the `st` CLI — create, submit, restack, sync, merge, split, absorb, navigate, recover, and load stack context for the current branch. Use whenever the user mentions stacks, stacked PRs, restack, st submit, merge a stack, split/absorb changes, branch dependencies, or when you start work on a branch that may belong to a stack.
+argument-hint: [status|create|submit|sync|merge|restack|modify|absorb|split|base|nav|undo|continue|<command> --ai]
 allowed-tools: Bash, Read
 ---
 
-# /stack — PR Stack Management
+# Stack — PR Stack Management
 
-All operations use the `st` CLI (or `bun run src/cli.ts` in dev). This skill teaches you to use it correctly, recover from problems, and leverage smart features.
+`st` manages stacked PRs on top of `git` + `gh`. This skill is the entry point: it tells you how to **orient**, where the **authoritative command docs** live, and the few **rules that aren't obvious from `--help`**. Depth lives in `references/` — load it on demand.
 
-## Quick Reference
+Do not reason from memory of other stacking tools (Graphite, `gt`, etc.). Command names and flags differ. The source of truth is `st --ai`, described below.
 
-```
-st create <name> -d <desc>     Create stack with first branch
-st branch insert --after N -d  Add branch at position
-st submit                      Push + create/update all PRs
-st submit --ready              Mark drafts as ready for review
-st sync                        Fetch, pull trunk, remove merged branches, rebase remaining
-st merge --all                 Merge entire stack bottom-up
-st restack                     Cascade rebase after mid-stack edit
-st modify                      Amend current branch + restack
-st check <cmd>                 Run command on every branch
-st undo                        Restore previous state
-st status                      Show stack + PR status
-st graph --all                 Show dependency graph
-```
+## 1. Orient first
 
-## Command Reference
+Before acting on a branch, find out whether it's in a stack and where:
 
-### Stack Lifecycle
-```
-st create [name]               Interactive create (prompts for details)
-st create <name> -d <desc>     Create with first branch description
-st create --from b1 b2 b3      Adopt existing branches into a stack
-st create <name> -b <branch>   Create dependent stack (base = another stack's branch)
-st create <name> -b .          Create dependent stack from current branch
-st delete [name]               Remove stack from tracking
-st delete [name] --branches    Also delete local + remote git branches
-st delete [name] --prs         Also close open PRs
-```
-
-### Branch Operations
-```
-st branch insert --after N -d <desc>   Insert new branch at position
-st branch insert --before N -d <desc>  Insert before position
-st branch fold                         Merge current branch into parent
-st branch pop [--close]                Remove from stack, keep changes
-st branch remove [branch]              Remove branch from tracking
-st branch remove --branch --pr         Also delete git branch + close PR
-st branch move up|down                 Reorder within stack
-st branch reorder 3 1 2 4             Reorder by specifying new positions
-st branch rename <new-name>            Rename current branch
-st branch track [-s <stack>]           Add current branch to a stack
-st branch split <specs...>             Split uncommitted changes into branches
-st branch absorb                       Route uncommitted fixes to correct branches
-```
-
-### Navigation
-```
-st up / st down                Move one branch in stack
-st top / st bottom             Jump to ends
-st <number>                    Jump to branch N (e.g., st 3)
-st <stack-name>                Switch to a different stack
-st nav                         Interactive branch picker
-```
-
-### Submit & Sync
-```
-st submit                      Push all branches, create/update PRs (drafts by default)
-st submit --ready              Mark all PRs as ready for review
-st submit --describe           Generate AI PR descriptions
-st submit --update             Regenerate descriptions for existing PRs
-st submit --dry-run            Preview without pushing
-st sync                        Fetch, pull trunk, remove merged branches, rebase remaining
-st sync -s <stack>             Sync a specific stack
-```
-
-### Merge
-```
-st merge                       Enable auto-merge on current branch's PR
-st merge --all                 Merge entire stack bottom-up (auto-merge cascade)
-st merge --now                 Merge current branch immediately (must target trunk)
-st merge --dry-run             Preview merge plan
-st merge -s <stack>            Target specific stack
-```
-
-### Check (Run Command Across Stack)
-```
-st check <command>             Run command on every branch (bottom to top)
-st check --from 3 <command>    Start from branch 3
-st check --bail <command>      Stop on first failure
-st check --quiet <command>     Suppress command output
-st check --json <command>      Machine-readable output
-```
-
-**This is incredibly useful.** Use it to:
-- Type-check entire stack: `st check bun tsc --noEmit`
-- Run tests across branches: `st check --bail bun test`
-- Lint check: `st check bunx biome check .`
-- Verify builds: `st check bun run build`
-
-Check auto-stashes dirty changes, checks out each branch, runs the command, then restores your branch and stash.
-
-### Recovery
-```
-st continue                    Resume after resolving rebase conflicts
-st abort                       Abort in-progress restack, restore previous state
-st undo                        Restore to before last mutating command
-st undo --steps 3              Go back 3 operations
-st undo --list                 Show available restore points
-st undo --dry-run              Preview what would change
-```
-
-### Observability
-```
-st status                      Show stack with PR statuses and checks
-st status --json               Machine-readable output
-st -i / st --interactive       Interactive graph visualization (TUI)
-st graph                       Show current stack as graph
-st graph --all                 Show all stacks and dependencies
-st graph --expand              Show individual branches in graph
-st daemon status               Check daemon health
-st daemon attach --stack <n>   Stream daemon logs for a stack
-st daemon logs [-f]            View daemon logs (follow with -f)
-```
-
-### Daemon Management
-```
-st daemon start                Start background daemon
-st daemon stop                 Stop daemon
-st daemon status               Check daemon health
-st daemon logs [-f]            View logs (follow with -f)
-st daemon attach [-s <stack>]  Stream live log events
-st daemon run                  Run daemon in foreground (for debugging)
-st daemon setup                Initialize daemon config + secrets
-```
-
-### Meta
-```
-st init                        Install stack skills in project (.claude/skills/)
-st update                      Self-update to latest version from GitHub
-st completions [shell]         Print shell completion script
-st completions --install       Install completions for current shell
-```
-
-### Authentication & Configuration
-```
-st login                       Authenticate with Anthropic OAuth (required for AI features)
-st logout                      Clear stored credentials
-st config                      Show current config
-st config --describe           Enable AI PR descriptions (requires `st login` first)
-st config --no-describe        Disable AI PR descriptions
-```
-
-## Smart Workflows
-
-### Starting a new feature stack
 ```bash
-st create my-feature -d "add-data-model"
-# make changes, commit
-st branch insert --after 1 -d "add-api-endpoint"
-# make changes, commit
-st branch insert --after 2 -d "add-ui-component"
-# make changes, commit
-st submit                      # creates 3 draft PRs
-st submit --ready              # mark ready for review
+st status --json
 ```
 
-### Mid-stack edits (the power move)
+- **On a stack branch** → a single object with `position` (0-based index of the current branch), `total`, `trunk`, and a `branches[]` array. Report it concisely:
+  `Stack: <stackName> | branch <position+1> of <total> | <branch name>` and PR/CI state from each branch's `prStatus`.
+- **Not on a stack branch** → an array of all tracked stacks (or empty). Stay quiet unless the user asked about stacks.
+- **`restackState` is non-null** (or `restackInProgress: true`) → a restack is paused. Warn: resolve conflicts and run `st continue`.
+
+Full field-by-field schema: references/json.md
+
+## 2. The mental model
+
+- A **stack** is an ordered list of branches rooted at **trunk** (`main`/`master`).
+- **Branch 1** is closest to trunk; each branch's PR targets the branch **below** it (branch 1 targets trunk).
+- `st` records each branch's **parent tip** so it can rebase precisely — this is why you must not hand-rebase or hand-retarget (see rules).
+- State lives in `~/.claude/stacks/` keyed by the repo's shared git object store, so **all worktrees of a repo see the same stacks**.
+- Stacks can be **dependent** (built on another stack's branch) or **diamond** (a branch joining two parents via a merge commit).
+
+## 3. Find the exact command (authoritative)
+
+The CLI documents itself. Prefer this over guessing flags:
+
 ```bash
-st 2                           # jump to branch 2
-# make edits, stage them
-st modify                      # amends + cascades rebase to all downstream
-st submit                      # push updated branches + update PRs
+st --ai              # concept model + full command index
+st <command> --ai    # flags, examples, and behavior for one command (e.g. st submit --ai)
+st -h                # short help;  st stack -h / st branch -h for group lists
 ```
 
-### Absorb (auto-route fixes to correct branch)
-When you have uncommitted changes that fix issues across multiple branches:
-```bash
-st absorb --dry-run            # preview: shows which files go to which branch
-st absorb                      # execute: commits each fix to the right branch
-st submit                      # push everything
-```
+Commands use noun groups with flat aliases: `st stack submit` == `st submit`, `st branch up` == `st up`. `st <number>` jumps to branch N; `st <stack-name>` switches stacks.
 
-### Split (large changes into a stack)
-When you have a big batch of uncommitted changes to organize:
-```bash
-git diff --stat                # inventory your changes
-st split --dry-run --name feature \
-  "data-model:src/models/**" \
-  "api:src/routes/**:src/middleware/**" \
-  "ui:src/components/**:!src/components/legacy/**"
-# review the plan, then remove --dry-run to execute
-st submit
-```
-Pattern syntax: `branch-desc:glob[:glob...]` — use `!` prefix for negation.
+If a flag or command isn't in `st <command> --ai`, check `references/workflows.md` (dependent/diamond creation and other flows the index summarizes briefly).
 
-### Merge entire stack
-```bash
-st merge --dry-run             # preview the plan
-st merge --all                 # enables auto-merge bottom-up
-# GitHub merges each PR when CI passes
-# Daemon handles cascade: rebase next → retarget → enable auto-merge
-```
+## 4. Rules that aren't obvious from `--help`
 
-### After PRs merge on GitHub
-```bash
-st sync                        # removes merged branches, rebases remaining
-# if all merged: stack is cleaned up automatically
-```
+1. **`st submit` after every mutation.** `restack`, `modify`, `absorb`, `reorder`, `move`, and merge-cascades all rewrite branch SHAs. Push them or PRs go stale.
+2. **Never `git rebase` a stack branch by hand.** Use `st restack` (cascade after a mid-stack edit) or `st modify` (amend + cascade in one step). Manual rebases break parent-tip tracking.
+3. **Never manually change a PR's base branch.** `st submit` owns PR targeting and will overwrite manual retargets.
+4. **After merges, run `st sync`** — it removes merged branches, rebases the rest, and converts a dependent stack to standalone when its base merges. Don't hand-delete branches or close PRs.
+5. **On a rebase conflict:** resolve files, `git add` them, then `st continue` (or `st abort` to back out). Use `st undo` to roll back a bad operation (snapshots are saved before every mutating command).
+6. **`st check <cmd>` before submitting** runs a command on every branch (e.g. `st check --bail bun test`) — catches breakage the diff of one branch hides.
 
-### Check stack health before submitting
-```bash
-st check bun tsc --noEmit      # type-check every branch
-st check --bail bun test       # test every branch, stop on failure
-```
+## 5. Going deeper (progressive disclosure)
 
-## Recovery Guide
+- **Workflows** — create / dependent / diamond, submit & describe, modify, sync, merge, absorb, split, base re-parent, comment preview, navigation, check: references/workflows.md
+- **Recovery** — conflicts, `continue`/`abort`, `undo`, post-merge cleanup, trunk moved, diamond conflict phases, daemon issues: references/recovery.md
+- **`status --json` schema** — exact fields for both output shapes: references/json.md
 
-### "Working tree is dirty"
-**This shouldn't happen anymore** — most commands auto-stash. If it does:
-```bash
-git stash                      # stash manually
-st <command>                   # run your command
-git stash pop                  # restore changes
-```
+## 6. Execution (when invoked as `/stack`)
 
-### Rebase conflict during restack/modify
-```bash
-# Git will pause with conflict markers in files
-# 1. Edit the conflicting files to resolve
-# 2. Stage resolved files:
-git add <resolved-files>
-# 3. Continue the restack:
-st continue
-# OR abort and try a different approach:
-st abort
-```
-
-### Something went wrong — undo it
-```bash
-st undo --list                 # see what snapshots exist
-st undo                        # go back one operation
-st undo --steps 3              # go back 3 operations
-```
-Snapshots are saved automatically before: sync, restack, modify, absorb, split, fold, insert, move, remove.
-
-### PR in weird state after merge
-```bash
-st sync                        # let sync clean up merged branches
-st submit                      # re-push and update remaining PRs
-```
-
-### Branch got out of sync
-```bash
-st restack                     # mid-stack edit drift: cascade rebase from the bottom
-st submit                      # push updated branches
-```
-Use `st restack` for mid-stack edit drift (you amended a lower branch). Use `st sync` when the trunk moved on the remote — see below.
-
-### Trunk moved on `main`
-```bash
-st sync                        # fetches, fast-forwards trunk, rebases stack onto it
-st submit                      # push the rebased branches
-```
-`st sync` now rebases your stack when the trunk advanced on the remote, even when no PR in the stack merged — no manual `git pull` + `st restack` needed.
-
-### Dependent stack's base was merged
-```bash
-st sync                        # auto-converts to standalone stack
-```
-
-### Daemon issues
-```bash
-st daemon stop                 # stop it
-st daemon start                # restart fresh
-st daemon status               # check health
-st daemon logs -f              # follow log file
-st daemon attach               # stream live events
-```
-
-## Important Rules
-
-1. **Always `st submit` after mutations** — restack, modify, absorb, and merge-cascade all change branch SHAs. Push them.
-2. **Use `st check` before submitting** — catches type errors, test failures, lint issues across the whole stack.
-3. **Don't manually `git rebase` stack branches** — use `st restack` or `st modify`. The tool tracks parent tips for smart rebasing.
-4. **Don't manually retarget PRs** — `st submit` manages PR base branches. Manual changes will be overwritten.
-5. **Use `st sync` after merges** — don't manually delete branches or close PRs. Sync handles cleanup.
-6. **`st modify` > manual amend + restack** — `modify` does both in one step and handles edge cases.
-
-## Execution
-
-Run the CLI command directly. Pass through all arguments from `$ARGUMENTS`:
+Run the CLI directly, passing through arguments:
 
 ```bash
 st $ARGUMENTS
 ```
 
-If `$ARGUMENTS` is empty, run `st status`.
+If `$ARGUMENTS` is empty, run `st status`. In this repo's dev checkout, `st` may be `bun run src/cli.ts`. If `st` isn't installed, tell the user:
 
-If `st` is not found, try `bun run src/cli.ts` (dev mode) or tell the user to install:
 ```bash
-bun install -g git+ssh://git@github.com/dugshub/stack.git
+bun install -g git+https://github.com/dugshub/stack.git
 ```

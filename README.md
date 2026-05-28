@@ -151,7 +151,15 @@ Build stacks on top of other stacks. When you restack the parent, dependent stac
 
 ```bash
 st create cache --base api/3-routes -d redis    # cache stack depends on api
+st create cache --base .                         # depend on the current branch
 st restack                                       # cascades into dependent stacks
+st base develop                                  # re-parent an existing stack onto another branch
+```
+
+**Diamond stacks** — a branch can join two parents via a merge commit. `st` records each parent's tip plus the merge SHA, so restack, conflict recovery, submit, and merge all work the same as a linear stack.
+
+```bash
+st create join --base api/2-routes --also-base schema/1-model -d combine
 ```
 
 ### Navigation
@@ -214,16 +222,19 @@ A background daemon receives GitHub webhooks to watch merge cascades and cache P
 st daemon status           # check if running
 st daemon start            # manual start
 st daemon stop             # stop the daemon
-st daemon attach           # stream logs
+st daemon attach           # stream logs (--stack <name> to filter)
 st daemon logs -f          # tail log file
+st daemon setup --quick    # zero-config public URL via a trycloudflare.com tunnel
+st daemon repo list        # repos the daemon watches
+st daemon repo doctor --clean   # find & delete orphan webhooks on GitHub
 ```
 
 ### Claude Code Integration
 
-Install stack-aware skills into your project so Claude Code can operate on your stacks:
+Install the stack-aware skill into your project so Claude Code can operate on your stacks:
 
 ```bash
-st init                    # installs skills into .claude/skills/
+st init                    # installs the `stack` skill into .claude/skills/
 ```
 
 Claude will see stack context and can run `st submit`, `st restack`, `st sync`, etc. as part of larger coding workflows. Use `st --ai` to get LLM-friendly documentation for any command.
@@ -241,8 +252,10 @@ Claude will see stack context and can run `st submit`, `st restack`, `st sync`, 
 | `stack sync` | `sync` | Clean up after merges |
 | `stack merge` | `merge` | Merge stack PRs via auto-merge |
 | `stack restack` | `restack` | Rebase downstream after mid-stack edits |
+| `stack base` | `base` | Re-parent the stack onto a different base branch |
 | `stack check` | `check` | Run a command on every branch |
 | `stack graph` | `graph` | Show stack dependency graph |
+| `stack comment` | `comment` | Preview the PR navigation comment markdown |
 
 ### Branch Commands (`st branch` or `st b`)
 

@@ -7,6 +7,12 @@ import { findActiveStack, loadAndRefreshState, loadState, saveState, stackParent
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
+function safeReturn(originalBranch: string, fallback: string | undefined): void {
+	const target = originalBranch || fallback;
+	if (!target) return;
+	git.tryRun('checkout', target); // non-fatal: never throw
+}
+
 export class ContinueCommand extends Command {
 	static override paths = [['continue']];
 
@@ -148,11 +154,7 @@ export class ContinueCommand extends Command {
 			if (cascadeResult.ok) {
 				ui.success(`Restacked remaining branches in "${stackName}"`);
 				await cascadeDependentStacks(state, stackName, true, new Set());
-				try {
-					git.checkout(originalBranch);
-				} catch {
-					// ignore
-				}
+				safeReturn(originalBranch, joinBranch.name);
 			}
 
 			return cascadeResult.ok ? 0 : 1;
@@ -227,7 +229,7 @@ export class ContinueCommand extends Command {
 			);
 			await cascadeDependentStacks(state, stackName, true, new Set());
 			// Return to the original branch (after dependent cascades which may move HEAD)
-			git.checkout(originalBranch);
+			safeReturn(originalBranch, currentBranch.name);
 		}
 
 		return cascadeResult.ok ? 0 : 1;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.10
+
+- Fixed `st continue` crashing with an "Internal Error" (`git checkout ""` — empty pathspec) after resolving a conflict. The rebase itself completed correctly, but the final step that returns you to your branch ran while HEAD was still detached mid-rebase, so it had no branch name to check out. `st continue` now falls back to the branch you just resolved and never lets a failed checkout poison the exit code. Affected every conflict-resume (`st sync` and `st restack`); most visible since 0.9.8 made `st sync` rebase on trunk movement.
+
 ## 0.9.9
 
 - Stack state is now shared across all git worktrees of a repo. State is keyed by the shared object store (`git rev-parse --git-common-dir`) instead of the working-tree path, so running `st` from a worktree sees the same stacks as the main checkout — work the same stack from several worktrees simultaneously. Previously each worktree silently got its own divorced state file named after the worktree directory.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.11
+
+- Docs & skills overhaul. The two shipped skills are consolidated into one lean, agent-facing `stack` skill that defers to the CLI's own engine (`st --ai`, `st status --json`) for anything that can drift, with `references/{workflows,recovery,json}.md` for depth. The redundant `stack-management` auto-loader is retired (its job — report stack position — is folded in). `st init` now copies the whole skill directory (so the reference files ship) and removes a stale `stack-management` copy on re-run.
+- `st --ai` is now accurate: `create` documents `--base`/`--also-base`/`--yes` (dependent + diamond stacks), `submit` documents `--ready`/`--describe`/`--update`, `merge` matches its real flags (`--all`/`--now`/`--dry-run`), and `comment`/`config`/`login`/`logout`/`daemon` are documented (previously missing).
+- `CLAUDE.md` and `README.md` updated for the daemon/server subsystem, AI PR descriptions, diamond stacks, `st base`, `st comment`, `st daemon repo`, `st daemon setup --quick`, the test suite, and worktree-shared state.
+
 ## 0.9.10
 
 - Fixed `st continue` crashing with an "Internal Error" (`git checkout ""` — empty pathspec) after resolving a conflict. The rebase itself completed correctly, but the final step that returns you to your branch ran while HEAD was still detached mid-rebase, so it had no branch name to check out. `st continue` now falls back to the branch you just resolved and never lets a failed checkout poison the exit code. Affected every conflict-resume (`st sync` and `st restack`); most visible since 0.9.8 made `st sync` rebase on trunk movement.

@@ -19,15 +19,21 @@ const commands: Record<string, CommandDoc> = {
 			'<name>           Stack name (kebab-case). Auto-detected from branch if omitted.',
 			'--description,-d First branch description',
 			'--from           Adopt existing branches (space-separated)',
+			'--base,-b        Base on another branch (dependent stack). Use "." for the current branch.',
+			'--also-base      Additional parent branch to join via a merge commit (diamond). Repeatable.',
+			'--yes,-y         Skip confirmation prompts (non-interactive).',
 		],
 		examples: [
 			'st create frozen-column',
 			'st create frozen-column --description sticky-header',
 			'st create frozen-column --from branch1 branch2',
 			'st create   # auto-detect from current branch name',
+			'st create cache -b user/other-stack/3-final -d initial   # dependent stack',
+			'st create cache -b .                                      # dependent on current branch',
+			'st create join -b feat/2-api --also-base feat-alt/1-schema -d merge   # diamond',
 		],
 		details:
-			'Creates a stack rooted at the current trunk (main/master). If --from is given, adopts existing branches in order. Otherwise creates the first branch from HEAD. Branch names follow the pattern: user/stack-name/N-description.',
+			'Creates a stack rooted at the current trunk (main/master). With --from, adopts existing branches in order; otherwise creates the first branch from HEAD. With --base, builds a dependent stack on another branch (records dependsOn); --also-base adds extra parents joined via a merge commit (diamond stack). Branch names follow user/stack-name/N-description.',
 	},
 	delete: {
 		description: 'Remove a stack from tracking',
@@ -61,10 +67,13 @@ const commands: Record<string, CommandDoc> = {
 		flags: [
 			'--stack,-s   Target stack by name',
 			'--dry-run    Show what would happen without pushing or creating PRs',
+			'--ready      Mark all PRs as ready for review (not draft)',
+			'--describe   Generate PR descriptions with AI (needs `st login`; or `st config --describe`)',
+			'--update     Regenerate AI descriptions for existing PRs',
 		],
-		examples: ['st submit', 'st submit --dry-run'],
+		examples: ['st submit', 'st submit --dry-run', 'st submit --ready', 'st submit --describe'],
 		details:
-			'For each branch in the stack: force-pushes with --force-with-lease, creates a PR (if none exists) targeting the parent branch, updates existing PR base branches, and posts a stack navigation comment on each PR. PR titles are derived from branch names: user/stack-name/1-add-schema -> "Add Schema".',
+			'For each branch in the stack: force-pushes with --force-with-lease, creates a PR (if none exists) targeting the parent branch, updates existing PR base branches, and posts a stack navigation comment on each PR. PRs are created as drafts; --ready marks them ready (staggered to preserve notification order). PR titles are derived from branch names: user/stack-name/1-add-schema -> "Add Schema".',
 	},
 	sync: {
 		description: 'Clean up after PRs are merged on GitHub',
@@ -72,26 +81,36 @@ const commands: Record<string, CommandDoc> = {
 		flags: ['--stack,-s   Target stack by name'],
 		examples: ['st sync'],
 		details:
-			'Fetches from origin, detects which stack branches have been merged into trunk, removes them from the stack, and rebases remaining branches. Handles GitHub\'s squash-merge by matching commit subjects. Run this after merging PRs.',
+			'Fetches from origin, fast-forwards trunk, detects which stack branches merged (matching commit subjects to handle squash-merge), removes them, and rebases the remaining branches. Also rebases the stack whenever trunk advanced on the remote even if no PR merged. Converts a dependent stack to standalone when its base merges.',
 	},
 	merge: {
-		description: 'Merge the entire stack bottom-up via GitHub API',
+		description: 'Merge stack PRs via auto-merge',
 		group: 'stack',
 		flags: [
-			'--all        Merge all PRs bottom-up (required)',
-			'--dry-run    Show merge plan without executing',
-			'--status     Show active merge job status',
-			'--setup      Configure webhook for auto-merge orchestration',
+			'--all        Enable auto-merge on all PRs bottom-up',
+			'--now        Merge the current branch immediately (must target trunk)',
+			'--dry-run    Show the merge plan without executing',
 			'--stack,-s   Target stack by name',
 		],
 		examples: [
+			'st merge',
 			'st merge --all',
+			'st merge --now',
 			'st merge --dry-run',
-			'st merge --status',
-			'st merge --setup',
 		],
 		details:
-			'Merges PRs sequentially from bottom to top using squash-merge. Each PR must pass CI checks before merging. After each merge, the next PR\'s base is updated. Uses a webhook-driven server for orchestration — run --setup first to configure.',
+			'Bare `st merge` enables GitHub auto-merge on the current branch\'s PR. --all enables auto-merge bottom-up across the stack; the background daemon watches each merge, then rebases, retargets, and enables auto-merge on the next PR (and rebases dependent stacks). --now merges the current branch immediately via squash-merge (it must target trunk).',
+	},
+	comment: {
+		description: 'Preview the stack navigation comment markdown',
+		group: 'stack',
+		flags: [
+			'--stack,-s   Target stack by name',
+			'--all        Preview comments for all branches in the stack',
+		],
+		examples: ['st comment', 'st comment --all'],
+		details:
+			'Prints the markdown that `st submit` posts as a navigation comment on each PR, without contacting GitHub. Shows upstream and downstream stacks in the chain. Useful for previewing how the stack will render.',
 	},
 	restack: {
 		description: 'Rebase downstream branches after amending a stack branch',
@@ -390,6 +409,45 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'Every mutating command saves a snapshot. Undo restores git branch refs and stack state to a previous snapshot. Does not undo pushed changes on the remote.',
 	},
+	config: {
+		description: 'View or update stack configuration',
+		flags: [
+			'--describe      Enable AI-generated PR descriptions (uses Claude Code OAuth)',
+			'--no-describe   Disable AI-generated PR descriptions',
+		],
+		examples: ['st config', 'st config --describe', 'st config --no-describe'],
+		details:
+			'Bare `st config` shows current settings (AI descriptions on/off, auth status). --describe enables AI PR descriptions (requires `st login`); --no-describe disables them.',
+	},
+	login: {
+		description: 'Authenticate with Claude Code OAuth for AI features',
+		examples: ['st login'],
+		details:
+			'Stores Anthropic OAuth credentials (in the OS keychain) so AI PR descriptions (`st submit --describe`) can run. Run once before enabling descriptions.',
+	},
+	logout: {
+		description: 'Clear stored AI credentials',
+		examples: ['st logout'],
+		details: 'Removes the OAuth credentials saved by `st login`.',
+	},
+	daemon: {
+		description: 'Manage the background daemon (merge cascades, PR-status cache, webhooks)',
+		flags: [
+			'<action>     start | stop | status | logs | attach | run | setup | repo',
+			'-f,--follow  Follow log output (with `logs`)',
+			'--stack,-s   Filter the stream by stack (with `attach`)',
+			'--quick      Use a free trycloudflare.com quick tunnel (with `setup`)',
+		],
+		examples: [
+			'st daemon status',
+			'st daemon logs -f',
+			'st daemon attach --stack my-stack',
+			'st daemon setup --quick',
+			'st daemon repo doctor --clean',
+		],
+		details:
+			'The daemon auto-starts and orchestrates merge cascades, caches PR status, and receives GitHub webhooks. `setup` configures the webhook tunnel (--quick for a zero-config public URL); `repo {add|remove|list|doctor}` manages which repos it watches and cleans up orphan webhooks. Run `st daemon -h` for the full subcommand list.',
+	},
 	completions: {
 		description: 'Print shell completion script for tab completions',
 		flags: [
@@ -408,7 +466,7 @@ const commands: Record<string, CommandDoc> = {
 		description: 'Install Claude Code skills for stack management',
 		examples: ['st init'],
 		details:
-			'Copies the stack management skill files into the current project\'s .claude/skills/ directory so Claude Code can use `st` commands natively.',
+			'Copies the `stack` skill (SKILL.md + references/) into the project\'s .claude/skills/ so Claude Code gets stack awareness here. Re-running updates an existing copy.',
 	},
 	update: {
 		description: 'Self-update to the latest version from GitHub',
@@ -419,7 +477,7 @@ const commands: Record<string, CommandDoc> = {
 
 const overview = `st -- Stacked PRs for GitHub
 
-A CLI tool for managing stacked PRs. Branches form an ordered stack where each PR targets the branch below it (or trunk). All state is stored in ~/.claude/stacks/<repo>.json.
+A CLI tool for managing stacked PRs. Branches form an ordered stack where each PR targets the branch below it (or trunk). State is stored under ~/.claude/stacks/, shared across every git worktree of a repo.
 
 CORE CONCEPTS:
 - Stack: An ordered list of branches, rooted at trunk (main/master)

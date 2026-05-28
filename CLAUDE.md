@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A CLI tool (`st`) for managing stacked PRs — a Graphite replacement powered by `git`, `gh`, and good defaults. State is stored in `~/.claude/stacks/<repo>.json`.
+A CLI tool (`st`) for managing stacked PRs — a Graphite replacement powered by `git`, `gh`, and good defaults. A background daemon orchestrates merge cascades and caches PR status via GitHub webhooks; optional AI PR descriptions run through Anthropic OAuth. State is stored under `~/.claude/stacks/`, keyed by the repo's shared git object store so all worktrees share it.
 
 ## Development
 
@@ -16,7 +16,11 @@ bun run src/cli.ts <command>   # run locally
 st submit --dry-run            # verify plan before submitting
 ```
 
-No test suite exists yet. Verify changes with `st submit --dry-run`.
+```bash
+bun test                       # run the test suite
+```
+
+Tests are colocated (`*.test.ts`, e.g. `src/commands/absorb.test.ts`, `src/server/webhook-manager.test.ts`). Coverage is partial — also verify command changes with `st submit --dry-run` and `st <command> --ai`.
 
 ## Architecture
 
@@ -26,12 +30,19 @@ No test suite exists yet. Verify changes with `st submit --dry-run`.
 
 **Lib modules** (`src/lib/`):
 - `git.ts` — Git operations via `Bun.spawnSync`. Provides `run()` (throws on failure) and `tryRun()` (returns result object).
-- `gh.ts` — GitHub CLI wrapper via `Bun.spawnSync`. Wraps `gh pr create/edit/comment/view/list`.
-- `state.ts` — Load/save stack state from `~/.claude/stacks/<repo>.json`. Atomic writes via tmp file + rename.
-- `types.ts` — Core types: `StackFile`, `Stack`, `Branch`, `PrStatus`, `StackPosition`.
+- `gh.ts` / `graphql.ts` — GitHub CLI wrapper and batched GraphQL queries/mutations for PR data.
+- `state.ts` — Load/save stack state under `~/.claude/stacks/`, keyed by `git rev-parse --git-common-dir` (shared across worktrees). Atomic writes via tmp file + rename; `migrateWorktreeState()` folds in pre-0.9.9 orphan files.
+- `types.ts` — Core types: `StackFile`, `Stack`, `Branch`, `PrStatus`, `StackPosition`, `RestackState`, `StackParent`.
 - `branch.ts` — Branch name parsing and PR title derivation.
 - `comment.ts` — Stack navigation comment generation for PRs.
-- `ui.ts` — Terminal output helpers.
+- `resolve.ts` / `base-resolver.ts` — Resolve the active stack and base-branch references.
+- `rebase.ts` / `undo.ts` — Restack/cascade engine and snapshot-based undo.
+- `pr-status.ts` / `dashboard.ts` / `interactive-graph.ts` — PR status rendering, the bare-`st` dashboard, and the `st -i` TUI.
+- `ai-docs.ts` — Source of `st --ai` docs (hand-maintained per-command map). Keep in sync with command flags.
+- `ai/` — Anthropic OAuth + AI PR-description generation.
+- `ui.ts` / `theme.ts` / `format.ts` / `hints.ts` / `help.ts` — Terminal output, theming, and the custom help renderer.
+
+**Server / daemon** (`src/server/`): a background HTTP server (`lifecycle.ts` auto-starts it; `index.ts` serves) that receives GitHub webhooks (`webhook.ts`, `webhook-manager.ts`), drives merge cascades and dependent-stack rebases, caches PR status (`cache.ts`), and can expose a public URL via Cloudflare tunnel (`tunnel.ts`, incl. `--quick` trycloudflare mode). User-facing entry points are `st daemon` (`daemon.ts`) and `st daemon repo` (`daemon-repo.ts`).
 
 ## Versioning & Changelog
 
@@ -42,19 +53,22 @@ No test suite exists yet. Verify changes with `st submit --dry-run`.
 
 ## Shipped Skills
 
-`.claude/skills/stack/SKILL.md` and `.claude/skills/stack-management/SKILL.md` are **shipped artifacts** — `st init` copies them into the consumer project's `.claude/skills/` (see `src/commands/init.ts`). Treat them like public API docs.
+The `.claude/skills/stack/` skill is a **shipped artifact** — `st init` copies the whole directory (`SKILL.md` + `references/`) into the consumer project's `.claude/skills/` (see `src/commands/init.ts`). Treat it like public API docs. It is the single stack skill; the old `stack-management` auto-loader was folded in (`st init` removes a stale copy on re-run).
 
-**Rule:** any change to a command's user-facing surface — new command, renamed/removed command or alias, new/renamed/removed flag, changed default, changed output shape (especially `st status --json`) — must update the relevant skill in the same PR.
+The skill is deliberately thin and uses **progressive disclosure**: `SKILL.md` defers exact flags to the CLI's own engine (`st --ai <command>`, `st status --json`) and links `references/{workflows,recovery,json}.md` for depth. This means the primary "command reference" lives in `src/lib/ai-docs.ts`, not the skill.
 
-- Command surface changes → update `.claude/skills/stack/SKILL.md` (command reference + workflows).
-- `st status --json` shape changes → update `.claude/skills/stack-management/SKILL.md` (JSON output fields section).
+**Rule:** any change to a command's user-facing surface — new command, renamed/removed command or alias, new/renamed/removed flag, changed default, changed output shape — must update the source of truth in the same PR:
+
+- Flags / commands / behavior → update `src/lib/ai-docs.ts` (powers `st --ai`). Add hand-written workflow guidance to `.claude/skills/stack/references/workflows.md` only for flows `--ai` summarizes poorly (e.g. dependent/diamond create).
+- `st status --json` shape → update `.claude/skills/stack/references/json.md` (field-by-field schema).
+- New top-level concepts/rules → update `.claude/skills/stack/SKILL.md`.
 
 The CLI nudges users at the end of every invocation when the skill isn't installed in their project, so out-of-date skills are highly visible.
 
 ## Key Design Decisions
 
-- All git/gh operations use `Bun.spawnSync` (synchronous) — no async anywhere.
-- State is a flat JSON file keyed by repo name, not per-branch metadata in git config.
+- Git/gh operations use `Bun.spawnSync` (synchronous); commands read top-to-bottom with no async ceremony. The daemon/webhook server (`src/server/`) and GraphQL batching are the deliberate async exceptions.
+- State is a flat JSON file keyed by the repo's shared git object store (so worktrees share it), not per-branch metadata in git config.
 - PR titles derived from branch names: `user/stack-name/1-add-schema` → "Add Schema". Falls back to last commit subject.
 - Submit pushes with `--force-with-lease` and posts stack navigation comments on each PR.
 - The squash-merge sync problem is an active research area (see `RESEARCH.md`).

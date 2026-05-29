@@ -1,14 +1,14 @@
 # Changelog
 
+## 0.9.12
+
+- `st sync` now rebases your stack onto the freshly-fetched remote trunk (`origin/<trunk>`) instead of a stale local trunk branch. Fixes two cases where the stack was left on the wrong base: (1) a local trunk diverged from the remote — sync used to rebase onto the stale local branch and silently report success; (2) running from a linked worktree where the trunk is checked out elsewhere — sync used to abort after deleting the merged branch, leaving a half-synced stack. The local trunk branch is still fast-forwarded as a non-fatal convenience.
+
 ## 0.9.11
 
-<<<<<<< HEAD
 - Docs & skills overhaul. The two shipped skills are consolidated into one lean, agent-facing `stack` skill that defers to the CLI's own engine (`st --ai`, `st status --json`) for anything that can drift, with `references/{workflows,recovery,json}.md` for depth. The redundant `stack-management` auto-loader is retired (its job — report stack position — is folded in). `st init` now copies the whole skill directory (so the reference files ship) and removes a stale `stack-management` copy on re-run.
 - `st --ai` is now accurate: `create` documents `--base`/`--also-base`/`--yes` (dependent + diamond stacks), `submit` documents `--ready`/`--describe`/`--update`, `merge` matches its real flags (`--all`/`--now`/`--dry-run`), and `comment`/`config`/`login`/`logout`/`daemon` are documented (previously missing).
 - `CLAUDE.md` and `README.md` updated for the daemon/server subsystem, AI PR descriptions, diamond stacks, `st base`, `st comment`, `st daemon repo`, `st daemon setup --quick`, the test suite, and worktree-shared state.
-=======
-- `st sync` now rebases your stack onto the freshly-fetched remote trunk (`origin/<trunk>`) instead of a stale local trunk branch. Fixes two cases where the stack was left on the wrong base: (1) a local trunk diverged from the remote — sync used to rebase onto the stale local branch and silently report success; (2) running from a linked worktree where the trunk is checked out elsewhere — sync used to abort after deleting the merged branch, leaving a half-synced stack. The local trunk branch is still fast-forwarded as a non-fatal convenience.
->>>>>>> 54b0735 (fix: st sync rebases stack onto remote trunk, not stale local branch (0.9.11))
 
 ## 0.9.10
 

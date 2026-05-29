@@ -232,23 +232,20 @@ export class SyncCommand extends Command {
     // 6. Rebase remaining onto updated trunk
     ui.info('Rebasing remaining branches onto trunk...');
 
-    // Update trunk reference
-    try {
-      git.run('checkout', stack.trunk);
-      const ffResult = git.tryRun(
-        'merge',
-        '--ff-only',
-        `origin/${stack.trunk}`,
-      );
-      if (!ffResult.ok) {
-        ui.warn(
-          `Could not fast-forward ${theme.branch(stack.trunk)} — trunk may be out of date. Rebases will use the local trunk state.`,
-        );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      ui.error(`Failed to checkout trunk "${stack.trunk}": ${msg}`);
-      return 2;
+    // Rebase onto the freshly-fetched remote trunk — the source of truth — not
+    // the local branch ref. The local branch can be stale, diverged from the
+    // remote, or checked out in another worktree; rebasing onto it would replant
+    // the stack on the wrong base (or silently skip the trunk movement entirely).
+    const trunkRef = git.hasRemoteRef(stack.trunk)
+      ? `origin/${stack.trunk}`
+      : stack.trunk;
+
+    // Best-effort: advance the local trunk branch to match the remote so a later
+    // `git checkout <trunk>` is up to date. Never fatal, never blocks the rebase,
+    // and works from a linked worktree (no checkout, never clobbers a diverged
+    // local trunk).
+    if (trunkRef !== stack.trunk) {
+      git.fastForwardLocalBranch(stack.trunk, trunkRef);
     }
 
     // Rebase remaining branches
@@ -267,7 +264,7 @@ export class SyncCommand extends Command {
         ui.info(`Rebasing ${theme.branch(firstBranch.name)} onto ${theme.branch(stack.trunk)}...`);
         const result = rebaseBranch({
           branch: firstBranch,
-          parentRef: stack.trunk,
+          parentRef: trunkRef,
           fallbackOldBase: mergedBranchTip ?? undefined,
           worktreeMap,
         });

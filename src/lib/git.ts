@@ -190,6 +190,37 @@ export function checkout(branch: string): void {
   run('checkout', branch);
 }
 
+/**
+ * Best-effort fast-forward a LOCAL branch ref to `target` (e.g. `origin/main`)
+ * WITHOUT checking it out. Purely a convenience so a later plain
+ * `git checkout <branch>` shows the user an up-to-date trunk — sync rebases onto
+ * the remote-tracking ref directly, so this never gates correctness.
+ *
+ * Fully non-fatal. No-op when:
+ * - `target` can't be resolved,
+ * - the branch is already at `target`,
+ * - `target` is not a strict descendant of the branch (diverged/behind — never
+ *   rewind or clobber local-only trunk commits),
+ * - the branch is checked out in some worktree (`git branch -f` refuses — safe).
+ *
+ * Creates the branch at `target` if it doesn't exist yet. Safe to call from a
+ * linked worktree.
+ */
+export function fastForwardLocalBranch(branch: string, target: string): void {
+  const tgt = tryRun('rev-parse', '--verify', `${target}^{commit}`);
+  if (!tgt.ok) return;
+  const local = tryRun('rev-parse', '--verify', `refs/heads/${branch}`);
+  if (!local.ok) {
+    // No local branch yet — point it at the remote tip.
+    tryRun('branch', branch, target);
+    return;
+  }
+  if (local.stdout === tgt.stdout) return; // already current
+  if (!isAncestor(local.stdout, tgt.stdout)) return; // not a fast-forward — leave it alone
+  // `-f` refuses if the branch is checked out in any worktree → safe no-op there.
+  tryRun('branch', '-f', branch, target);
+}
+
 export function createBranch(name: string): void {
   run('checkout', '-b', name);
 }

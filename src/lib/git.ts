@@ -92,6 +92,38 @@ export function isAncestor(ancestor: string, descendant: string): boolean {
   return result.ok;
 }
 
+/**
+ * `git cherry <upstream> <head>` classifies each commit in `<head>` that is not
+ * in `<upstream>`: `+ <sha>` when no patch-equivalent commit exists upstream,
+ * `- <sha>` when an equivalent one does. Merge commits have no patch-id and are
+ * skipped by cherry entirely.
+ *
+ * IMPORTANT: only meaningful when `<head>` is NOT an ancestor of `<upstream>`
+ * (i.e. the case-2 fast-forward check has already failed). On a pure
+ * fast-forward cherry's empty output is ambiguous, so callers MUST run the
+ * ancestry check first and treat empty output here as "diverged with no unique
+ * local patches" only in the genuinely-diverged case.
+ *
+ * A failed run / non-zero exit yields an empty array; callers fail safe by
+ * treating that as `diverged`.
+ */
+export function cherry(
+  upstream: string,
+  head: string,
+): { sha: string; equivalent: boolean }[] {
+  const result = tryRun('cherry', upstream, head);
+  if (!result.ok || result.stdout.length === 0) return [];
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const equivalent = line.startsWith('-');
+      const sha = line.replace(/^[+-]\s*/, '');
+      return { sha, equivalent };
+    });
+}
+
 export function rebaseOnto(
   newBase: string,
   oldBase: string,

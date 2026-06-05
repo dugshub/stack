@@ -75,13 +75,25 @@ const commands: Record<string, CommandDoc> = {
 		details:
 			'For each branch in the stack: force-pushes with --force-with-lease, creates a PR (if none exists) targeting the parent branch, updates existing PR base branches, and posts a stack navigation comment on each PR. PRs are created as drafts; --ready marks them ready (staggered to preserve notification order). PR titles are derived from branch names: user/stack-name/1-add-schema -> "Add Schema".',
 	},
+	get: {
+		description: 'Adopt the remote version of the stack (reset local branches to origin)',
+		group: 'stack',
+		flags: [
+			'--stack,-s   Target stack by name',
+			'--force      Adopt diverged branches too (discards local-only commits)',
+			'--dry-run    Classify branches and print the plan without mutating anything',
+		],
+		examples: ['st get', 'st get --dry-run', 'st get --force'],
+		details:
+			'Fetches, then per stack branch adopts origin/<branch> over the local ref when it is safe: when local is strictly behind the remote (fast-forward) or the remote is a clean rebase of the same patches (the daemon-restacked case — every local-only commit is patch-equivalent to a remote one). Branches with real un-pushed local commits are kept and reported as diverged; pass --force to discard them and take the remote. A branch checked out in a dirty worktree (or the dirty current branch) is skipped with a commit-or-stash hint, even under --force. Also walks the dependency chain upward and adopts each ancestor stack first (root-down, resolved stack last) so a dependent stack whose parent the daemon rewrote stays ancestor-correct across the seam; --force applies ONLY to the resolved stack (a diverged branch in an ancestor warns with `st get -s <ancestor> --force`), and an ancestor with a restack in progress is skipped with a warning. Updates recorded tips and parentTips so subsequent restacks compute correct ranges, snapshots first (st undo reverts), and fast-forwards trunk. Use when a different session/worktree (or the daemon) already restacked and force-pushed and your local checkout is stale.',
+	},
 	sync: {
 		description: 'Clean up after PRs are merged on GitHub',
 		group: 'stack',
 		flags: ['--stack,-s   Target stack by name'],
 		examples: ['st sync'],
 		details:
-			'Fetches from origin, fast-forwards trunk, detects which stack branches merged (matching commit subjects to handle squash-merge), removes them, and rebases the remaining branches. Also rebases the stack whenever trunk advanced on the remote even if no PR merged. Converts a dependent stack to standalone when its base merges.',
+			'Fetches from origin, then auto-adopts remote branch refs that are strictly ahead or a clean rewrite of the same patches (the same safety predicate as st get) — so a stack the daemon already restacked + force-pushed is taken as-is instead of being re-rebased onto trunk (no duplicate rebase, no conflicts). The adoption walks the dependency chain upward too, adopting each ancestor stack before the resolved one (root-down), so a dependent stack whose parent the daemon rewrote needs nothing extra. Branches with real un-pushed local commits are kept and reported (run st get --force on the resolved stack, or st get -s <ancestor> --force for an ancestor, to discard them). Then detects which stack branches merged (matching commit subjects to handle squash-merge), removes them, fast-forwards trunk, and rebases the remaining branches. Also rebases the stack whenever trunk advanced on the remote even if no PR merged. Converts a dependent stack to standalone when its base merges.',
 	},
 	merge: {
 		description: 'Merge stack PRs via auto-merge',

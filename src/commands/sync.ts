@@ -3,6 +3,7 @@ import { collectNeighborChain, generateComment, type NeighborContext } from '../
 import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { cascadeRebase, rebaseBranch } from '../lib/rebase.js';
+import { adoptStackChain } from '../lib/remote-adopt.js';
 import { resolveStack } from '../lib/resolve.js';
 import { findDependentStacks, loadAndRefreshState, primaryParent, saveState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
@@ -23,10 +24,13 @@ export class SyncCommand extends Command {
   });
 
   async execute(): Promise<number> {
-    return git.withCleanWorktreeAsync(() => this.executeInner());
+    // Capture the dirty current branch BEFORE the wrapper auto-stashes (its
+    // stash pop runs AFTER any adoption reset), so we never reset under it.
+    const protectBranch = git.isDirty() ? git.currentBranch() : undefined;
+    return git.withCleanWorktreeAsync(() => this.executeInner(protectBranch));
   }
 
-  private async executeInner(): Promise<number> {
+  private async executeInner(protectBranch: string | undefined): Promise<number> {
     const state = loadAndRefreshState();
 
     let resolved: Awaited<ReturnType<typeof resolveStack>>;
@@ -51,6 +55,47 @@ export class SyncCommand extends Command {
     // 1. Fetch
     ui.info('Fetching from origin...');
     git.fetch();
+
+    // Adopt remote branch refs when the remote is strictly ahead or a clean
+    // rewrite of the same patches (e.g. the daemon already restacked + pushed).
+    // Walks the dependency chain UPWARD first (each ancestor stack, root-down),
+    // then the resolved stack — a dependent stack whose parent the daemon
+    // rewrote needs its parent adopted too so the seam stays ancestor-correct.
+    // Harmless by construction: only branches with no un-pushed local work move.
+    // This runs BEFORE the trunk-merged block below, which can later mutate
+    // stack.trunk and re-save state — safe because both operate on the same
+    // in-memory `state` (the later saveState persists adoption changes too) and
+    // an adopted parentTip = merge-base(oldTrunk, branch) is still a valid
+    // exclusion base for the subsequent `rebase --onto newTrunk oldBase branch`
+    // (rebaseBranch's isAncestor guard falls back to merge-base if ever stale).
+    // It must also precede trunkMoved: once parentTip is updated to the remote
+    // tip, a fully-daemon-restacked stack yields trunkMoved === false and sync
+    // prints "Nothing to sync" instead of re-rebasing — that is the bug fix.
+    const adoptions = adoptStackChain(state, resolvedName, { protectBranch });
+    for (const a of adoptions) {
+      const attribution =
+        a.resolved === false ? ` ${theme.muted(`(stack ${a.stack})`)}` : '';
+      if (a.classification === 'diverged') {
+        // sync never forces; ancestors need an explicit -s, the resolved stack a bare --force.
+        const hint = a.resolved === false
+          ? theme.command(`st get -s ${a.stack} --force`)
+          : theme.command('st get --force');
+        ui.warn(
+          `${theme.branch(a.branch)} has local commits not on origin/${a.branch} — keeping local.${attribution} ` +
+            `If the remote is the truth, run ${hint}.`,
+        );
+      } else if (a.classification === 'worktree-dirty') {
+        if (a.branch === protectBranch) {
+          ui.warn(
+            `${theme.branch(a.branch)} has uncommitted changes — commit or stash them on ${theme.branch(a.branch)}, then re-run.${attribution}`,
+          );
+        } else {
+          ui.warn(
+            `${theme.branch(a.branch)} is checked out in a dirty worktree — skipped.${attribution}`,
+          );
+        }
+      }
+    }
 
     // Did the trunk advance on the remote since we last rebased onto it?
     // The stack's recorded base point is branch 0's parentTip (trunk tip at last rebase).

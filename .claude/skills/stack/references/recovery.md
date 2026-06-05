@@ -55,6 +55,42 @@ st submit
 
 No manual `git pull` + `st restack` needed — `sync` does both.
 
+## Stale local stack (daemon already restacked, or another worktree pushed)
+
+When the background daemon — or a different session/worktree — restacks and
+force-pushes the stack, your local checkout is behind: `origin/*` is the truth.
+Running `st sync` here used to rebase your *stale local commits* onto trunk,
+duplicating or conflicting with the rebase that already happened.
+
+```bash
+st get                  # fetch, then reset local stack branches to origin/* where safe
+```
+
+`st get` adopts `origin/<branch>` whenever local is strictly behind (fast-forward)
+or the remote is a clean rebase of the *same* patches (the daemon case). Branches
+with real un-pushed local commits are **kept** and reported as diverged:
+
+```bash
+st get --force          # discard the local-only commits and take the remote
+```
+
+`st sync` now runs this adoption automatically as its first step, so the common
+case "daemon restacked + I ran sync" just prints "Nothing to sync" with adopted
+refs — no duplicate rebase. `st undo` reverts a bad adoption.
+
+Both `st get` and `st sync` also walk the dependency chain **upward**: each
+ancestor stack is adopted before the resolved one (root-down), so a dependent
+stack whose parent the daemon rewrote needs nothing extra — adopting `b` pulls
+in `a` automatically.
+
+> A branch checked out with uncommitted changes (the current branch, or a second
+> worktree) is skipped even under `--force` — commit or stash it, then re-run.
+>
+> `--force` applies only to the *resolved* stack. A diverged branch in an
+> **ancestor** stack is reported with `st get -s <ancestor> --force` as the hint
+> — run that explicitly to discard ancestor-local commits. An ancestor with a
+> restack already in progress is skipped (warned) without aborting the run.
+
 ## After PRs merge on GitHub
 
 ```bash

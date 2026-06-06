@@ -59,7 +59,7 @@ const commands: Record<string, CommandDoc> = {
 		],
 		examples: ['st status', 'st status --json'],
 		details:
-			'Shows each branch in the stack with its position, PR number, PR status (draft/open/merged/closed), and review state. The current branch is highlighted.',
+			'Shows each branch in the stack with its position, PR number, PR status (draft/open/merged/closed), and review state. The current branch is highlighted. It also surfaces repo-watch drift: if `state.repo` differs from the origin remote slug (a GitHub rename/transfer left it stale) or the repo isn\'t watched by the daemon, it warns and points at `st daemon repo heal` (or, with `st config --auto-watch` enabled, silently fixes state.repo + registers the repo, one info line each). --json adds a `repoWatch: { stateSlug, remoteSlug, drifted, watched }` object (watched: null when unknown — no daemon token or daemon down); the watch probe is skipped entirely when no daemon token exists.',
 	},
 	submit: {
 		description: 'Push all branches and create/update PRs for the stack',
@@ -73,7 +73,7 @@ const commands: Record<string, CommandDoc> = {
 		],
 		examples: ['st submit', 'st submit --dry-run', 'st submit --ready', 'st submit --describe'],
 		details:
-			'For each branch in the stack: force-pushes with --force-with-lease, creates a PR (if none exists) targeting the parent branch, updates existing PR base branches, and posts a stack navigation comment on each PR. PRs are created as drafts; --ready marks them ready (staggered to preserve notification order). PR titles are derived from branch names: user/stack-name/1-add-schema -> "Add Schema".',
+			'For each branch in the stack: force-pushes with --force-with-lease, creates a PR (if none exists) targeting the parent branch, updates existing PR base branches, and posts a stack navigation comment on each PR. PRs are created as drafts; --ready marks them ready (staggered to preserve notification order). PR titles are derived from branch names: user/stack-name/1-add-schema -> "Add Schema". When `st config --auto-watch` is enabled and the daemon is running, submit also registers the repo with the daemon if it isn\'t already watched (one info line; off by default so submit latency is untouched).',
 	},
 	get: {
 		description: 'Adopt the remote version of the stack (reset local branches to origin)',
@@ -186,7 +186,7 @@ const commands: Record<string, CommandDoc> = {
 			'st graph --expand',
 		],
 		details:
-			'Shows the dependency relationships between stacks and their branches as a visual tree.',
+			'Shows the dependency relationships between stacks and their branches as a visual tree. The interactive graph (`st -i` / `st graph`) navigates with ↑↓/jk, checks out with enter, opens a PR with o, and quits with q. When repo-watch is unhealthy (slug drift or the repo isn\'t watched by the daemon) a banner appears at the top — press `w` to repair it in place (fixes state.repo and registers the repo with the daemon; same as status\'s auto-watch path, minus the origin-URL rewrite). Run `st daemon repo heal` for the full fix including the origin remote.',
 	},
 	up: {
 		description: 'Move up one branch (toward trunk)',

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.16
+
+- `st status` now surfaces repo-watch drift. If `state.repo` differs from the origin remote slug (a GitHub rename/transfer left it stale) or the repo isn't watched by the daemon, status warns and points at `st daemon repo heal` / `st daemon repo add`. The watch probe runs **concurrently** with the PR-status fetch (no added latency in the common case) and is skipped entirely when no `daemon.token` exists. `st status --json` gains a `repoWatch: { stateSlug, remoteSlug, drifted, watched }` object (`watched: null` when unknown).
+- The interactive graph (`st -i` / `st graph`) shows a banner when repo-watch is unhealthy and binds **`w`** to repair it in place — fixes `state.repo` and registers the repo with the daemon, then rewrites the banner to a success line without a teardown. The banner is prepended ahead of the static-fallback render paths, so piped/non-interactive output prints it too.
+- With `st config --auto-watch` enabled, the surfacing points self-heal instead of warning: `st status` and the graph `w` key fix `state.repo` + register inline, and `st submit` registers the repo with the daemon post-submit when it isn't already watched (off by default — submit latency is untouched). Auto-fix failures fall back to the warning path.
+
 ## 0.9.15
 
 - New `st daemon repo heal` — one command that repairs slug drift after a GitHub rename or org transfer. It resolves the canonical slug via `gh repo view` (which follows GitHub's redirect), then converges all three stores: rewrites a stale `state.repo`, moves the daemon's watch-list entry + webhook to the new slug, and reports the origin-remote fix. The remote URL is **printed** by default (`git remote set-url origin …`) and only rewritten with `--remote` (st never mutates your remote uninvited). Idempotent — a second run reports "already healthy". The decision core (`planHeal`) is a pure, fully-unit-tested function.

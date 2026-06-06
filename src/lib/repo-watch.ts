@@ -73,6 +73,67 @@ export async function repoWatchStatus(state: StackFile): Promise<RepoWatchStatus
 	return { stateSlug, remoteSlug, drifted, watched };
 }
 
+export interface RepairResult {
+	/** state.repo was rewritten from the stale slug to the remote slug. */
+	driftFixed: boolean;
+	/** The repo was registered with the daemon. */
+	registered: boolean;
+	/** A repair was attempted but failed (e.g. daemon register POST failed). */
+	failed: boolean;
+	/** The slug now written / registered (for messaging). */
+	slug: string | null;
+}
+
+/**
+ * The cheap inline repair used by the autoWatch path (status / graph `w` /
+ * submit). NOT the full `heal` — no Tier-2 network slug resolution, no
+ * `--remote` rewrite. The user's own origin URL is authoritative enough to copy
+ * `state.repo` from (`remoteSlug`), and the register uses the canonical slug
+ * (`remoteSlug ?? stateSlug`), consistent with planHeal's register case.
+ *
+ * Mutates `state` (and persists via saveState) when fixing drift. Returns what
+ * it did so the caller can print one info line per repair. Does nothing the
+ * watch-status didn't flag.
+ */
+export async function repairRepoWatch(
+	state: StackFile,
+	status: RepoWatchStatus,
+): Promise<RepairResult> {
+	const result: RepairResult = {
+		driftFixed: false,
+		registered: false,
+		failed: false,
+		slug: null,
+	};
+
+	// Drift: copy the authoritative remote slug into state.repo.
+	if (status.drifted && status.remoteSlug) {
+		state.repo = status.remoteSlug;
+		saveState(state);
+		result.driftFixed = true;
+		result.slug = status.remoteSlug;
+	}
+
+	// Unwatched: register the canonical slug with the daemon.
+	if (status.watched === false) {
+		const slug = status.remoteSlug ?? status.stateSlug;
+		if (slug) {
+			const res = await daemonFetch('/api/repos', {
+				method: 'POST',
+				body: JSON.stringify({ repo: slug }),
+			});
+			if (res) {
+				result.registered = true;
+				result.slug = slug;
+			} else {
+				result.failed = true;
+			}
+		}
+	}
+
+	return result;
+}
+
 // ── Heal ────────────────────────────────────────────────────────────────────
 
 export type DaemonHealAction =

@@ -34,6 +34,12 @@ Emitted when you're on a stack branch, or `--stack <name>` resolves one stack.
     }
   ],
   "restackState": null,   // non-null object while a restack is paused (see below)
+  "repoWatch": {          // repo-slug drift + daemon watch state (Shape A only)
+    "stateSlug": "owner/repo",   // state.repo, or null if unset
+    "remoteSlug": "owner/repo",  // owner/repo parsed from the origin remote URL, or null
+    "drifted": false,            // true when both slugs are present and differ (stale state.repo)
+    "watched": true              // is this repo watched by the daemon; null = unknown (no token / daemon down)
+  },
   "dependsOn": [          // present ONLY for dependent/diamond stacks
     { "stack": "base-stack", "branch": "user/base-stack/3-final" }
   ]
@@ -44,6 +50,7 @@ Notes:
 - `position` (top-level) is **0-based**; each branch's own `position` field is **1-based**. Report to humans as `position + 1 of total`.
 - `prStatus` is the live PR/CI state; `pr` is just the number. To summarize CI: count branches where `prStatus.checksStatus === "SUCCESS"`.
 - `restackState` non-null ⇒ a restack is paused (conflict). It carries `fromIndex`, `currentIndex`, and — for diamonds — `joinState.phase` (`"merging"` | `"replaying"`). Tell the user to resolve and run `st continue`.
+- `repoWatch.drifted` ⇒ a GitHub rename/transfer left `state.repo` stale (PR ops ride the redirect and break the day the old name is reclaimed). `repoWatch.watched === false` ⇒ the daemon isn't watching this repo (no merge cascades / status cache). Either ⇒ tell the user to run `st daemon repo heal` (or enable `st config --auto-watch`). `watched: null` means it couldn't be determined (no daemon token, or the daemon is down) — say nothing about watchedness.
 
 ## Shape B — all tracked stacks
 

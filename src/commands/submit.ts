@@ -1,5 +1,6 @@
 import { Command, Option } from "clipanion";
 import { descriptionToTitle, parseBranchName } from "../lib/branch.js";
+import { loadDaemonToken } from "../lib/daemon.js";
 import { collectNeighborChain, generateComment, type NeighborContext } from "../lib/comment.js";
 import * as gh from "../lib/gh.js";
 import * as git from "../lib/git.js";
@@ -590,6 +591,20 @@ export class SubmitCommand extends Command {
 
 		// Update merge-ready statuses
 		gh.updateMergeReadyStatuses(state.repo, stack.branches, stack.trunk);
+
+		// Auto-watch: submit is the moment a repo becomes daemon-relevant. When
+		// enabled (off by default — keeps submit latency untouched) and the
+		// daemon is up but this repo isn't watched, register the canonical slug.
+		if (state.config?.autoWatch && loadDaemonToken() !== null) {
+			const { repoWatchStatus, repairRepoWatch } = await import("../lib/repo-watch.js");
+			const watch = await repoWatchStatus(state);
+			if (watch.watched === false) {
+				const repair = await repairRepoWatch(state, watch);
+				if (repair.registered) {
+					ui.info(`Auto-watch: registered ${repair.slug} with the daemon`);
+				}
+			}
+		}
 
 		return 0;
 	}

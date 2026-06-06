@@ -374,6 +374,37 @@ export function originSlug(): string | null {
   return parseSlugFromRemoteUrl(r.stdout);
 }
 
+/**
+ * Pure: rewrite the trailing `owner/repo` of a remote URL to `newSlug`,
+ * preserving the host, scheme/prefix, and any `.git` suffix. Returns null if
+ * the URL's existing slug can't be located. No git/network access.
+ */
+export function swapSlugInRemoteUrl(
+  url: string,
+  newSlug: string,
+): string | null {
+  const trimmed = url.trim();
+  const current = parseSlugFromRemoteUrl(trimmed);
+  if (!current) return null;
+  // Replace only the LAST occurrence of the slug (the path tail), keeping the
+  // optional .git suffix. Anchor on `current(.git)?$` so we don't touch a host
+  // that happens to contain the same substring.
+  const escaped = current.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return trimmed.replace(new RegExp(`${escaped}(\\.git)?$`), `${newSlug}$1`);
+}
+
+/** Raw origin remote URL (untrimmed of slug), or null. Offline. */
+export function originUrl(): string | null {
+  const r = tryRun('remote', 'get-url', 'origin');
+  if (!r.ok || r.stdout.length === 0) return null;
+  return r.stdout.trim();
+}
+
+/** Rewrite the origin remote URL. Returns true on success. */
+export function setOriginUrl(url: string): boolean {
+  return tryRun('remote', 'set-url', 'origin', url).ok;
+}
+
 /** Parse `git diff --numstat` output for staged+unstaged changes. */
 export function diffNumstat(): Array<{ path: string; added: number; removed: number }> {
   const result = tryRun('diff', '--numstat', 'HEAD');

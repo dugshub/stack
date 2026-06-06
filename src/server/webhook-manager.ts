@@ -242,6 +242,56 @@ export async function unregisterRepo(
 }
 
 /**
+ * Move a watched repo from an old slug to a new one after a GitHub rename or
+ * org transfer. **Never deletes a webhook** — the hook physically lives on the
+ * same repository (GitHub's redirect maps the old slug to it), so the cached
+ * hook ID stays valid; we just re-key it and PATCH-repoint it via ensureWebhook.
+ *
+ * No-op when `from === to`, when `from` isn't in `config.repos`, or `from` is
+ * absent. Dedupes if `to` is already present.
+ */
+export async function renameRepo(
+	from: string,
+	to: string,
+	config: DaemonConfig,
+): Promise<void> {
+	if (from === to) return;
+	const fromIdx = config.repos.indexOf(from);
+	if (fromIdx === -1) return;
+
+	// Re-key the repos[] entry: drop `from`; add `to` unless already present.
+	if (config.repos.includes(to)) {
+		config.repos.splice(fromIdx, 1);
+	} else {
+		config.repos[fromIdx] = to;
+	}
+
+	// Move the cached hook ID across — same physical hook, no DELETE/POST.
+	const hookId = config.webhooks[from];
+	if (hookId !== undefined) {
+		// Don't clobber an existing entry for `to`; prefer the already-tracked one.
+		if (config.webhooks[to] === undefined) {
+			config.webhooks[to] = hookId;
+		}
+		delete config.webhooks[from];
+	}
+
+	saveConfig(config);
+	log('info', `Renamed watched repo: ${from} -> ${to}`);
+
+	// PATCH-repoint / adopt the hook under the new slug when a public URL exists.
+	const webhookUrl = config.publicUrl
+		? `${config.publicUrl}/webhooks/github`
+		: config.tunnel && config.tunnel.mode === 'named'
+			? `https://${config.tunnel.hostname}/webhooks/github`
+			: null;
+
+	if (webhookUrl) {
+		await ensureWebhook(to, webhookUrl, config.webhookSecret, config);
+	}
+}
+
+/**
  * Per-repo orphan: an "owned" hook (matches isOwnedHook) other than the one
  * the daemon is currently tracking in config.webhooks[repo].
  */

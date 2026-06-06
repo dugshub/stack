@@ -2,6 +2,9 @@ export interface StackConfig {
 	describe?: boolean;
 	describeHintDismissed?: boolean;
 	commentDepth?: number;
+	/** When true, surfacing points (status/graph/submit) self-heal stale
+	 *  state.repo + register unwatched repos inline instead of warning. */
+	autoWatch?: boolean;
 }
 
 export interface StackFile {

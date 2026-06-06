@@ -424,12 +424,14 @@ const commands: Record<string, CommandDoc> = {
 	config: {
 		description: 'View or update stack configuration',
 		flags: [
-			'--describe      Enable AI-generated PR descriptions (uses Claude Code OAuth)',
-			'--no-describe   Disable AI-generated PR descriptions',
+			'--describe         Enable AI-generated PR descriptions (uses Claude Code OAuth)',
+			'--no-describe      Disable AI-generated PR descriptions',
+			'--auto-watch       Auto-heal a stale state.repo + register the repo with the daemon',
+			'--no-auto-watch    Disable auto-watch (warn instead of self-heal; the default)',
 		],
-		examples: ['st config', 'st config --describe', 'st config --no-describe'],
+		examples: ['st config', 'st config --describe', 'st config --no-describe', 'st config --auto-watch'],
 		details:
-			'Bare `st config` shows current settings (AI descriptions on/off, auth status). --describe enables AI PR descriptions (requires `st login`); --no-describe disables them.',
+			'Bare `st config` shows current settings (AI descriptions on/off, auto-watch on/off, auth status). --describe enables AI PR descriptions (requires `st login`); --no-describe disables them. --auto-watch (default off) makes status/graph/submit silently fix a stale state.repo slug and register the repo with the daemon instead of warning; --no-auto-watch restores the warn-and-suggest behavior.',
 	},
 	login: {
 		description: 'Authenticate with Claude Code OAuth for AI features',

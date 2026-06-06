@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.15
+
+- New `st daemon repo heal` — one command that repairs slug drift after a GitHub rename or org transfer. It resolves the canonical slug via `gh repo view` (which follows GitHub's redirect), then converges all three stores: rewrites a stale `state.repo`, moves the daemon's watch-list entry + webhook to the new slug, and reports the origin-remote fix. The remote URL is **printed** by default (`git remote set-url origin …`) and only rewritten with `--remote` (st never mutates your remote uninvited). Idempotent — a second run reports "already healthy". The decision core (`planHeal`) is a pure, fully-unit-tested function.
+- The daemon's watch-list rename is **rename-not-delete**: the webhook physically lives on the same repository through GitHub's redirect, so the cached hook ID is preserved and re-pointed via PATCH — the live hook is never deleted (which the redirect would otherwise make catastrophic). New `POST /api/repos/rename` endpoint + `renameRepo()` on the webhook manager.
+
 ## 0.9.14
 
 - Groundwork for repo-watch drift detection. A GitHub rename or org transfer keeps "working" through GitHub's redirect while `state.repo` and the daemon watch list silently rot; this lands the detection primitives. The pure URL parser inside `git.originSlug()` is extracted into an exported, unit-tested `parseSlugFromRemoteUrl()` (no duplicate parser), and a new `src/lib/repo-watch.ts` exposes `repoWatchStatus(state)` — a Tier-1 drift check (origin remote slug vs `state.repo`, free, no network) plus an on-demand daemon watch probe. The probe is skipped entirely when no `daemon.token` exists (non-daemon users pay zero cost) and uses a short 300ms timeout so a stopped daemon barely slows things down.

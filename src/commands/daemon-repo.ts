@@ -1,5 +1,6 @@
 import { Command, Option } from 'clipanion';
 import { daemonFetch } from '../lib/daemon.js';
+import { loadState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
 import * as ui from '../lib/ui.js';
 
@@ -13,24 +14,31 @@ type DoctorResponse = {
 };
 
 /**
- * `st daemon repo {add|remove|list|doctor}`
+ * `st daemon repo {add|remove|list|doctor|heal}`
  *
  * Manage which repos the daemon watches and reconcile orphan webhooks on
  * GitHub. `doctor` lists hooks the daemon recognizes as its own but isn't
  * tracking; `doctor --clean` deletes them. See webhook-manager's
  * `isOwnedHook` for the ownership heuristic.
+ *
+ * `heal` repairs slug drift after a GitHub rename / org transfer: it converges
+ * `state.repo`, the daemon watch list (+ webhook, by rename — never delete), and
+ * optionally the origin remote URL (printed by default; rewritten with
+ * `--remote`). Idempotent — reports "already healthy" on a second run.
  */
 export class DaemonRepoCommand extends Command {
 	static override paths = [['daemon', 'repo']];
 
 	static override usage = Command.Usage({
-		description: 'Manage daemon-watched repos and orphan webhooks',
+		description: 'Manage daemon-watched repos, orphan webhooks, and slug drift',
 		examples: [
 			['List repos the daemon is watching', 'st daemon repo list'],
 			['Register a repo with the daemon', 'st daemon repo add owner/name'],
 			['Unregister a repo', 'st daemon repo remove owner/name'],
 			['Show orphan webhooks on GitHub', 'st daemon repo doctor'],
 			['Delete orphan webhooks', 'st daemon repo doctor --clean'],
+			['Repair slug drift after a rename/transfer', 'st daemon repo heal'],
+			['Heal and also rewrite the origin remote URL', 'st daemon repo heal --remote'],
 		],
 	});
 
@@ -38,6 +46,9 @@ export class DaemonRepoCommand extends Command {
 	target = Option.String({ required: false });
 	clean = Option.Boolean('--clean', false, {
 		description: 'Delete orphan webhooks (with `doctor`)',
+	});
+	remote = Option.Boolean('--remote', false, {
+		description: 'Rewrite the origin remote URL too (with `heal`)',
 	});
 
 	async execute(): Promise<number> {
@@ -52,13 +63,28 @@ export class DaemonRepoCommand extends Command {
 				return this.runList();
 			case 'doctor':
 				return this.runDoctor();
+			case 'heal':
+				return this.runHeal();
 			case undefined:
 				return this.runList();
 			default:
 				ui.error(`Unknown action: ${this.action}`);
-				ui.info('Try: add | remove | list | doctor');
+				ui.info('Try: add | remove | list | doctor | heal');
 				return 1;
 		}
+	}
+
+	private async runHeal(): Promise<number> {
+		const { executeHeal } = await import('../lib/repo-watch.js');
+		const state = loadState();
+		const result = await executeHeal(state, { rewriteRemote: this.remote });
+		if (result === null) {
+			return 1; // canonical slug couldn't be resolved (error already printed)
+		}
+		if (result.alreadyHealthy) {
+			ui.success('Already healthy — nothing to repair.');
+		}
+		return 0;
 	}
 
 	private async runAdd(): Promise<number> {

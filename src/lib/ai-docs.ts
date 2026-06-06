@@ -458,9 +458,10 @@ const commands: Record<string, CommandDoc> = {
 			'st daemon attach --stack my-stack',
 			'st daemon setup --quick',
 			'st daemon repo doctor --clean',
+			'st daemon repo heal',
 		],
 		details:
-			'The daemon auto-starts and orchestrates merge cascades, caches PR status, and receives GitHub webhooks. `setup` configures the webhook tunnel (--quick for a zero-config public URL); `repo {add|remove|list|doctor}` manages which repos it watches and cleans up orphan webhooks. Run `st daemon -h` for the full subcommand list.',
+			'The daemon auto-starts and orchestrates merge cascades, caches PR status, and receives GitHub webhooks. `setup` configures the webhook tunnel (--quick for a zero-config public URL); `repo {add|remove|list|doctor|heal}` manages which repos it watches and cleans up orphan webhooks. `repo heal` repairs slug drift after a GitHub rename / org transfer — it converges state.repo, the daemon watch list (moving the entry + webhook by rename, never deleting the live hook), and prints the `git remote set-url origin …` fix (use `heal --remote` to rewrite the origin URL too). It is idempotent ("already healthy" on a second run). Run `st daemon -h` for the full subcommand list.',
 	},
 	completions: {
 		description: 'Print shell completion script for tab completions',

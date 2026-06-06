@@ -19,7 +19,7 @@ import {
 } from './stack-checks.js';
 import { ghAsync, gitAsync } from './spawn.js';
 import { parseWebhook, verifySignature } from './webhook.js';
-import { registerRepo, unregisterRepo, syncWebhooks, findAllOrphans, deleteHook, saveConfig } from './webhook-manager.js';
+import { registerRepo, unregisterRepo, renameRepo, syncWebhooks, findAllOrphans, deleteHook, saveConfig } from './webhook-manager.js';
 
 const daemonStartTime = Date.now();
 let daemonToken: string | null = null;
@@ -721,6 +721,23 @@ export function startServer(config?: DaemonConfig): ReturnType<typeof Bun.serve>
 				}
 				await registerRepo(body.repo, cfg);
 				return Response.json({ ok: true });
+			}
+
+			// Rename a watched repo (GitHub rename / org transfer). Moves the
+			// repos[] + webhooks[] entries; never deletes the live hook.
+			if (url.pathname === '/api/repos/rename' && req.method === 'POST') {
+				const body = (await req.json().catch(() => ({}))) as {
+					from?: string;
+					to?: string;
+				};
+				if (!body.from || !body.to) {
+					return Response.json({ error: 'missing from/to' }, { status: 400 });
+				}
+				await renameRepo(body.from, body.to, cfg);
+				return Response.json({
+					ok: true,
+					hookId: cfg.webhooks[body.to] ?? null,
+				});
 			}
 
 			// Unregister repo

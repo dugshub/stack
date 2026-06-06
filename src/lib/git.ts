@@ -346,6 +346,24 @@ export function repoRoot(): string {
 }
 
 /**
+ * Pure parser: extract an `owner/repo` slug from a remote URL string, matching
+ * the `nameWithOwner` format stored in `StackFile.repo`. Handles the three
+ * remote shapes (`git@host:owner/repo[.git]`, `scheme://host/owner/repo[.git]`,
+ * `ssh://git@host/owner/repo.git`), strips a `.git` suffix and trailing slash.
+ * Returns null if the URL can't be parsed. No git/network access — unit-testable.
+ */
+export function parseSlugFromRemoteUrl(url: string): string | null {
+  const cleaned = url
+    .trim()
+    .replace(/\.git$/, '')
+    .replace(/^git@[^:]+:/, '') // ssh: git@host:owner/repo
+    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\//, ''); // scheme://host/owner/repo
+  const parts = cleaned.split('/').filter((p) => p.length > 0);
+  if (parts.length < 2) return null;
+  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+}
+
+/**
  * Best-effort `owner/repo` slug parsed from the `origin` remote URL, matching
  * the `nameWithOwner` format stored in `StackFile.repo`. Offline (no `gh` call).
  * Returns null if there's no origin or the URL can't be parsed.
@@ -353,14 +371,7 @@ export function repoRoot(): string {
 export function originSlug(): string | null {
   const r = tryRun('remote', 'get-url', 'origin');
   if (!r.ok || r.stdout.length === 0) return null;
-  const url = r.stdout
-    .trim()
-    .replace(/\.git$/, '')
-    .replace(/^git@[^:]+:/, '') // ssh: git@host:owner/repo
-    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\//, ''); // https://host/owner/repo
-  const parts = url.split('/').filter((p) => p.length > 0);
-  if (parts.length < 2) return null;
-  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+  return parseSlugFromRemoteUrl(r.stdout);
 }
 
 /** Parse `git diff --numstat` output for staged+unstaged changes. */

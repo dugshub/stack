@@ -4,6 +4,11 @@ import type { GraphRoot } from '../commands/graph.js';
 import * as git from './git.js';
 import * as gh from './gh.js';
 import { fetchAllPrStatuses } from './pr-status.js';
+import {
+	type RepoWatchStatus,
+	repairRepoWatch,
+	repoWatchStatus,
+} from './repo-watch.js';
 import { findActiveStack, loadAndRefreshState, saveState } from './state.js';
 import { theme } from './theme.js';
 import type { GraphBranchNode, GraphStackNode } from './ui.js';
@@ -49,6 +54,17 @@ interface GraphAction {
 	pr?: number;
 }
 
+/**
+ * Wiring for the `w` (repo-watch fix) key. `bannerLine` is the single mutable
+ * GraphLine prepended into the lines array; `repair()` runs the same cheap
+ * repair as status's autoWatch path and returns the new banner text to display
+ * in place (or an error string). Absent when the repo is healthy.
+ */
+interface RepairContext {
+	bannerLine: GraphLine;
+	repair: () => Promise<string>;
+}
+
 // ── Flatten graph to lines ──────────────────────────────
 
 function line(text: string, opts?: Partial<GraphLine>): GraphLine {
@@ -61,6 +77,17 @@ function line(text: string, opts?: Partial<GraphLine>): GraphLine {
 		pr: opts?.pr,
 		isCurrent: opts?.isCurrent ?? false,
 	};
+}
+
+/**
+ * Build the repo-watch banner text for the unhealthy state. Drift takes
+ * precedence (it's the more dangerous condition). `w` repairs it.
+ */
+export function repoWatchBannerText(watch: RepoWatchStatus): string {
+	if (watch.drifted) {
+		return `${theme.warning('⚠')} repo slug drift: state ${watch.stateSlug ?? '?'} ≠ origin ${watch.remoteSlug ?? '?'} — press w to fix`;
+	}
+	return `${theme.warning('⚠')} repo not watched by daemon — press w to fix`;
 }
 
 export function flattenGraphToLines(
@@ -86,7 +113,7 @@ export function flattenGraphToLines(
 	// Footer with keybinding hints
 	lines.push(line(''));
 	lines.push(line(
-		`  ${theme.muted('\u2191\u2193/jk navigate \u00b7 enter checkout \u00b7 o open PR \u00b7 q quit')}`,
+		`  ${theme.muted('\u2191\u2193/jk navigate \u00b7 enter checkout \u00b7 o open PR \u00b7 w fix repo-watch \u00b7 q quit')}`,
 	));
 
 	return lines;
@@ -249,6 +276,7 @@ function statusFromEmojiStr(emoji: string): import('./types.js').PrStatus | null
 function interactiveGraphSelect(
 	lines: GraphLine[],
 	initialIndex: number,
+	repairContext?: RepairContext,
 ): Promise<GraphAction> {
 	return new Promise((resolve) => {
 		const rl = readline.createInterface({ input: process.stdin });
@@ -270,6 +298,7 @@ function interactiveGraphSelect(
 		if (cursorPos < 0) cursorPos = 0;
 
 		let firstRender = true;
+		let repairing = false;
 
 		// Use alternate screen buffer for clean rendering
 		process.stderr.write('\x1b[?1049h'); // Enter alternate screen
@@ -331,6 +360,23 @@ function interactiveGraphSelect(
 				} else {
 					resolve({ action: 'quit' });
 				}
+			} else if (key.name === 'w') {
+				// Repair repo-watch in place. No-op when healthy (no banner).
+				if (repairContext && !repairing) {
+					repairing = true;
+					repairContext
+						.repair()
+						.then((newText) => {
+							repairContext.bannerLine.text = newText;
+						})
+						.catch((err) => {
+							repairContext.bannerLine.text = `\x1b[31m✗ repo-watch fix failed: ${err}\x1b[0m`;
+						})
+						.finally(() => {
+							repairing = false;
+							render();
+						});
+				}
 			} else if (
 				key.name === 'q' ||
 				key.name === 'escape' ||
@@ -369,6 +415,32 @@ export async function showInteractiveGraph(): Promise<number> {
 
 	const lines = flattenGraphToLines(roots, currentBranchName);
 
+	// Repo-watch banner: a single mutable, non-selectable GraphLine prepended
+	// before the legend when the repo is unhealthy. Prepending it HERE — ahead
+	// of both static-fallback branches below — means piped/non-interactive
+	// renders print it for free. The cursor math downstream (selectableIndices,
+	// initialIndex) is recomputed from this same shifted array, and the banner
+	// is never selectable, so the cache stays valid after a `w` repair.
+	const watch = await repoWatchStatus(state);
+	let repairContext: RepairContext | undefined;
+	if (watch.drifted || watch.watched === false) {
+		const bannerLine = line(`  ${repoWatchBannerText(watch)}`);
+		lines.unshift(bannerLine);
+		repairContext = {
+			bannerLine,
+			repair: async () => {
+				const repair = await repairRepoWatch(state, watch);
+				if (repair.failed) {
+					return `  ${theme.warning('⚠')} repo-watch fix failed (daemon unreachable?)`;
+				}
+				const parts: string[] = [];
+				if (repair.driftFixed) parts.push(`state.repo → ${repair.slug}`);
+				if (repair.registered) parts.push(`registered ${repair.slug}`);
+				return `  ${theme.success('✓')} repo-watch fixed${parts.length ? `: ${parts.join(', ')}` : ''}`;
+			},
+		};
+	}
+
 	// Find initial cursor: the current branch, or first selectable
 	let initialIndex = lines.findIndex(l => l.isCurrent && l.selectable);
 	if (initialIndex < 0) {
@@ -390,7 +462,7 @@ export async function showInteractiveGraph(): Promise<number> {
 		return 0;
 	}
 
-	const result = await interactiveGraphSelect(lines, initialIndex);
+	const result = await interactiveGraphSelect(lines, initialIndex, repairContext);
 
 	if (result.action === 'checkout' && result.branchName) {
 		// Auto-stash for checkout (pattern from default.ts)

@@ -23,6 +23,7 @@ st status --json
   `Stack: <stackName> | branch <position+1> of <total> | <branch name>` and PR/CI state from each branch's `prStatus`.
 - **Not on a stack branch** → an array of all tracked stacks (or empty). Stay quiet unless the user asked about stacks.
 - **`restackState` is non-null** (or `restackInProgress: true`) → a restack is paused. Warn: resolve conflicts and run `st continue`.
+- **`repoWatch.drifted` or `repoWatch.watched === false`** → see §4a (repo-watch drift) before acting; PR ops may be riding a stale slug.
 
 Full field-by-field schema: references/json.md
 
@@ -56,6 +57,14 @@ If a flag or command isn't in `st <command> --ai`, check `references/workflows.m
 4. **After merges, run `st sync`** — it removes merged branches, rebases the rest, and converts a dependent stack to standalone when its base merges. Don't hand-delete branches or close PRs.
 5. **On a rebase conflict:** resolve files, `git add` them, then `st continue` (or `st abort` to back out). Use `st undo` to roll back a bad operation (snapshots are saved before every mutating command).
 6. **`st check <cmd>` before submitting** runs a command on every branch (e.g. `st check --bail bun test`) — catches breakage the diff of one branch hides.
+
+### 4a. Repo-watch drift (after a GitHub rename / org transfer)
+
+A repo rename or transfer keeps "working" through GitHub's redirect while three stores silently rot: `state.repo` (PR ops ride the redirect and break the day the old name is reclaimed), the daemon's watch list + webhook (merge cascades and the PR-status cache quietly stop), and nothing surfaces it. `st` now detects and repairs this:
+
+- **`st status` / `st graph`** warn when `state.repo` differs from the origin remote slug, or when the repo isn't watched by the daemon. In the interactive graph (`st -i` / `st graph`), a banner appears and **`w`** repairs it in place.
+- **`st daemon repo heal`** is the one-command fix: it converges `state.repo`, the daemon watch list + webhook (moved by **rename — the live hook is never deleted**), and prints the `git remote set-url origin …` command (add `--remote` to rewrite the origin URL too). Idempotent — "already healthy" on a re-run.
+- **`st config --auto-watch`** (off by default) makes status/graph/submit self-heal the cheap repairs inline (fix `state.repo`, register with the daemon) instead of warning.
 
 ## 5. Going deeper (progressive disclosure)
 

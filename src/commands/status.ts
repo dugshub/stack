@@ -3,6 +3,11 @@ import { tryDaemonCache } from '../lib/daemon.js';
 import { formatRelativeTime } from '../lib/format.js';
 import * as gh from '../lib/gh.js';
 import { getHint } from '../lib/hints.js';
+import {
+  type RepoWatchStatus,
+  repairRepoWatch,
+  repoWatchStatus,
+} from '../lib/repo-watch.js';
 import { resolveStack, type ResolvedStack } from '../lib/resolve.js';
 import { findActiveStack, loadAndRefreshState, loadState } from '../lib/state.js';
 import { theme } from '../lib/theme.js';
@@ -72,7 +77,9 @@ export class StatusCommand extends Command {
       );
     }
 
-    // Fetch PR statuses — try daemon cache first, fall back to GitHub API
+    // Fetch PR statuses — try daemon cache first, fall back to GitHub API.
+    // Run the repo-watch probe concurrently: it and tryDaemonCache are
+    // independent async calls, so we don't pay their latencies serially.
     const prNumbers = stack.branches
       .map((b) => b.pr)
       .filter((pr): pr is number => pr != null);
@@ -80,11 +87,21 @@ export class StatusCommand extends Command {
     const state = _state;
     const fullName = state.repo || gh.repoFullName();
     const [owner, repoName] = fullName.split('/');
-    let prStatuses = owner && repoName
-      ? await tryDaemonCache(owner, repoName)
-      : null;
+    const [cachedStatuses, watch] = await Promise.all([
+      (async () =>
+        owner && repoName ? await tryDaemonCache(owner, repoName) : null)(),
+      repoWatchStatus(state),
+    ]);
+    let prStatuses = cachedStatuses;
     if (!prStatuses) {
       prStatuses = gh.prViewBatch(prNumbers);
+    }
+
+    // Surface (or auto-fix) repo-watch drift / unwatched state. Visually first,
+    // right after the restack warning, before the stack tree. Skipped in --json
+    // mode (a machine read — the observed state is reported in the JSON field).
+    if (!this.json) {
+      await this.surfaceRepoWatch(state, watch);
     }
 
     if (this.json) {
@@ -100,6 +117,12 @@ export class StatusCommand extends Command {
           prStatus: b.pr != null ? (prStatuses.get(b.pr) ?? null) : null,
         })),
         restackState: stack.restackState,
+        repoWatch: {
+          stateSlug: watch.stateSlug,
+          remoteSlug: watch.remoteSlug,
+          drifted: watch.drifted,
+          watched: watch.watched,
+        },
       };
       if (stack.dependsOn) {
         output.dependsOn = stack.dependsOn;
@@ -134,6 +157,47 @@ export class StatusCommand extends Command {
     }
     process.stderr.write('\n');
     return 0;
+  }
+
+  /**
+   * Warn about (autoWatch off) or silently repair (autoWatch on) repo-watch
+   * drift and unwatched state. Auto-fix failures fall back to the warning path.
+   */
+  private async surfaceRepoWatch(
+    state: ReturnType<typeof loadState>,
+    watch: RepoWatchStatus,
+  ): Promise<void> {
+    if (!watch.drifted && watch.watched !== false) return;
+
+    if (state.config?.autoWatch) {
+      const repair = await repairRepoWatch(state, watch);
+      if (repair.driftFixed) {
+        ui.info(`  Auto-watch: updated state.repo → ${repair.slug}`);
+      }
+      if (repair.registered) {
+        ui.info(`  Auto-watch: registered ${repair.slug} with the daemon`);
+      }
+      if (!repair.failed) return;
+      // fall through to warn for whatever couldn't be repaired
+    }
+
+    if (watch.drifted) {
+      ui.warn(
+        `Repo slug drift: state has ${theme.branch(watch.stateSlug ?? '?')} but ` +
+          `origin is ${theme.branch(watch.remoteSlug ?? '?')}.`,
+      );
+      process.stderr.write(
+        `  ${theme.muted('→')} ${theme.muted('run `st daemon repo heal`')}\n`,
+      );
+    }
+    if (watch.watched === false) {
+      ui.warn('This repo is not watched by the daemon (no merge cascades / status cache).');
+      process.stderr.write(
+        `  ${theme.muted('→')} ${theme.muted(
+          `st daemon repo add ${watch.remoteSlug ?? watch.stateSlug ?? '<slug>'} (or st config --auto-watch)`,
+        )}\n`,
+      );
+    }
   }
 
   private showAllStacks(state: ReturnType<typeof loadState>): number {
